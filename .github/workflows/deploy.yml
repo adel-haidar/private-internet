@@ -38,7 +38,7 @@ jobs:
               \"echo ==> Pulling latest code...\",
               \"sudo -u ${{ secrets.EC2_USER }} bash -c 'cd ~/personal-intelligence && git pull origin main'\",
               \"echo ==> Installing dependencies...\",
-              \"sudo -u ${{ secrets.EC2_USER }} bash -c 'cd ~/personal-intelligence && source .venv/bin/activate && pip install -r requirements.txt --quiet'\",
+              \"sudo -u ${{ secrets.EC2_USER }} bash -c 'cd ~/personal-intelligence && source .venv/bin/activate && pip install -r agents/requirements.txt --quiet'\",
               \"echo ==> Restarting services...\",
               \"systemctl restart adel-intelligence-memory\",
               \"systemctl restart adel-intelligence-email\",
