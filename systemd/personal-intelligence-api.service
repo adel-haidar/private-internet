@@ -1,0 +1,16 @@
+[Unit]
+Description=Personal Intelligence API
+After=network.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/ec2-user/personal-intelligence
+EnvironmentFile=/home/ec2-user/personal-intelligence/.env
+ExecStart=/home/ec2-user/personal-intelligence/.venv/bin/uvicorn \
+    personal_intelligence.api:app \
+    --host 127.0.0.1 \
+    --port 8000
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

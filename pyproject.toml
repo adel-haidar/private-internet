@@ -1,0 +1,23 @@
+[project]
+name = "personal-intelligence"
+version = "0.1.0"
+description = "Personal Intelligence API — MCP memory server and OAuth API"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]>=0.110.0",
+    "fastmcp>=3.4.1",
+    "mcp[cli]>=1.27.1",
+    "psycopg2-binary>=2.9.9",
+    "boto3>=1.43.14",
+    "pypdf>=4.0.0",
+    "pydantic-settings>=2.0.0",
+    "uvicorn[standard]>=0.29.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[tool.setuptools.packages.find]
+where = ["src"]

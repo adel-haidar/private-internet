@@ -1,0 +1,16 @@
+[Unit]
+Description=Personal Intelligence Agents
+After=network.target
+
+[Service]
+User=ec2-user
+WorkingDirectory=/home/ec2-user/personal-intelligence/agents
+EnvironmentFile=/home/ec2-user/personal-intelligence/.env
+ExecStart=/home/ec2-user/personal-intelligence/agents/.venv/bin/uvicorn \
+    main:app \
+    --host 127.0.0.1 \
+    --port 8001
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
