@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -50,7 +51,27 @@ class Settings(BaseSettings):
 
     # Job hunting agent
     database_url: str | None = None
-    """PostgreSQL DSN for the job_matches table, e.g. postgresql://user:pass@localhost/adel_intelligence"""
+    """PostgreSQL DSN for the job_matches table, e.g. postgresql://user:pass@localhost/adel_intelligence.
+    If not set directly, assembled from DB_HOST / DB_USER / DB_PASSWORD / DB_NAME / DB_PORT."""
+
+    # Individual DB connection components — read from DB_HOST, DB_USER, etc.
+    # Used to assemble database_url when it is not provided as a full DSN.
+    db_host: str | None = None
+    db_user: str | None = None
+    db_password: str | None = None
+    db_name: str = "postgres"
+    db_port: int = 5432
+
+    @model_validator(mode="after")
+    def assemble_database_url(self) -> "Settings":
+        if self.database_url is None and all(
+            [self.db_host, self.db_user, self.db_password]
+        ):
+            self.database_url = (
+                f"postgresql://{self.db_user}:{self.db_password}"
+                f"@{self.db_host}:{self.db_port}/{self.db_name}"
+            )
+        return self
 
     rapidapi_key: str | None = None
     """RapidAPI key for the JSearch / LinkedIn Jobs Search API."""
