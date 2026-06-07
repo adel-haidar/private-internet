@@ -21,7 +21,7 @@ const logoutIcon = ICONS.logout
 <template>
   <header class="header">
     <div class="header-left">
-      <span class="header-brand">ADEL-INTELLIGENCE</span>
+      <span class="header-brand">PERSONAL-INTELLIGENCE</span>
       <span class="header-vrule"></span>
       <span class="header-section mono">SEC {{ code }} / <b>{{ current }}</b></span>
     </div>

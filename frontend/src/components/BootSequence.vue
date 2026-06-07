@@ -7,7 +7,7 @@ const lines = ref<string[]>([])
 const finished = ref(false)
 
 const script = [
-  'ADEL-INTELLIGENCE :: secure command interface',
+  'PERSONAL-INTELLIGENCE :: secure command interface',
   'INITIALIZING SESSION ............ <span class="ok">OK</span>',
   'AUTH OPERATOR // ADEL HAIDAR .... <span class="ok">GRANTED</span>',
   'MOUNTING MODULES [07] ........... <span class="ac">LOADED</span>',

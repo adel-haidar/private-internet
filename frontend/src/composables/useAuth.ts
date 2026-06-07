@@ -95,7 +95,7 @@ export async function registerClient(): Promise<string> {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({
-      client_name:                'adel-intelligence-dashboard',
+      client_name:                'personal-intelligence-dashboard',
       redirect_uris:              [REDIRECT_URI],
       token_endpoint_auth_method: 'none',
       grant_types:                ['authorization_code', 'refresh_token'],
