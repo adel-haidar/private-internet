@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import ast
+import re
+from urllib.parse import urlparse
 import httpx
 
 from mcp import ClientSession
@@ -140,17 +142,128 @@ class MemoryClient(BaseLLMService):
 
         return "\n".join(parts)
 
-    async def fetch_bank_statement_for_month(self, month: str) -> str:
-        """Fetch a specific month's bank statement from MCP memory.
+    @property
+    def _api_base_url(self) -> str:
+        """Derive the REST API base URL from the MCP server URL.
+
+        e.g. 'https://adel-intelligence.com/mcp/mcp' → 'https://adel-intelligence.com'
+        """
+        parsed = urlparse(self._server_url)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    async def _list_memories_api(self, query: str = "", page_size: int = 100) -> list[dict]:
+        """Fetch ALL memories via the REST API with full pagination.
+
+        Unlike the MCP `search` tool (which returns a fixed top-k by vector
+        similarity), this calls GET /api/memory with a text filter and pages
+        through every result, guaranteeing an exhaustive and deterministic
+        result set for a given query.
 
         Args:
-            month: The month to search for, e.g. '2026-01'.
+            query: Optional text filter (matched against title and tags server-side).
+            page_size: Items per page (max supported by the server).
+
+        Returns:
+            Complete list of matching memory dicts.
+        """
+        headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
+        all_items: list[dict] = []
+        page = 1
+        async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+            while True:
+                params: dict[str, str] = {"page": str(page), "page_size": str(page_size)}
+                if query:
+                    params["q"] = query
+                resp = await client.get(f"{self._api_base_url}/api/memory", params=params)
+                resp.raise_for_status()
+                data = resp.json()
+                all_items.extend(data.get("items", []))
+                if page >= data.get("pages", 1):
+                    break
+                page += 1
+        return all_items
+
+    def _mentions_month(self, text: str, month: str) -> bool:
+        """Return True if *text* references *month* in any common German date format.
+
+        Accepts '2026-01', '01.2026', '01/2026', and also the bare year+month in
+        any order so that varied PDF layouts are all covered.
+        """
+        if not text or not month:
+            return False
+        try:
+            year, mon = month.split("-")
+        except ValueError:
+            return month in text
+        return (
+            month in text               # 2026-01
+            or f"{mon}.{year}" in text  # 01.2026
+            or f"{mon}/{year}" in text  # 01/2026
+        )
+
+    def _deduplicate_by_title(self, items: list[dict]) -> list[dict]:
+        """Keep only the most recently created memory per exact title.
+
+        When a bank statement PDF is uploaded more than once the resulting
+        memory chunks have identical titles (e.g. 'statement.pdf (2/3)').
+        Sorting by created_at ascending and overwriting on the same key means
+        the newest upload wins for every chunk.
+        """
+        sorted_items = sorted(items, key=lambda m: m.get("created_at", ""))
+        seen: dict[str, dict] = {}
+        for item in sorted_items:
+            key = item.get("title") or item["id"]
+            seen[key] = item
+        return list(seen.values())
+
+    async def fetch_bank_statement_for_month(self, month: str) -> str:
+        """Exhaustively fetch all bank-statement memories for *month* via REST API.
+
+        Replaces the previous top-k semantic search (non-deterministic) with a
+        paginated REST query that returns ALL matching memories, filtered
+        client-side to those that actually mention the target month, and
+        deduplicated by title to handle duplicate uploads.
+
+        Falls back to the semantic search if the REST fetch fails or returns
+        nothing, so the endpoint stays operational even if the API is down.
+
+        Args:
+            month: ISO year-month string, e.g. '2026-01'.
         """
         try:
-            return await self._search(f"bank statement {month}")
+            # Primary: paginated REST API — deterministic and exhaustive
+            all_items = await self._list_memories_api(query=month, page_size=100)
+
+            relevant = [
+                item for item in all_items
+                if self._mentions_month(item.get("content", ""), month)
+                or self._mentions_month(item.get("title", ""), month)
+            ]
+
+            if not relevant:
+                logger.debug(
+                    "REST fetch returned no items mentioning %s — falling back to semantic search",
+                    month,
+                )
+                return await self._search(f"bank statement {month}")
+
+            deduplicated = self._deduplicate_by_title(relevant)
+            # Sort by title so multi-chunk PDFs appear in order (Part 1, 2, …)
+            deduplicated.sort(key=lambda m: m.get("title", ""))
+
+            logger.debug(
+                "Exhaustive fetch for %s: %d raw items → %d after filter+dedup",
+                month, len(all_items), len(deduplicated),
+            )
+            return "\n\n".join(item["content"] for item in deduplicated)
+
         except Exception:
-            logger.warning("Failed to fetch bank statement for month %r", month, exc_info=True)
-            return ""
+            logger.warning(
+                "Exhaustive REST fetch failed for month %r — falling back to semantic search",
+                month,
+                exc_info=True,
+            )
+            return await self._search(f"bank statement {month}")
 
     async def fetch_financial_context(self) -> str:
         """Async version: search for supplementary financial context."""

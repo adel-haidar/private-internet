@@ -23,7 +23,12 @@ class BaseLLMService:
         self._client = bedrock_client
         self._model_id = model_id
 
-    def _invoke(self, prompt: str, max_tokens: int = 4096) -> str:
+    def _invoke(
+        self,
+        prompt: str,
+        max_tokens: int = 4096,
+        temperature: float | None = None,
+    ) -> str:
         """Send a prompt to the LLM and return the raw text response.
 
         This wraps Bedrock's `converse` API, which works like a single-turn
@@ -31,11 +36,17 @@ class BaseLLMService:
 
         Args:
             prompt: The full instruction text to send to the model.
+            max_tokens: Maximum tokens to generate.
+            temperature: Sampling temperature. Pass 0.0 for fully deterministic
+                output. When None, the model's default is used.
 
         Returns:
             The model's response as a plain string.
         """
-        logger.debug("Invoking Bedrock model %s", self._model_id)
+        logger.debug("Invoking Bedrock model %s (temperature=%s)", self._model_id, temperature)
+        inference_config: dict = {"maxTokens": max_tokens}
+        if temperature is not None:
+            inference_config["temperature"] = temperature
         response = self._client.converse(
             modelId=self._model_id,
             messages=[
@@ -44,7 +55,7 @@ class BaseLLMService:
                     "content": [{"text": prompt}],
                 }
             ],
-            inferenceConfig={"maxTokens": max_tokens},
+            inferenceConfig=inference_config,
         )
         return response["output"]["message"]["content"][0]["text"]
 
