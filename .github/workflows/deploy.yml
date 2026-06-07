@@ -40,14 +40,12 @@ jobs:
               \"echo ==> Installing dependencies...\",
               \"sudo -u ${{ secrets.EC2_USER }} bash -c 'cd ~/personal-intelligence && source .venv/bin/activate && pip install -r agents/requirements.txt --quiet'\",
               \"echo ==> Restarting services...\",
-              \"systemctl restart adel-intelligence-memory\",
-              \"systemctl restart adel-intelligence-email\",
-              \"systemctl restart adel-intelligence-files\",
+              \"systemctl restart personal-intelligence-api\",
+              \"systemctl restart personal-intelligence-agents\",
               \"systemctl restart nginx\",
               \"echo ==> Verifying services...\",
-              \"systemctl is-active --quiet adel-intelligence-memory && echo memory: OK\",
-              \"systemctl is-active --quiet adel-intelligence-email  && echo email:  OK\",
-              \"systemctl is-active --quiet adel-intelligence-files  && echo files:  OK\"
+              \"systemctl is-active --quiet personal-intelligence-api    && echo api:    OK\",
+              \"systemctl is-active --quiet personal-intelligence-agents && echo agents: OK\"
             ]" \
             --timeout-seconds 120 \
             --query "Command.CommandId" \
