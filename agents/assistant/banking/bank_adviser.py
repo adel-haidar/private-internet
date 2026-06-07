@@ -127,6 +127,11 @@ def compute_financial_aggregates(statement_text: str) -> dict:
     monthly_nets: dict[str, float] = {}
 
     for month_str, content in sections.items():
+        match_count = len(_SIGNED_AMOUNT_RE.findall(content))
+        logger.info(
+            "Month %s: %d chars, %d signed-amount regex matches, preview: %r",
+            month_str, len(content), match_count, content[:300],
+        )
         credits, debits = _extract_signed_totals(content)
 
         if credits == 0.0 and debits == 0.0:
