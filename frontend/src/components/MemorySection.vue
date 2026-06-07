@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { requireAuth, refreshTokens } from '../composables/useAuth'
+import { updateMemory, deleteMemory } from '../composables/useMemories'
+import type { UpdateMemoryPayload } from '../composables/useMemories'
 
 const API_BASE = import.meta.env.DEV ? '' : 'https://adel-intelligence.com'
 
@@ -118,6 +120,7 @@ interface MemoryItem {
   title: string
   tags: string[]
   created_at: string
+  updated_at?: string
   content: string
 }
 
@@ -192,6 +195,103 @@ function nextPage() {
 function onFilterInput() {
   currentPage.value = 1
   fetchMemories()
+}
+
+// ── Delete ─────────────────────────────────────────────────────
+const confirmDeleteId = ref<string | null>(null)
+
+function startDelete(id: string, e: Event) {
+  e.stopPropagation()
+  confirmDeleteId.value = id
+}
+
+function cancelDelete(e: Event) {
+  e.stopPropagation()
+  confirmDeleteId.value = null
+}
+
+async function confirmDelete(id: string, e: Event) {
+  e.stopPropagation()
+  try {
+    await deleteMemory(id)
+    memories.value = memories.value.filter(m => m.id !== id)
+    total.value = Math.max(0, total.value - 1)
+    if (expandedIds.value.has(id)) expandedIds.value.delete(id)
+    confirmDeleteId.value = null
+  } catch (err) {
+    console.error('Delete failed:', err)
+    confirmDeleteId.value = null
+  }
+}
+
+// ── Edit modal ─────────────────────────────────────────────────
+const editingMemory = ref<MemoryItem | null>(null)
+const editTitle     = ref('')
+const editContent   = ref('')
+const editTags      = ref('')
+const editAppend    = ref(false)
+const editSaving    = ref(false)
+const editResult    = ref<{ ok: boolean; message: string } | null>(null)
+
+watch(editAppend, (appending) => {
+  if (appending) {
+    editContent.value = ''
+  } else {
+    editContent.value = editingMemory.value?.content ?? ''
+  }
+})
+
+function startEdit(m: MemoryItem, e: Event) {
+  e.stopPropagation()
+  editingMemory.value = m
+  editTitle.value     = m.title
+  editContent.value   = m.content
+  editTags.value      = m.tags.join(', ')
+  editAppend.value    = false
+  editResult.value    = null
+}
+
+function closeEdit() {
+  editingMemory.value = null
+  editResult.value    = null
+}
+
+async function submitEdit() {
+  if (!editingMemory.value) return
+  editSaving.value = true
+  editResult.value = null
+  try {
+    const tags = editTags.value.split(',').map(t => t.trim()).filter(Boolean)
+    const payload: UpdateMemoryPayload = {}
+    if (editTitle.value !== editingMemory.value.title) payload.title = editTitle.value
+    if (editAppend.value) {
+      if (editContent.value.trim()) {
+        payload.content = editContent.value
+        payload.append_content = true
+      }
+    } else if (editContent.value !== editingMemory.value.content) {
+      payload.content = editContent.value
+    }
+    if (JSON.stringify(tags) !== JSON.stringify(editingMemory.value.tags)) payload.tags = tags
+
+    const updated = await updateMemory(editingMemory.value.id, payload)
+    const idx = memories.value.findIndex(m => m.id === editingMemory.value!.id)
+    if (idx !== -1) {
+      memories.value[idx] = {
+        ...memories.value[idx],
+        title:   updated.title,
+        content: updated.content,
+        tags:    updated.tags,
+        updated_at: updated.updated_at ?? undefined,
+      }
+    }
+    editResult.value = { ok: true, message: 'UPDATED SUCCESSFULLY' }
+    setTimeout(closeEdit, 900)
+  } catch (err) {
+    editResult.value = { ok: false, message: (err as Error).message ?? 'Update failed' }
+  } finally {
+    editSaving.value = false
+  }
 }
 
 onMounted(fetchMemories)
@@ -323,17 +423,18 @@ onMounted(fetchMemories)
               <th class="th th--title">TITLE</th>
               <th class="th th--tags">TAGS</th>
               <th class="th th--date">SAVED AT</th>
+              <th class="th th--actions">ACTIONS</th>
             </tr>
           </thead>
           <tbody>
             <template v-if="loading">
               <tr>
-                <td colspan="3" class="td td--empty">LOADING…</td>
+                <td colspan="4" class="td td--empty">LOADING…</td>
               </tr>
             </template>
             <template v-else-if="memories.length === 0">
               <tr>
-                <td colspan="3" class="td td--empty">NO MEMORIES FOUND</td>
+                <td colspan="4" class="td td--empty">NO MEMORIES FOUND</td>
               </tr>
             </template>
             <template v-else>
@@ -350,9 +451,28 @@ onMounted(fetchMemories)
                   <td class="td td--date" :title="formatFull(m.created_at)">
                     {{ formatRelative(m.created_at) }}
                   </td>
+                  <td class="td td--actions" @click.stop>
+                    <template v-if="confirmDeleteId === m.id">
+                      <button class="action-confirm" @click="confirmDelete(m.id, $event)">YES</button>
+                      <button class="action-cancel" @click="cancelDelete($event)">NO</button>
+                    </template>
+                    <template v-else>
+                      <button class="action-btn" title="Edit memory" @click="startEdit(m, $event)">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                          <path d="M11.5 2.5l2 2-8 8H3.5v-2l8-8z"/>
+                          <path d="M10 4l2 2"/>
+                        </svg>
+                      </button>
+                      <button class="action-btn action-btn--delete" title="Delete memory" @click="startDelete(m.id, $event)">
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4">
+                          <path d="M3 3l10 10M13 3L3 13"/>
+                        </svg>
+                      </button>
+                    </template>
+                  </td>
                 </tr>
                 <tr v-if="expandedIds.has(m.id)" class="tr-detail">
-                  <td colspan="3" class="td td--content">{{ m.content }}</td>
+                  <td colspan="4" class="td td--content">{{ m.content }}</td>
                 </tr>
               </template>
             </template>
@@ -369,6 +489,56 @@ onMounted(fetchMemories)
 
     </div>
   </div>
+
+  <!-- ── Edit modal ──────────────────────────────────────────── -->
+  <Teleport to="body">
+    <div v-if="editingMemory" class="modal-backdrop" @click.self="closeEdit">
+      <div class="modal">
+        <div class="modal-header">
+          <span class="card-tag">EDIT</span>
+          <span class="modal-title">EDIT MEMORY</span>
+          <button class="modal-close" @click="closeEdit">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="field">
+            <label class="field-label">TITLE</label>
+            <input v-model="editTitle" class="field-input" :disabled="editSaving" />
+          </div>
+          <div class="field">
+            <label class="field-label">{{ editAppend ? 'CONTENT TO APPEND' : 'CONTENT' }}</label>
+            <textarea
+              v-model="editContent"
+              class="field-textarea field-textarea--tall"
+              :placeholder="editAppend ? 'Enter text to append below existing content…' : ''"
+              :disabled="editSaving"
+            />
+          </div>
+          <div class="field">
+            <label class="field-label">TAGS <span class="field-hint">(comma-separated)</span></label>
+            <input v-model="editTags" class="field-input" :disabled="editSaving" />
+          </div>
+          <label class="append-label">
+            <input type="checkbox" v-model="editAppend" :disabled="editSaving" class="append-check" />
+            <span class="append-text">APPEND TO EXISTING CONTENT</span>
+          </label>
+          <p v-if="editAppend" class="append-note">
+            New content will be appended below the existing text.
+          </p>
+          <div
+            v-if="editResult"
+            class="inline-result"
+            :class="editResult.ok ? 'inline-result--ok' : 'inline-result--err'"
+          >{{ editResult.message }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" :disabled="editSaving" @click="closeEdit">CANCEL</button>
+          <button class="btn btn--primary" :disabled="editSaving" @click="submitEdit">
+            {{ editSaving ? 'SAVING…' : 'SAVE CHANGES' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -468,6 +638,10 @@ onMounted(fetchMemories)
 
 .field-textarea {
   min-height: 120px;
+}
+
+.field-textarea--tall {
+  min-height: 180px;
 }
 
 .field-input:focus,
@@ -641,9 +815,10 @@ onMounted(fetchMemories)
   white-space: nowrap;
 }
 
-.th--title { width: 40%; }
-.th--tags  { width: 35%; }
-.th--date  { width: 25%; }
+.th--title   { width: 36%; }
+.th--tags    { width: 28%; }
+.th--date    { width: 18%; }
+.th--actions { width: 18%; text-align: center; }
 
 .tr {
   cursor: pointer;
@@ -683,6 +858,11 @@ onMounted(fetchMemories)
   font-size: 10px;
   letter-spacing: 0.1em;
   padding: 32px;
+}
+
+.td--actions {
+  text-align: center;
+  white-space: nowrap;
 }
 
 /* Tag chips */
@@ -744,5 +924,157 @@ onMounted(fetchMemories)
   font-size: 10px;
   letter-spacing: 0.1em;
   color: var(--text-muted);
+}
+
+/* ── Action buttons ── */
+.action-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.1s, color 0.1s;
+}
+
+.action-btn:hover {
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.action-btn--delete:hover {
+  color: var(--status-error);
+  border-color: var(--status-error);
+}
+
+.action-btn svg { width: 12px; height: 12px; }
+
+.action-confirm,
+.action-cancel {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  padding: 3px 7px;
+  cursor: pointer;
+  border: 1px solid;
+  background: none;
+}
+
+.action-confirm {
+  color: var(--status-error);
+  border-color: var(--status-error);
+  margin-right: 4px;
+}
+
+.action-confirm:hover { background: rgba(240, 68, 68, 0.1); }
+
+.action-cancel {
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.action-cancel:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-secondary);
+}
+
+/* ── Edit modal ── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  width: min(560px, 90vw);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.modal-title {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 0 0 8px;
+  line-height: 1;
+  transition: color 0.1s;
+}
+
+.modal-close:hover { color: var(--text-primary); }
+
+.modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.modal-footer {
+  padding: 0 20px 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.append-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.append-check {
+  accent-color: var(--accent-primary);
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.append-text {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+}
+
+.append-note {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+  line-height: 1.5;
 }
 </style>

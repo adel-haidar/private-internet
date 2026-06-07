@@ -8,7 +8,12 @@ from pydantic import BaseModel
 
 from personal_intelligence.auth.oauth import validate_token
 from personal_intelligence.config import get_settings
-from personal_intelligence.memory.service import list_memories, save_memory
+from personal_intelligence.memory.service import (
+    delete_memory,
+    list_memories,
+    save_memory,
+    update_memory,
+)
 
 router = APIRouter(prefix="/api")
 
@@ -30,6 +35,13 @@ class SaveTextRequest(BaseModel):
     tags: list[str] = []
 
 
+class UpdateMemoryRequest(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    tags: list[str] | None = None
+    append_content: bool = False
+
+
 @router.post("/memory/text")
 async def save_text_memory(
     body: SaveTextRequest,
@@ -49,6 +61,41 @@ async def list_memory(
     items, total = list_memories(page=page, page_size=page_size, query=q)
     pages = max(1, (total + page_size - 1) // page_size)
     return {"items": items, "total": total, "page": page, "pages": pages}
+
+
+@router.patch("/memory/{memory_id}")
+async def update_memory_endpoint(
+    memory_id: str,
+    body: UpdateMemoryRequest,
+    client_id: str = Depends(require_auth),
+):
+    memory = update_memory(
+        memory_id,
+        title=body.title,
+        content=body.content,
+        tags=body.tags,
+        append_content=body.append_content,
+    )
+    if memory is None:
+        raise HTTPException(status_code=404, detail="memory not found")
+    return {
+        "memory_id": memory.memory_id,
+        "title": memory.title,
+        "content": memory.content,
+        "tags": memory.tags,
+        "updated_at": memory.updated_at.isoformat() if memory.updated_at else None,
+    }
+
+
+@router.delete("/memory/{memory_id}")
+async def delete_memory_endpoint(
+    memory_id: str,
+    client_id: str = Depends(require_auth),
+):
+    deleted = delete_memory(memory_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="memory not found")
+    return {"deleted": True, "memory_id": memory_id}
 
 
 _PDF_CHUNK_SIZE = 4000

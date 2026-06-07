@@ -1,13 +1,18 @@
+# When saving information that relates to a topic already stored in memory,
+# first call `search` to find the existing memory, then call `update`
+# (with append_content=True to add new facts, or field replacement to correct
+# old facts) instead of calling `save` to create a duplicate.
 from mcp.server.fastmcp import FastMCP
 from mcp.server.auth.provider import TokenVerifier, AccessToken
 from mcp.server.auth.settings import AuthSettings
 
 from personal_intelligence.auth.oauth import validate_token as check_token
 from personal_intelligence.memory.service import (
+    delete_memory,
     fetch_memory,
-    init_db,
     save_memory,
     search_memories,
+    update_memory,
 )
 
 auth_settings = AuthSettings(
@@ -53,4 +58,33 @@ def search(query: str) -> str:
     return f"Found {len(results)} memories:\n" + "\n".join(lines)
 
 
-init_db()
+@mcp.tool()
+def update(
+    memory_id: str,
+    title: str | None = None,
+    content: str | None = None,
+    tags: list[str] | None = None,
+    append_content: bool = False,
+) -> str:
+    """Update an existing memory. Use append_content=True to append new facts below existing content, or False to replace only the provided fields."""
+    memory = update_memory(
+        memory_id,
+        title=title,
+        content=content,
+        tags=tags,
+        append_content=append_content,
+    )
+    if memory is None:
+        return f"No memory found with ID {memory_id}"
+    return f"Updated memory '{memory.title}' (id: {memory.memory_id})"
+
+
+@mcp.tool()
+def delete(memory_id: str, confirm: bool) -> str:
+    """Delete a memory permanently. confirm must be True to proceed."""
+    if not confirm:
+        return "Deletion aborted: confirm must be True to delete a memory."
+    deleted = delete_memory(memory_id)
+    if not deleted:
+        return f"No memory found with ID {memory_id}"
+    return f"Deleted memory {memory_id}"

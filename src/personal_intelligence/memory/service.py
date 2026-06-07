@@ -17,6 +17,7 @@ class Memory:
     tags: list[str] = field(default_factory=list)
     memory_id: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime | None = None
 
 
 def _get_bedrock_client():
@@ -48,6 +49,7 @@ def init_db() -> None:
             embedding vector(1024)
         )
     """)
+    cur.execute("ALTER TABLE memories ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ")
     conn.commit()
     cur.close()
     conn.close()
@@ -119,7 +121,7 @@ def list_memories(
     page_size: int = 20,
     query: str | None = None,
 ) -> tuple[list[dict], int]:
-    """Return paginated memory rows (id, title, tags, created_at, content) and total count."""
+    """Return paginated memory rows (id, title, tags, created_at, updated_at, content) and total count."""
     offset = (page - 1) * page_size
 
     conn = _connect()
@@ -133,7 +135,7 @@ def list_memories(
         )
         total = cur.fetchone()["count"]
         cur.execute(
-            """SELECT memory_id, title, tags, created_at, content
+            """SELECT memory_id, title, tags, created_at, updated_at, content
                FROM memories
                WHERE title ILIKE %s OR tags ILIKE %s
                ORDER BY created_at DESC
@@ -144,7 +146,7 @@ def list_memories(
         cur.execute("SELECT COUNT(*) FROM memories")
         total = cur.fetchone()["count"]
         cur.execute(
-            """SELECT memory_id, title, tags, created_at, content
+            """SELECT memory_id, title, tags, created_at, updated_at, content
                FROM memories
                ORDER BY created_at DESC
                LIMIT %s OFFSET %s""",
@@ -161,11 +163,77 @@ def list_memories(
             "title": row["title"],
             "tags": [t.strip() for t in row["tags"].split(",") if t.strip()],
             "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
             "content": row["content"],
         }
         for row in rows
     ]
     return items, total
+
+
+def update_memory(
+    memory_id: str,
+    title: str | None = None,
+    content: str | None = None,
+    tags: list[str] | None = None,
+    append_content: bool = False,
+) -> Memory | None:
+    existing = fetch_memory(memory_id)
+    if existing is None:
+        return None
+
+    new_title = title if title is not None else existing.title
+    if content is not None and append_content:
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        new_content = f"{existing.content}\n\n---\nUpdated {ts}:\n{content}"
+    elif content is not None:
+        new_content = content
+    else:
+        new_content = existing.content
+    new_tags = tags if tags is not None else existing.tags
+    updated_at = datetime.now(timezone.utc)
+
+    conn = _connect()
+    cur = conn.cursor()
+    if new_title != existing.title or new_content != existing.content:
+        embedding = _get_embedding(f"{new_title}\n{new_content}")
+        embedded_str = str(embedding).replace(" ", "")
+        cur.execute(
+            """UPDATE memories
+               SET title = %s, content = %s, tags = %s, updated_at = %s, embedding = %s
+               WHERE memory_id = %s""",
+            (new_title, new_content, ",".join(new_tags), updated_at, embedded_str, memory_id),
+        )
+    else:
+        cur.execute(
+            """UPDATE memories
+               SET title = %s, content = %s, tags = %s, updated_at = %s
+               WHERE memory_id = %s""",
+            (new_title, new_content, ",".join(new_tags), updated_at, memory_id),
+        )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return Memory(
+        memory_id=memory_id,
+        title=new_title,
+        content=new_content,
+        tags=new_tags,
+        created_at=existing.created_at,
+        updated_at=updated_at,
+    )
+
+
+def delete_memory(memory_id: str) -> bool:
+    conn = _connect()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM memories WHERE memory_id = %s", (memory_id,))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    conn.close()
+    return deleted
 
 
 def _row_to_memory(row: Mapping[str, Any]) -> Memory:
@@ -177,4 +245,5 @@ def _row_to_memory(row: Mapping[str, Any]) -> Memory:
         content=row["content"],
         tags=tags,
         created_at=row["created_at"],
+        updated_at=row.get("updated_at"),
     )
