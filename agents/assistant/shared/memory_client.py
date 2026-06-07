@@ -36,11 +36,11 @@ class MemoryClient(BaseLLMService):
         super().__init__(bedrock_client=bedrock_client, model_id=model_id)
         self._server_url = server_url
         self._token = token
-        if not (server_url.endswith("/mcp") or server_url.endswith("/mcp/")):
+        if "/mcp" not in server_url:
             logger.warning(
-                "MCP_MEMORY_URL %r does not end with '/mcp' or '/mcp/' — "
-                "memory searches will likely fail with 404. "
-                "Set MCP_MEMORY_URL to the streamable-HTTP endpoint, e.g. 'http://host:8000/mcp/'.",
+                "MCP_MEMORY_URL %r does not contain '/mcp' — "
+                "memory searches will likely fail. "
+                "Set MCP_MEMORY_URL to the streamable-HTTP endpoint, e.g. 'http://host:8000/mcp/mcp'.",
                 server_url,
             )
 
