@@ -14,11 +14,10 @@ export interface NavItem {
 export const NAV: NavItem[] = [
   { idx: '01', label: 'Overview',           name: 'overview',   icon: 'overview',   status: 'active' },
   { idx: '02', label: 'Memory',             name: 'memory',     icon: 'memory',     status: 'active' },
-  { idx: '03', label: 'File Repository',    name: 'repository', icon: 'repository', status: 'processing' },
-  { idx: '04', label: 'Email Intelligence', name: 'email',      icon: 'email',      status: 'standby' },
-  { idx: '05', label: 'Bank Adviser',       name: 'bank',       icon: 'bank',       status: 'error' },
-  { idx: '06', label: 'Job Agent',          name: 'job',        icon: 'job',        status: 'classified', badge: 'CLASSIFIED' },
-  { idx: '07', label: 'Hermes',             name: 'hermes',     icon: 'hermes',     status: 'standby' },
+  { idx: '03', label: 'Email Intelligence', name: 'email',      icon: 'email',      status: 'standby' },
+  { idx: '04', label: 'Bank Adviser',       name: 'bank',       icon: 'bank',       status: 'error' },
+  { idx: '05', label: 'Job Agent',          name: 'job',        icon: 'job',        status: 'classified', badge: 'CLASSIFIED' },
+  { idx: '06', label: 'Hermes',             name: 'hermes',     icon: 'hermes',     status: 'standby' },
 ]
 
 export const SETTINGS: NavItem = {
@@ -37,7 +36,6 @@ export const STATUS_TEXT: Record<string, string> = {
 export const ICONS: Record<string, string> = {
   overview:   '<rect x="1.5" y="1.5" width="5" height="5"/><rect x="9.5" y="1.5" width="5" height="5"/><rect x="1.5" y="9.5" width="5" height="5"/><rect x="9.5" y="9.5" width="5" height="5"/>',
   memory:     '<rect x="4" y="4" width="8" height="8"/><rect x="6.5" y="6.5" width="3" height="3"/><path d="M6 1.5v2.5M10 1.5v2.5M6 12v2.5M10 12v2.5M1.5 6h2.5M1.5 10h2.5M12 6h2.5M12 10h2.5"/>',
-  repository: '<path d="M3.5 1.5h6l3 3v10h-9z"/><path d="M9.5 1.5v3h3"/><path d="M5.5 8h5M5.5 10.5h5"/>',
   email:      '<rect x="1.5" y="3.5" width="13" height="9"/><path d="M1.5 4l6.5 5 6.5-5"/>',
   bank:       '<path d="M1.5 6L8 2l6.5 4"/><path d="M3 6.5v6M6 6.5v6M9.5 6.5v6M12.5 6.5v6"/><path d="M1.5 13.5h13"/>',
   job:        '<rect x="1.5" y="5" width="13" height="8.5"/><path d="M5.5 5V3.5h5V5"/><path d="M1.5 8.5h13"/>',
