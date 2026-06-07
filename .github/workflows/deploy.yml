@@ -62,7 +62,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: dashboard  # ← adjust to your Vue app folder name
+        working-directory: frontend
 
     steps:
       - name: Checkout code
@@ -73,7 +73,7 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: dashboard/package-lock.json  # ← adjust
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
         run: npm ci
