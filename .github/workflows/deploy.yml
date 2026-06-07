@@ -12,7 +12,7 @@ permissions:
 jobs:
 
   # ─────────────────────────────────────────────
-  # JOB 1 — Backend → EC2
+  # JOB 1 — Backend → EC2 (via AWS SSM)
   # ─────────────────────────────────────────────
   deploy-backend:
     name: Deploy Backend to EC2
@@ -22,33 +22,67 @@ jobs:
       !startsWith(github.event.head_commit.message, 'feat(dashboard)')
 
     steps:
-      - name: SSH into EC2 and deploy
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script: |
-            set -e
-            echo "==> Pulling latest code..."
-            cd ~/personal-intelligence
-            git pull origin main
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-central-1
 
-            echo "==> Activating venv and installing dependencies..."
-            source .venv/bin/activate
-            pip install -r requirements.txt --quiet
+      - name: Deploy via SSM Run Command
+        run: |
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=[
+              "set -e",
+              "echo ==> Pulling latest code...",
+              "cd ~/personal-intelligence",
+              "git pull origin main",
+              "echo ==> Activating venv and installing dependencies...",
+              "source .venv/bin/activate",
+              "pip install -r requirements.txt --quiet",
+              "echo ==> Restarting services...",
+              "sudo systemctl restart adel-intelligence-memory",
+              "sudo systemctl restart adel-intelligence-email",
+              "sudo systemctl restart adel-intelligence-files",
+              "sudo systemctl restart nginx",
+              "echo ==> Verifying services...",
+              "sudo systemctl is-active --quiet adel-intelligence-memory && echo memory: OK",
+              "sudo systemctl is-active --quiet adel-intelligence-email  && echo email:  OK",
+              "sudo systemctl is-active --quiet adel-intelligence-files  && echo files:  OK"
+            ]' \
+            --timeout-seconds 120 \
+            --query "Command.CommandId" \
+            --output text)
 
-            echo "==> Restarting services..."
-            sudo systemctl restart adel-intelligence-memory
-            sudo systemctl restart adel-intelligence-email
-            sudo systemctl restart adel-intelligence-files
-            sudo systemctl restart nginx
+          echo "SSM Command ID: $COMMAND_ID"
 
-            echo "==> Verifying services are running..."
-            sudo systemctl is-active --quiet adel-intelligence-memory && echo "memory: OK"
-            sudo systemctl is-active --quiet adel-intelligence-email  && echo "email:  OK"
-            sudo systemctl is-active --quiet adel-intelligence-files  && echo "files:  OK"
+          # Poll until complete (max ~3 min)
+          for i in $(seq 1 18); do
+            sleep 10
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+              --query "Status" --output text)
+            echo "[$i] Status: $STATUS"
+            if [ "$STATUS" = "Success" ]; then
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+                --query "StandardOutputContent" --output text
+              echo "Deploy successful."
+              exit 0
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "TimedOut" ] || [ "$STATUS" = "Cancelled" ]; then
+              aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+                --query "StandardErrorContent" --output text
+              echo "Deploy failed with status: $STATUS"
+              exit 1
+            fi
+          done
+          echo "Timed out waiting for SSM command."
+          exit 1
 
   # ─────────────────────────────────────────────
   # JOB 2 — Dashboard → S3 + CloudFront
