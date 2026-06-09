@@ -73,9 +73,9 @@ onMounted(async () => {
       expires_in:    number
     }
 
-    localStorage.setItem('adel_access_token',     data.access_token)
-    localStorage.setItem('adel_refresh_token',    data.refresh_token)
-    localStorage.setItem('adel_token_expires_at', String(Date.now() + data.expires_in * 1000))
+    sessionStorage.setItem('adel_access_token',     data.access_token)
+    sessionStorage.setItem('adel_refresh_token',    data.refresh_token)
+    sessionStorage.setItem('adel_token_expires_at', String(Date.now() + data.expires_in * 1000))
 
     sessionStorage.removeItem('adel_pkce_verifier')
     sessionStorage.removeItem('adel_pkce_state')

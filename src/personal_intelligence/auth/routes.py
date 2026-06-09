@@ -1,5 +1,9 @@
-from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+import hashlib
+import hmac
+import time
+
+from fastapi import APIRouter, Cookie, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from personal_intelligence.auth.oauth import (
     create_auth_code,
@@ -7,9 +11,46 @@ from personal_intelligence.auth.oauth import (
     refresh_access_token,
     register_client,
 )
+from personal_intelligence.config import get_settings
 
 router = APIRouter()
 
+_SESSION_COOKIE = "pi_session"
+_SESSION_MAX_AGE = 86400  # 24 hours
+
+
+def _sign(value: str, secret: str) -> str:
+    return hmac.new(secret.encode(), value.encode(), hashlib.sha256).hexdigest()
+
+
+def _make_session_token(secret: str) -> str:
+    ts = str(int(time.time()))
+    sig = _sign(ts, secret)
+    return f"{ts}.{sig}"
+
+
+def _validate_session_token(token: str, secret: str) -> bool:
+    try:
+        ts_str, sig = token.split(".", 1)
+    except ValueError:
+        return False
+    if not hmac.compare_digest(_sign(ts_str, secret), sig):
+        return False
+    return int(time.time()) - int(ts_str) < _SESSION_MAX_AGE
+
+
+def _is_authenticated(pi_session: str | None) -> bool:
+    settings = get_settings()
+    if not settings.dashboard_password:
+        return True  # password gate disabled — dev/test only
+    if not pi_session:
+        return False
+    return _validate_session_token(pi_session, settings.dashboard_password)
+
+
+# ---------------------------------------------------------------------------
+# Well-known / discovery
+# ---------------------------------------------------------------------------
 
 @router.get("/.well-known/oauth-protected-resource")
 async def get_well_known():
@@ -32,8 +73,14 @@ async def oauth_authorization_server():
     }
 
 
+# ---------------------------------------------------------------------------
+# Client registration — gated behind the session cookie
+# ---------------------------------------------------------------------------
+
 @router.post("/api/oauth/register")
-async def register(request: Request):
+async def register(request: Request, pi_session: str | None = Cookie(default=None)):
+    if not _is_authenticated(pi_session):
+        raise HTTPException(status_code=401, detail="not authenticated")
     body = await request.json()
     result = register_client(
         client_name=body.get("client_name", "unknown"),
@@ -50,6 +97,61 @@ async def register(request: Request):
     }
 
 
+# ---------------------------------------------------------------------------
+# Authorization endpoint — identity gate before code is issued
+# ---------------------------------------------------------------------------
+
+_LOGIN_FORM = """\
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Personal Intelligence — Login</title>
+  <style>
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{background:#0d0d0d;color:#e0e0e0;font-family:monospace;
+         display:grid;place-items:center;min-height:100vh}}
+    .card{{border:1px solid #2a2a2a;padding:40px 36px;width:min(380px,90vw)}}
+    h1{{font-size:11px;letter-spacing:.2em;text-transform:uppercase;
+        color:#888;margin-bottom:28px}}
+    label{{font-size:10px;letter-spacing:.12em;text-transform:uppercase;
+           color:#666;display:block;margin-bottom:6px}}
+    input[type=password]{{width:100%;background:#151515;border:1px solid #2a2a2a;
+                          color:#e0e0e0;padding:10px 12px;font-family:monospace;
+                          font-size:13px;outline:none}}
+    input[type=password]:focus{{border-color:#555}}
+    button{{margin-top:20px;width:100%;padding:11px;background:transparent;
+            border:1px solid #e0e0e0;color:#e0e0e0;font-family:monospace;
+            font-size:10px;letter-spacing:.16em;text-transform:uppercase;cursor:pointer}}
+    button:hover{{background:#1a1a1a}}
+    .err{{margin-top:14px;font-size:10px;color:#c0392b;letter-spacing:.08em}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Personal Intelligence</h1>
+    <form method="POST" action="/api/oauth/authorize">
+      {hidden}
+      <label for="pw">Access password</label>
+      <input id="pw" name="password" type="password" autofocus autocomplete="current-password">
+      {error}
+      <button type="submit">Enter</button>
+    </form>
+  </div>
+</body>
+</html>
+"""
+
+
+def _hidden_fields(**kwargs) -> str:
+    return "".join(
+        f'<input type="hidden" name="{k}" value="{v}">'
+        for k, v in kwargs.items()
+        if v is not None
+    )
+
+
 @router.get("/api/oauth/authorize")
 async def authorize(
     client_id: str,
@@ -57,7 +159,18 @@ async def authorize(
     code_challenge: str,
     code_challenge_method: str,
     state: str = "",
+    pi_session: str | None = Cookie(default=None),
 ):
+    if not _is_authenticated(pi_session):
+        hidden = _hidden_fields(
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            state=state,
+        )
+        return HTMLResponse(_LOGIN_FORM.format(hidden=hidden, error=""))
+
     code = create_auth_code(
         client_id=client_id,
         code_challenge=code_challenge,
@@ -65,6 +178,54 @@ async def authorize(
     )
     return RedirectResponse(url=f"{redirect_uri}?code={code}&state={state}")
 
+
+@router.post("/api/oauth/authorize")
+async def authorize_login(
+    client_id: str = Form(),
+    redirect_uri: str = Form(),
+    code_challenge: str = Form(),
+    code_challenge_method: str = Form(),
+    state: str = Form(""),
+    password: str = Form(),
+):
+    settings = get_settings()
+    hidden = _hidden_fields(
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        code_challenge=code_challenge,
+        code_challenge_method=code_challenge_method,
+        state=state,
+    )
+
+    if not settings.dashboard_password or password != settings.dashboard_password:
+        error = '<p class="err">Incorrect password.</p>'
+        return HTMLResponse(
+            _LOGIN_FORM.format(hidden=hidden, error=error), status_code=401
+        )
+
+    session_token = _make_session_token(settings.dashboard_password)
+    code = create_auth_code(
+        client_id=client_id,
+        code_challenge=code_challenge,
+        redirect_uri=redirect_uri,
+    )
+    response = RedirectResponse(
+        url=f"{redirect_uri}?code={code}&state={state}", status_code=303
+    )
+    response.set_cookie(
+        key=_SESSION_COOKIE,
+        value=session_token,
+        max_age=_SESSION_MAX_AGE,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+    )
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Token endpoint — public (PKCE verifier protects it)
+# ---------------------------------------------------------------------------
 
 @router.post("/api/oauth/token")
 async def token(
@@ -88,3 +249,20 @@ async def token(
         raise HTTPException(status_code=400, detail="invalid_grant")
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Internal auth endpoint — used by nginx auth_request subrequests
+# ---------------------------------------------------------------------------
+
+@router.get("/api/internal/auth")
+async def internal_auth(request: Request):
+    """Returns 200 if Bearer token is valid, 401 otherwise. nginx auth_request target."""
+    from personal_intelligence.auth.oauth import validate_token
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing token")
+    token_val = auth[7:]
+    if not validate_token(token_val):
+        raise HTTPException(status_code=401, detail="invalid token")
+    return {"ok": True}

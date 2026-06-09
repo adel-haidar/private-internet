@@ -18,6 +18,7 @@ from assistant.email.auth_service import MicrosoftTokenStore, get_token_store
 from assistant.email.email_assessor import EmailAssessor
 from assistant.email.email_response_writer import EmailResponseWriter
 from assistant.email.model import EmailMessage, EmailSyncResult
+from assistant.shared.auth import require_auth
 from assistant.shared.graph_client import GraphClient
 from assistant.shared.memory_client import MemoryClient
 from assistant.shared.onedrive_client import OneDriveClient
@@ -146,7 +147,7 @@ def get_token(code: str, token_store: TokenStoreDep):
 
 
 @app.get("/api/email/sync")
-def sync_email(token_store: TokenStoreDep, settings: SettingsDep):
+def sync_email(token_store: TokenStoreDep, settings: SettingsDep, _: str = Depends(require_auth)):
     """Fetch new emails, triage them with the LLM, and save drafts for those needing a reply.
 
     This is the core endpoint of the application. It runs the full pipeline:
@@ -233,7 +234,7 @@ def sync_email(token_store: TokenStoreDep, settings: SettingsDep):
 
 
 @app.post("/api/banking/analyse")
-async def analyse_bank_statement(req: AnalyseRequest, settings: SettingsDep):
+async def analyse_bank_statement(req: AnalyseRequest, settings: SettingsDep, _: str = Depends(require_auth)):
     """Run a multi-month financial analysis using bank statements from MCP memory.
 
     Accepts an explicit period (ytd / single / range), searches MCP once per month

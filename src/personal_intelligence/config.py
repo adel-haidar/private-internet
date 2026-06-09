@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     db_password: str = ""
 
     secret_key: str = ""
+    dashboard_password: str = ""
 
     aws_region: str = "eu-central-1"
 

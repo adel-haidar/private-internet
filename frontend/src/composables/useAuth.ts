@@ -8,43 +8,48 @@ export class AuthError extends Error {
   }
 }
 
-const KEYS = {
+// clientId is not a secret — persist across browser sessions so we reuse the
+// same registered OAuth client instead of creating a new one every session.
+const LS = {
+  clientId: 'adel_client_id',
+} as const
+
+// Tokens are sensitive — scope to the browser session only.
+const SS = {
   access:    'adel_access_token',
   refresh:   'adel_refresh_token',
-  clientId:  'adel_client_id',
   expiresAt: 'adel_token_expires_at',
 } as const
 
-const SESSION = {
+const PKCE = {
   verifier:  'adel_pkce_verifier',
   state:     'adel_pkce_state',
   postRoute: 'adel_post_login_route',
 } as const
 
 function clearTokens(): void {
-  localStorage.removeItem(KEYS.access)
-  localStorage.removeItem(KEYS.refresh)
-  localStorage.removeItem(KEYS.clientId)
-  localStorage.removeItem(KEYS.expiresAt)
+  sessionStorage.removeItem(SS.access)
+  sessionStorage.removeItem(SS.refresh)
+  sessionStorage.removeItem(SS.expiresAt)
 }
 
 export function isAuthenticated(): boolean {
-  const token = localStorage.getItem(KEYS.access)
-  const exp   = Number(localStorage.getItem(KEYS.expiresAt) ?? 0)
+  const token = sessionStorage.getItem(SS.access)
+  const exp   = Number(sessionStorage.getItem(SS.expiresAt) ?? 0)
   return !!token && exp > Date.now() + 60_000
 }
 
 export function hasRefreshToken(): boolean {
-  return !!localStorage.getItem(KEYS.refresh)
+  return !!sessionStorage.getItem(SS.refresh)
 }
 
 export function getClientId(): string | null {
-  return localStorage.getItem(KEYS.clientId)
+  return localStorage.getItem(LS.clientId)
 }
 
 export async function refreshTokens(): Promise<void> {
-  const refreshToken = localStorage.getItem(KEYS.refresh)
-  const clientId     = localStorage.getItem(KEYS.clientId)
+  const refreshToken = sessionStorage.getItem(SS.refresh)
+  const clientId     = localStorage.getItem(LS.clientId)
 
   if (!refreshToken || !clientId) {
     clearTokens()
@@ -73,22 +78,22 @@ export async function refreshTokens(): Promise<void> {
     expires_in:    number
   }
 
-  localStorage.setItem(KEYS.access,    data.access_token)
-  localStorage.setItem(KEYS.refresh,   data.refresh_token)
-  localStorage.setItem(KEYS.expiresAt, String(Date.now() + data.expires_in * 1000))
+  sessionStorage.setItem(SS.access,    data.access_token)
+  sessionStorage.setItem(SS.refresh,   data.refresh_token)
+  sessionStorage.setItem(SS.expiresAt, String(Date.now() + data.expires_in * 1000))
 }
 
 export async function requireAuth(): Promise<string> {
-  if (isAuthenticated()) return localStorage.getItem(KEYS.access)!
+  if (isAuthenticated()) return sessionStorage.getItem(SS.access)!
   if (hasRefreshToken()) {
     await refreshTokens()
-    return localStorage.getItem(KEYS.access)!
+    return sessionStorage.getItem(SS.access)!
   }
   throw new AuthError('Not authenticated')
 }
 
 export async function registerClient(): Promise<string> {
-  const stored = localStorage.getItem(KEYS.clientId)
+  const stored = localStorage.getItem(LS.clientId)
   if (stored) return stored
 
   const res = await fetch(`${OAUTH_BASE}/api/oauth/register`, {
@@ -106,7 +111,7 @@ export async function registerClient(): Promise<string> {
   if (!res.ok) throw new AuthError(`Client registration failed: ${res.status}`)
 
   const data = await res.json() as { client_id: string }
-  localStorage.setItem(KEYS.clientId, data.client_id)
+  localStorage.setItem(LS.clientId, data.client_id)
   return data.client_id
 }
 
@@ -116,9 +121,9 @@ export async function initiateLogin(intendedRoute = '/'): Promise<void> {
   const state     = generateState()
   const challenge = await generateChallenge(verifier)
 
-  sessionStorage.setItem(SESSION.verifier,  verifier)
-  sessionStorage.setItem(SESSION.state,     state)
-  sessionStorage.setItem(SESSION.postRoute, intendedRoute)
+  sessionStorage.setItem(PKCE.verifier,  verifier)
+  sessionStorage.setItem(PKCE.state,     state)
+  sessionStorage.setItem(PKCE.postRoute, intendedRoute)
 
   const params = new URLSearchParams({
     response_type:         'code',
