@@ -38,14 +38,19 @@ jobs:
               \"echo ==> Pulling latest code...\",
               \"sudo -u ${{ secrets.EC2_USER }} bash -c 'cd ~/personal-intelligence && git pull origin main'\",
               \"echo ==> Installing dependencies...\",
-              \"sudo -u ${{ secrets.EC2_USER }} bash -c 'cd ~/personal-intelligence && source .venv/bin/activate && pip install -r agents/requirements.txt --quiet'\",
+              \"sudo -u ${{ secrets.EC2_USER }} bash -c 'cd ~/personal-intelligence && source .venv/bin/activate && pip install -e . --quiet && pip install -r agents/requirements.txt --quiet'\",
+              \"echo ==> Deploying nginx config...\",
+              \"cp /home/${{ secrets.EC2_USER }}/personal-intelligence/nginx/personal-intelligence.conf /etc/nginx/conf.d/personal-intelligence.conf\",
+              \"nginx -t\",
               \"echo ==> Restarting services...\",
               \"systemctl restart personal-intelligence-api\",
               \"systemctl restart personal-intelligence-agents\",
-              \"systemctl restart nginx\",
+              \"systemctl reload nginx\",
               \"echo ==> Verifying services...\",
               \"systemctl is-active --quiet personal-intelligence-api    && echo api:    OK\",
-              \"systemctl is-active --quiet personal-intelligence-agents && echo agents: OK\"
+              \"systemctl is-active --quiet personal-intelligence-agents && echo agents: OK\",
+              \"echo ==> Last 20 lines of agents log:\",
+              \"journalctl -u personal-intelligence-agents -n 20 --no-pager\"
             ]" \
             --timeout-seconds 120 \
             --query "Command.CommandId" \
