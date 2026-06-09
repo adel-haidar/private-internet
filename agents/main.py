@@ -301,5 +301,9 @@ async def analyse_bank_statement(req: AnalyseRequest, settings: SettingsDep, _: 
         model_id=settings.bedrock_model_id,
     )
 
-    raw = bank_adviser.analyse(statement=statements_context, context=combined_context)
-    return BankAdviserResult.model_validate(raw)
+    try:
+        raw = bank_adviser.analyse(statement=statements_context, context=combined_context)
+        return BankAdviserResult.model_validate(raw)
+    except Exception as exc:
+        logger.exception("BankAdviser analysis failed")
+        raise HTTPException(status_code=502, detail=f"Analysis failed: {exc}") from exc

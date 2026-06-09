@@ -28,7 +28,9 @@ def invoke_with_tool_retry(
             messages=messages,
             toolConfig={
                 "tools": [{"toolSpec": tool_spec}],
-                "toolChoice": {"tool": {"name": tool_name}},
+                # "any" forces a tool call without naming a specific tool —
+                # more broadly supported across Bedrock models than {"tool": {"name": ...}}.
+                "toolChoice": {"any": {}},
             },
             inferenceConfig={"maxTokens": max_tokens, "temperature": 0},
         )

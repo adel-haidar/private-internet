@@ -191,19 +191,27 @@ export function useBankAdviser() {
       }
     }
 
+    const body = await res.text()
+
     if (!res.ok) {
       let msg = `HTTP ${res.status}`
-      try {
-        const body = await res.json() as { detail?: string }
-        msg = body.detail ?? msg
-      } catch {}
+      if (!body.trimStart().startsWith('<')) {
+        try { msg = (JSON.parse(body) as { detail?: string }).detail ?? msg } catch {}
+      }
       status.value = 'error'
       error.value  = msg
       return
     }
 
+    // CloudFront returns 200 + index.html when the origin errors — detect that.
+    if (body.trimStart().startsWith('<')) {
+      status.value = 'error'
+      error.value  = 'Backend service unavailable (got HTML instead of JSON). Check EC2 logs.'
+      return
+    }
+
     try {
-      result.value  = await res.json() as BankAdviserResult
+      result.value  = JSON.parse(body) as BankAdviserResult
       status.value  = 'success'
       lastRun.value = new Date()
     } catch {
