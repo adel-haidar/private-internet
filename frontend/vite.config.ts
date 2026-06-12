@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
-const TARGET = 'https://adel-intelligence.com'
+// Dev proxy target — point at your deployed instance (override via env)
+const TARGET = process.env.VITE_DEV_PROXY_TARGET ?? 'https://adel-intelligence.com'
 
 export default defineConfig({
   plugins: [vue()],

@@ -1,7 +1,7 @@
 [project]
-name = "personal-intelligence"
+name = "private-internet"
 version = "0.1.0"
-description = "Personal Intelligence API — MCP memory server and OAuth API"
+description = "Private Internet — self-hosted AI platform: memory brain, content generation, health and financial intelligence"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

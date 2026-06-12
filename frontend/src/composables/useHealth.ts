@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { requireAuth, refreshTokens } from './useAuth'
+import { API_BASE } from '../config/env'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -48,9 +49,7 @@ export interface TrendsResponse {
 
 // ── Base URL ───────────────────────────────────────────────────────────────
 
-const BASE = import.meta.env.DEV
-  ? '/api'
-  : 'https://adel-intelligence.com/api'
+const BASE = `${API_BASE}/api`
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@ import { requireAuth, refreshTokens } from '../composables/useAuth'
 import { updateMemory, deleteMemory } from '../composables/useMemories'
 import type { UpdateMemoryPayload } from '../composables/useMemories'
 
-const API_BASE = import.meta.env.DEV ? '' : 'https://adel-intelligence.com'
+import { API_BASE } from '../config/env'
 
 // ── Text memory form ───────────────────────────────────────────
 const textTitle   = ref('')

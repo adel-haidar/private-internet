@@ -5,3 +5,10 @@ export const OAUTH_BASE = ''
 export const REDIRECT_URI =
   import.meta.env.VITE_REDIRECT_URI ??
   `${window.location.origin}/oauth/callback`
+
+// Backend API base. Dev: relative (vite proxy). Prod: same-origin by default,
+// or an explicit base via VITE_API_BASE_URL (e.g. when the dashboard is served
+// from a different host than the API).
+export const API_BASE: string = import.meta.env.DEV
+  ? ''
+  : (import.meta.env.VITE_API_BASE_URL ?? '')

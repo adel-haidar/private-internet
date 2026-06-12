@@ -1,6 +1,6 @@
 import { requireAuth } from './useAuth'
 
-const API_BASE = import.meta.env.DEV ? '' : 'https://adel-intelligence.com'
+import { API_BASE } from '../config/env'
 
 export interface UpdateMemoryPayload {
   title?: string

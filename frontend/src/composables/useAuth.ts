@@ -11,20 +11,20 @@ export class AuthError extends Error {
 // clientId is not a secret — persist across browser sessions so we reuse the
 // same registered OAuth client instead of creating a new one every session.
 const LS = {
-  clientId: 'adel_client_id',
+  clientId: 'pi_client_id',
 } as const
 
 // Tokens are sensitive — scope to the browser session only.
 const SS = {
-  access:    'adel_access_token',
-  refresh:   'adel_refresh_token',
-  expiresAt: 'adel_token_expires_at',
+  access:    'pi_access_token',
+  refresh:   'pi_refresh_token',
+  expiresAt: 'pi_token_expires_at',
 } as const
 
 const PKCE = {
-  verifier:  'adel_pkce_verifier',
-  state:     'adel_pkce_state',
-  postRoute: 'adel_post_login_route',
+  verifier:  'pi_pkce_verifier',
+  state:     'pi_pkce_state',
+  postRoute: 'pi_post_login_route',
 } as const
 
 function clearTokens(): void {
@@ -100,7 +100,7 @@ export async function registerClient(): Promise<string> {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({
-      client_name:                'personal-intelligence-dashboard',
+      client_name:                'private-internet-dashboard',
       redirect_uris:              [REDIRECT_URI],
       token_endpoint_auth_method: 'none',
       grant_types:                ['authorization_code', 'refresh_token'],

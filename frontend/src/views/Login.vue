@@ -60,7 +60,7 @@ async function handleResume() {
       <span class="br bl"></span>
       <span class="br br2"></span>
 
-      <div class="brand">PERSONAL-INTELLIGENCE</div>
+      <div class="brand">PRIVATE-INTERNET</div>
       <div class="rule" />
 
       <div class="body">

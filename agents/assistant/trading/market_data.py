@@ -26,7 +26,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-_UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) adel-intelligence/1.0"}
+_UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) private-internet/1.0"}
 _TIMEOUT = httpx.Timeout(10.0)
 
 # Region → [(Yahoo symbol, display name)]

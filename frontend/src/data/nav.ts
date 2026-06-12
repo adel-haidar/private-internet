@@ -19,10 +19,12 @@ export const NAV: NavItem[] = [
   { idx: '05', label: 'Health Intel',       name: 'health',     icon: 'health',     status: 'active' },
   { idx: '06', label: 'Job Agent',          name: 'job',        icon: 'job',        status: 'classified', badge: 'CLASSIFIED' },
   { idx: '07', label: 'Hermes',             name: 'hermes',     icon: 'hermes',     status: 'standby' },
+  { idx: '08', label: 'Pulse',              name: 'pulse',      icon: 'pulse',      status: 'active' },
+  { idx: '09', label: 'Signal',             name: 'signal',     icon: 'signal',     status: 'active' },
 ]
 
 export const SETTINGS: NavItem = {
-  idx: '08', label: 'Settings', name: 'settings', icon: 'settings', status: 'active'
+  idx: '10', label: 'Settings', name: 'settings', icon: 'settings', status: 'active'
 }
 
 export const STATUS_TEXT: Record<string, string> = {
@@ -44,4 +46,6 @@ export const ICONS: Record<string, string> = {
   settings:   '<circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2.2M8 12.3v2.2M1.5 8h2.2M12.3 8h2.2M3.4 3.4l1.6 1.6M11 11l1.6 1.6M12.6 3.4L11 5M5 11l-1.6 1.6"/>',
   logout:     '<path d="M6 2.5H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3"/><path d="M9.5 11l3-3-3-3"/><path d="M12.5 8H6"/>',
   health:     '<circle cx="8" cy="8" r="5.5"/><path d="M2 8h2.5l2-4 2.5 8 2-4H14"/>',
+  signal:     '<rect x="1.5" y="3.5" width="13" height="9"/><path d="M6.5 6l3.5 2-3.5 2z"/>',
+  pulse:      '<circle cx="8" cy="8.5" r="1.3"/><path d="M8 9.8V14"/><path d="M5.5 6a3.5 3.5 0 0 0 0 5M10.5 6a3.5 3.5 0 0 1 0 5" transform="translate(0 -2.5)"/><path d="M3.5 4a6 6 0 0 0 0 9M12.5 4a6 6 0 0 1 0 9" transform="translate(0 -2.5)"/>',
 }

@@ -1,6 +1,6 @@
-# personal-intelligence
+# private-internet
 
-Self-hosted personal AI platform. Two independent services share a single repository and a single `.env` file.
+Private Internet — a self-hosted, privacy-first AI platform. Every user gets an isolated AI brain that powers personalized content, health insights, and financial analysis. Two independent services share a single repository and a single `.env` file.
 
 ## Architecture
 
@@ -37,7 +37,7 @@ Self-hosted personal AI platform. Two independent services share a single reposi
 
 ### Service A — `personal-intelligence-api`
 
-Source: `src/personal_intelligence/`
+Source: `src/private_internet/`
 
 Consolidates the old `mcp-memory` (port 8000) and `mcp-file-upload` (port 8002) services into one FastAPI process. The FastMCP ASGI app is mounted at `/mcp` so existing Claude Desktop and Claude.ai connections require no reconfiguration.
 
@@ -53,7 +53,7 @@ Consolidates the old `mcp-memory` (port 8000) and `mcp-file-upload` (port 8002) 
 
 **Entry point:**
 ```
-uvicorn personal_intelligence.api:app --host 127.0.0.1 --port 8000
+uvicorn private_internet.api:app --host 127.0.0.1 --port 8000
 ```
 
 ### Service B — `personal-intelligence-agents`
@@ -80,7 +80,7 @@ uvicorn main:app --host 127.0.0.1 --port 8001
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 cp .env.example .env  # fill in real values
-uvicorn personal_intelligence.api:app --port 8000 --reload
+uvicorn private_internet.api:app --port 8000 --reload
 
 # Service B (separate terminal)
 cd agents

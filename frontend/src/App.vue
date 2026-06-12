@@ -9,10 +9,10 @@ import { isAuthenticated, hasRefreshToken, refreshTokens } from './composables/u
 const route = useRoute()
 const isPublic = computed(() => !!route.meta.public)
 
-const booting = ref(sessionStorage.getItem('adel_booted') !== '1')
+const booting = ref(sessionStorage.getItem('pi_booted') !== '1')
 function bootDone() {
   booting.value = false
-  sessionStorage.setItem('adel_booted', '1')
+  sessionStorage.setItem('pi_booted', '1')
 }
 
 onMounted(async () => {

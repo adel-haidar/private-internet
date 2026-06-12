@@ -29,7 +29,7 @@ git commit -m "Initial personal-intelligence consolidation"
 
 ```bash
 # Service A source
-ls src/personal_intelligence/
+ls src/private_internet/
 # Expected: __init__.py  api.py  auth/  config.py  database.py  memory/
 
 # Agents source
@@ -74,7 +74,7 @@ playwright install chromium   # only needed for jobs.ch / StepStone scrapers
 ```bash
 cd /home/adel/dev/personal-intelligence
 source .venv/bin/activate
-uvicorn personal_intelligence.api:app --port 8000 --reload
+uvicorn private_internet.api:app --port 8000 --reload
 ```
 
 Expected startup output: DB tables created, MCP server mounted at `/mcp`.

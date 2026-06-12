@@ -1,4 +1,15 @@
-# CLAUDE.md — personal-intelligence
+# CLAUDE.md — private-internet (repo dir: personal-intelligence)
+
+## Naming Convention (after the Private Internet rebrand)
+
+- **Product/branding:** Private Internet · `private-internet` · Python package `private_internet`
+- **Infrastructure pointers that KEEP the old name** (renaming them breaks deploys):
+  GitHub repo `personal-intelligence`, EC2 dir `~/personal-intelligence`,
+  systemd units `personal-intelligence-api` / `personal-intelligence-agents`,
+  nginx conf `personal-intelligence.conf`, production domain `adel-intelligence.com`
+  (configurable per-instance via `APP_DOMAIN`).
+- Deploy copies systemd unit files on every backend deploy, so unit *contents*
+  may change freely; unit *names* must not.
 
 ## Standing Rules (apply to every task, without being asked)
 

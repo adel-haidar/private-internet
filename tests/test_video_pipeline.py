@@ -4,16 +4,16 @@ import subprocess
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock, call
 
-from personal_intelligence.content.video_generator import (
+from private_internet.content.video_generator import (
     VideoScriptGenerator,
     VideoImageGenerator,
     VideoScript,
     ScriptSection,
     SECTION_IDS,
 )
-from personal_intelligence.content.polly_engine import PollyEngine, NON_NEURAL_VOICES
-from personal_intelligence.content.ffmpeg_assembler import VideoAssembler, VideoAssemblyError
-from personal_intelligence.content.jobs.video_job import generate_video, generate_videos_batch
+from private_internet.content.polly_engine import PollyEngine, NON_NEURAL_VOICES
+from private_internet.content.ffmpeg_assembler import VideoAssembler, VideoAssemblyError
+from private_internet.content.jobs.video_job import generate_video, generate_videos_batch
 
 
 # ── Fixtures ───────────────────────────────────────────────────
@@ -67,7 +67,7 @@ class TestVideoScriptGenerator:
     async def test_generates_five_section_script(self):
         generator = VideoScriptGenerator()
         with patch(
-            "personal_intelligence.content.video_generator.converse_text",
+            "private_internet.content.video_generator.converse_text",
             new=AsyncMock(return_value=(_script_json(), {})),
         ):
             script = await generator.generate(
@@ -83,7 +83,7 @@ class TestVideoScriptGenerator:
         generator = VideoScriptGenerator()
         fenced = f"```json\n{_script_json()}\n```"
         with patch(
-            "personal_intelligence.content.video_generator.converse_text",
+            "private_internet.content.video_generator.converse_text",
             new=AsyncMock(return_value=(fenced, {})),
         ):
             script = await generator.generate(_topic(), _creator(), [])
@@ -98,7 +98,7 @@ class TestVideoScriptGenerator:
             "sections": [{"id": "INTRO", "text": "x", "image_prompt": "y"}],
         })
         with patch(
-            "personal_intelligence.content.video_generator.converse_text",
+            "private_internet.content.video_generator.converse_text",
             new=AsyncMock(return_value=(bad, {})),
         ):
             with pytest.raises(ValueError, match="out of spec"):
@@ -109,7 +109,7 @@ class TestVideoScriptGenerator:
         generator = VideoScriptGenerator()
         mock_converse = AsyncMock(return_value=(_script_json(), {}))
         with patch(
-            "personal_intelligence.content.video_generator.converse_text", new=mock_converse
+            "private_internet.content.video_generator.converse_text", new=mock_converse
         ):
             await generator.generate(_topic(), _creator(), [])
         system_prompt = mock_converse.call_args.kwargs["system_prompt"]
@@ -155,7 +155,7 @@ class TestVideoImageGenerator:
 
 class TestPollyEngine:
     def _engine_with_mock_polly(self):
-        with patch("personal_intelligence.content.polly_engine.boto3") as mock_boto3:
+        with patch("private_internet.content.polly_engine.boto3") as mock_boto3:
             mock_polly = MagicMock()
             stream = MagicMock()
             stream.read.return_value = b"mp3-bytes"
@@ -187,7 +187,7 @@ class TestPollyEngine:
         ffprobe_out = json.dumps({"format": {"duration": "12.480000"}}).encode()
         completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=ffprobe_out)
         with patch(
-            "personal_intelligence.content.polly_engine.subprocess.run",
+            "private_internet.content.polly_engine.subprocess.run",
             return_value=completed,
         ):
             assert PollyEngine._probe_duration_ms("/tmp/x.mp3") == 12480
@@ -225,7 +225,7 @@ class TestVideoAssembler:
             return fake(args, check, capture_output)
 
         with patch(
-            "personal_intelligence.content.ffmpeg_assembler.subprocess.run",
+            "private_internet.content.ffmpeg_assembler.subprocess.run",
             side_effect=recording_run,
         ):
             duration = VideoAssembler().assemble(sections, images, audios, "/tmp/out.mp4")
@@ -255,7 +255,7 @@ class TestVideoAssembler:
             raise subprocess.CalledProcessError(1, args, stderr=b"boom")
 
         with patch(
-            "personal_intelligence.content.ffmpeg_assembler.subprocess.run",
+            "private_internet.content.ffmpeg_assembler.subprocess.run",
             side_effect=failing_run,
         ):
             with pytest.raises(VideoAssemblyError, match="boom"):
@@ -310,7 +310,7 @@ def _patched_pipeline(conn, script=None, fail_script=False):
     selector = MagicMock()
     selector.select_for_topic.return_value = _creator()
 
-    base = "personal_intelligence.content.jobs.video_job"
+    base = "private_internet.content.jobs.video_job"
     return [
         patch(f"{base}._connect", return_value=conn),
         patch(f"{base}._select_topic", return_value=_topic()),
@@ -331,7 +331,7 @@ class TestGenerateVideo:
         patches, polly, assembler, asset_store = _patched_pipeline(conn)
 
         with patch(
-            "personal_intelligence.content.jobs.video_job.shutil.rmtree"
+            "private_internet.content.jobs.video_job.shutil.rmtree"
         ) as mock_rmtree:
             for p in patches:
                 p.start()
@@ -369,7 +369,7 @@ class TestGenerateVideo:
         conn, executed = _recording_conn()
         patches, *_ = _patched_pipeline(conn, fail_script=True)
 
-        with patch("personal_intelligence.content.jobs.video_job.shutil.rmtree") as mock_rmtree:
+        with patch("private_internet.content.jobs.video_job.shutil.rmtree") as mock_rmtree:
             for p in patches:
                 p.start()
             try:
@@ -395,7 +395,7 @@ class TestGenerateVideo:
             return f"video-{len(calls)}"
 
         with patch(
-            "personal_intelligence.content.jobs.video_job.generate_video",
+            "private_internet.content.jobs.video_job.generate_video",
             side_effect=fake_generate,
         ):
             result = await generate_videos_batch(count=3)
@@ -406,7 +406,7 @@ class TestGenerateVideo:
     async def test_batch_with_pinned_topic_runs_once(self):
         mock_gen = AsyncMock(return_value="video-1")
         with patch(
-            "personal_intelligence.content.jobs.video_job.generate_video", new=mock_gen
+            "private_internet.content.jobs.video_job.generate_video", new=mock_gen
         ):
             result = await generate_videos_batch(count=3, topic_id="t-1")
 

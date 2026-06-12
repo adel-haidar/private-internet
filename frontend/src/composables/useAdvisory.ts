@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { requireAuth, refreshTokens } from './useAuth'
+import { API_BASE } from '../config/env'
 
 // ── Investment recommendation types ─────────────────────────────────────────
 
@@ -87,7 +88,7 @@ export interface AnalysisPayload<T> {
 
 // ── Generic run/load-latest client ───────────────────────────────────────────
 
-const BASE = import.meta.env.DEV ? '' : 'https://adel-intelligence.com'
+const BASE = API_BASE
 
 export interface AdvisoryClient<T> {
   status:       Ref<'idle' | 'loading' | 'error' | 'success'>

@@ -76,7 +76,7 @@ _DAY_TRADING_TOOL_SPEC = {
 }
 
 
-_SYSTEM_PROMPT = """You are Adel's day-trading desk analyst embedded in his adel-intelligence system.
+_SYSTEM_PROMPT = """You are Adel's day-trading desk analyst embedded in his Private Internet system.
 
 SCOPE
 - Day-to-day buy/hold/sell calls on individual stocks across THREE regions:

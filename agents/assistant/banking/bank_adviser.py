@@ -443,7 +443,7 @@ _ANALYSIS_TOOL_SPEC = {
 
 # ── System prompt — static instructions, no data ──────────────────────────────
 
-_SYSTEM_PROMPT = """You are Adel's personal financial analyst embedded in his adel-intelligence system.
+_SYSTEM_PROMPT = """You are Adel's personal financial analyst embedded in his Private Internet system.
 
 ABOUT ADEL (immutable facts)
 - Based in Germany. Salary paid in EUR.

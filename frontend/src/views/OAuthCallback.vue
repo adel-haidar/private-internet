@@ -20,9 +20,9 @@ onMounted(async () => {
     return
   }
 
-  const storedState    = sessionStorage.getItem('adel_pkce_state')
-  const codeVerifier   = sessionStorage.getItem('adel_pkce_verifier')
-  const storedClientId = localStorage.getItem('adel_client_id')
+  const storedState    = sessionStorage.getItem('pi_pkce_state')
+  const codeVerifier   = sessionStorage.getItem('pi_pkce_verifier')
+  const storedClientId = localStorage.getItem('pi_client_id')
 
   if (!stateParam || stateParam !== storedState) {
     fail('STATE_MISMATCH — possible CSRF')
@@ -73,15 +73,15 @@ onMounted(async () => {
       expires_in:    number
     }
 
-    sessionStorage.setItem('adel_access_token',     data.access_token)
-    sessionStorage.setItem('adel_refresh_token',    data.refresh_token)
-    sessionStorage.setItem('adel_token_expires_at', String(Date.now() + data.expires_in * 1000))
+    sessionStorage.setItem('pi_access_token',     data.access_token)
+    sessionStorage.setItem('pi_refresh_token',    data.refresh_token)
+    sessionStorage.setItem('pi_token_expires_at', String(Date.now() + data.expires_in * 1000))
 
-    sessionStorage.removeItem('adel_pkce_verifier')
-    sessionStorage.removeItem('adel_pkce_state')
+    sessionStorage.removeItem('pi_pkce_verifier')
+    sessionStorage.removeItem('pi_pkce_state')
 
-    const intendedRoute = sessionStorage.getItem('adel_post_login_route') ?? '/'
-    sessionStorage.removeItem('adel_post_login_route')
+    const intendedRoute = sessionStorage.getItem('pi_post_login_route') ?? '/'
+    sessionStorage.removeItem('pi_post_login_route')
 
     router.replace(intendedRoute)
   } catch (e) {

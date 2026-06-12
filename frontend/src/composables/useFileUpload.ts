@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { requireAuth, refreshTokens } from './useAuth'
+import { API_BASE } from '../config/env'
 
 export interface UploadFile {
   id:              string
@@ -10,9 +11,7 @@ export interface UploadFile {
   serverResponse?: { id: string; filename: string; indexed: boolean }
 }
 
-const UPLOAD_URL = import.meta.env.DEV
-  ? '/api/file'
-  : 'https://adel-intelligence.com/api/file'
+const UPLOAD_URL = `${API_BASE}/api/file`
 
 interface HttpError extends Error {
   httpStatus: number

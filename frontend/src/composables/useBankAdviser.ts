@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { requireAuth, refreshTokens } from './useAuth'
+import { API_BASE } from '../config/env'
 
 // ── Request types ──────────────────────────────────────────────────────────
 
@@ -138,7 +139,7 @@ export interface BankAdviserResult {
 
 // ── Composable ─────────────────────────────────────────────────────────────
 
-const BASE = import.meta.env.DEV ? '' : 'https://adel-intelligence.com'
+const BASE = API_BASE
 const ANALYSE_URL = `${BASE}/api/banking/analyse`
 const LATEST_URL  = `${BASE}/api/banking/analysis/latest`
 

@@ -1,7 +1,8 @@
 import { requireAuth, refreshTokens } from '../composables/useAuth'
 import type { MatchesResponse, RunResponse, RunReport, JobStatus } from '../types/jobs'
+import { API_BASE } from '../config/env'
 
-const BASE = import.meta.env.DEV ? '' : 'https://adel-intelligence.com'
+const BASE = API_BASE
 
 async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
   let token = await requireAuth()

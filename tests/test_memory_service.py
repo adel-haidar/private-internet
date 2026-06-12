@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from personal_intelligence.memory.service import Memory, delete_memory, update_memory
+from private_internet.memory.service import Memory, delete_memory, update_memory
 
 
 def _make_memory(**kwargs) -> Memory:
@@ -36,16 +36,16 @@ def _mock_conn(rowcount: int = 1) -> MagicMock:
 
 class TestUpdateMemory:
     def test_returns_none_for_unknown_id(self):
-        with patch("personal_intelligence.memory.service.fetch_memory", return_value=None):
+        with patch("private_internet.memory.service.fetch_memory", return_value=None):
             result = update_memory("nonexistent-id", title="New Title")
         assert result is None
 
     def test_partial_update_title_only(self):
         existing = _make_memory()
         with (
-            patch("personal_intelligence.memory.service.fetch_memory", return_value=existing),
-            patch("personal_intelligence.memory.service._get_embedding", return_value=[0.1] * 1024),
-            patch("personal_intelligence.memory.service._connect", return_value=_mock_conn()),
+            patch("private_internet.memory.service.fetch_memory", return_value=existing),
+            patch("private_internet.memory.service._get_embedding", return_value=[0.1] * 1024),
+            patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", title="New Title")
 
@@ -58,9 +58,9 @@ class TestUpdateMemory:
     def test_partial_update_tags_only_skips_reembed(self):
         existing = _make_memory()
         with (
-            patch("personal_intelligence.memory.service.fetch_memory", return_value=existing),
-            patch("personal_intelligence.memory.service._get_embedding") as mock_embed,
-            patch("personal_intelligence.memory.service._connect", return_value=_mock_conn()),
+            patch("private_internet.memory.service.fetch_memory", return_value=existing),
+            patch("private_internet.memory.service._get_embedding") as mock_embed,
+            patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", tags=["new-tag"])
 
@@ -71,9 +71,9 @@ class TestUpdateMemory:
     def test_content_replace(self):
         existing = _make_memory()
         with (
-            patch("personal_intelligence.memory.service.fetch_memory", return_value=existing),
-            patch("personal_intelligence.memory.service._get_embedding", return_value=[0.1] * 1024),
-            patch("personal_intelligence.memory.service._connect", return_value=_mock_conn()),
+            patch("private_internet.memory.service.fetch_memory", return_value=existing),
+            patch("private_internet.memory.service._get_embedding", return_value=[0.1] * 1024),
+            patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", content="Replaced content")
 
@@ -83,9 +83,9 @@ class TestUpdateMemory:
     def test_append_content(self):
         existing = _make_memory()
         with (
-            patch("personal_intelligence.memory.service.fetch_memory", return_value=existing),
-            patch("personal_intelligence.memory.service._get_embedding", return_value=[0.1] * 1024),
-            patch("personal_intelligence.memory.service._connect", return_value=_mock_conn()),
+            patch("private_internet.memory.service.fetch_memory", return_value=existing),
+            patch("private_internet.memory.service._get_embedding", return_value=[0.1] * 1024),
+            patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", content="Appended text", append_content=True)
 
@@ -98,9 +98,9 @@ class TestUpdateMemory:
     def test_append_without_content_is_noop_on_content(self):
         existing = _make_memory()
         with (
-            patch("personal_intelligence.memory.service.fetch_memory", return_value=existing),
-            patch("personal_intelligence.memory.service._get_embedding") as mock_embed,
-            patch("personal_intelligence.memory.service._connect", return_value=_mock_conn()),
+            patch("private_internet.memory.service.fetch_memory", return_value=existing),
+            patch("private_internet.memory.service._get_embedding") as mock_embed,
+            patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", append_content=True)
 
@@ -111,8 +111,8 @@ class TestUpdateMemory:
     def test_preserves_created_at(self):
         existing = _make_memory()
         with (
-            patch("personal_intelligence.memory.service.fetch_memory", return_value=existing),
-            patch("personal_intelligence.memory.service._connect", return_value=_mock_conn()),
+            patch("private_internet.memory.service.fetch_memory", return_value=existing),
+            patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id")
 
@@ -124,12 +124,12 @@ class TestUpdateMemory:
 
 class TestDeleteMemory:
     def test_successful_delete_returns_true(self):
-        with patch("personal_intelligence.memory.service._connect", return_value=_mock_conn(rowcount=1)):
+        with patch("private_internet.memory.service._connect", return_value=_mock_conn(rowcount=1)):
             result = delete_memory("test-id")
         assert result is True
 
     def test_nonexistent_id_returns_false(self):
-        with patch("personal_intelligence.memory.service._connect", return_value=_mock_conn(rowcount=0)):
+        with patch("private_internet.memory.service._connect", return_value=_mock_conn(rowcount=0)):
             result = delete_memory("nonexistent-id")
         assert result is False
 
@@ -139,7 +139,7 @@ class TestDeleteMemory:
 class TestMcpDeleteConfirmGuard:
     def test_confirm_false_is_rejected(self):
         # Import after patching init_db to prevent DB connection at import time
-        with patch("personal_intelligence.memory.service.init_db"):
+        with patch("private_internet.memory.service.init_db"):
             pass
         # The confirm guard is pure Python logic — test inline
         confirm = False
@@ -148,6 +148,6 @@ class TestMcpDeleteConfirmGuard:
         assert "confirm must be True" in result
 
     def test_confirm_true_proceeds(self):
-        with patch("personal_intelligence.memory.service.delete_memory", return_value=True):
+        with patch("private_internet.memory.service.delete_memory", return_value=True):
             confirm = True
             assert confirm is True

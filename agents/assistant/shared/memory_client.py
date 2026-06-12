@@ -156,7 +156,7 @@ class MemoryClient(BaseLLMService):
     def _api_base_url(self) -> str:
         """Derive the REST API base URL from the MCP server URL.
 
-        e.g. 'https://adel-intelligence.com/mcp/mcp' → 'https://adel-intelligence.com'
+        e.g. 'https://your-domain.com/mcp/mcp' → 'https://your-domain.com'
         """
         parsed = urlparse(self._server_url)
         return f"{parsed.scheme}://{parsed.netloc}"

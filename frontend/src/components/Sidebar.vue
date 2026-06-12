@@ -9,7 +9,7 @@ import { NAV, SETTINGS } from '../data/nav'
     <div class="brand">
       <div class="brand-mark"><span></span><span></span></div>
       <div class="brand-text">
-        <div class="brand-word">ADEL-INTEL</div>
+        <div class="brand-word">PRIVATE-INTERNET</div>
         <div class="brand-sub">CMD//v3.1</div>
       </div>
     </div>

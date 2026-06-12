@@ -21,14 +21,14 @@ const logoutIcon = ICONS.logout
 <template>
   <header class="header">
     <div class="header-left">
-      <span class="header-brand">PERSONAL-INTELLIGENCE</span>
+      <span class="header-brand">PRIVATE-INTERNET</span>
       <span class="header-vrule"></span>
       <span class="header-section mono">SEC {{ code }} / <b>{{ current }}</b></span>
     </div>
     <div class="header-right">
       <span class="conn"><span class="conn-dot"></span>UPLINK ACTIVE</span>
       <div class="user">
-        <span class="user-name">ADEL HAIDAR</span>
+        <span class="user-name">OPERATOR</span>
         <button class="icon-btn" title="Terminate session" aria-label="Logout" @click="logout">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" v-html="logoutIcon"></svg>
         </button>

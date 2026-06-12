@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch, AsyncMock
 
 from fastapi import HTTPException
-from personal_intelligence.content.topic_intelligence import (
+from private_internet.content.topic_intelligence import (
     MCPMemoryReader,
     TopicCandidate,
     TopicStorageService,
     ContentTopic,
 )
-from personal_intelligence.content.research_service import WebResearchService, ResearchResult
-from personal_intelligence.content.jobs.topic_job import run_topic_intelligence_job
+from private_internet.content.research_service import WebResearchService, ResearchResult
+from private_internet.content.jobs.topic_job import run_topic_intelligence_job
 
 
 # ── Mocks Helper ───────────────────────────────────────────────
@@ -37,7 +37,7 @@ class TestMCPMemoryReader:
             {"id": "m2", "title": "AWS prep", "content": "Studying for SAA-C03", "tags": ["aws"]},
         ]
         
-        with patch("personal_intelligence.content.topic_intelligence.list_memories", return_value=(mock_memories, 2)):
+        with patch("private_internet.content.topic_intelligence.list_memories", return_value=(mock_memories, 2)):
             result = await reader.fetch_recent_memories(limit=2)
             
         assert len(result) == 2
@@ -71,7 +71,7 @@ class TestMCPMemoryReader:
         
         with (
             patch("boto3.client", return_value=mock_client),
-            patch("personal_intelligence.content.topic_intelligence.get_settings")
+            patch("private_internet.content.topic_intelligence.get_settings")
         ):
             candidates = await reader.extract_topic_candidates(memories)
             
@@ -163,7 +163,7 @@ class TestWebResearchService:
         
         with (
             patch("boto3.client", return_value=mock_client),
-            patch("personal_intelligence.content.research_service.get_settings")
+            patch("private_internet.content.research_service.get_settings")
         ):
             weight = await service.assess_topic_relevance(topic, research)
             
@@ -258,10 +258,10 @@ class TestJobOrchestration:
         mock_storage.save_topic.return_value = MagicMock()
         
         with (
-            patch("personal_intelligence.content.jobs.topic_job.MCPMemoryReader", return_value=mock_reader),
-            patch("personal_intelligence.content.jobs.topic_job.WebResearchService", return_value=mock_research_service),
-            patch("personal_intelligence.content.jobs.topic_job.TopicStorageService", return_value=mock_storage),
-            patch("personal_intelligence.content.jobs.topic_job._connect", return_value=MagicMock())
+            patch("private_internet.content.jobs.topic_job.MCPMemoryReader", return_value=mock_reader),
+            patch("private_internet.content.jobs.topic_job.WebResearchService", return_value=mock_research_service),
+            patch("private_internet.content.jobs.topic_job.TopicStorageService", return_value=mock_storage),
+            patch("private_internet.content.jobs.topic_job._connect", return_value=MagicMock())
         ):
             await run_topic_intelligence_job()
             
@@ -277,7 +277,7 @@ class TestJobOrchestration:
 class TestRouterEndpoint:
     @pytest.mark.anyio
     async def test_run_job_endpoint_unauthorized(self):
-        from personal_intelligence.content.router import _require_internal_secret
+        from private_internet.content.router import _require_internal_secret
 
         with (
             patch("os.getenv", return_value="super-secret"),
@@ -288,7 +288,7 @@ class TestRouterEndpoint:
 
     @pytest.mark.anyio
     async def test_run_job_endpoint_authorized(self):
-        from personal_intelligence.content.router import (
+        from private_internet.content.router import (
             _require_internal_secret,
             run_topic_intelligence_job_endpoint,
         )

@@ -1,5 +1,5 @@
 [Unit]
-Description=Personal Intelligence Agents
+Description=Private Internet Agents
 After=network.target
 
 [Service]

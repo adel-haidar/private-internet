@@ -4,11 +4,11 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 
-from personal_intelligence.content.creator_selector import CreatorSelector, ALL_TONES, _TONE_MAP
-from personal_intelligence.content.post_generator import PostTextGenerator, GeneratedPost
-from personal_intelligence.content.image_generator import PostImageGenerator
-from personal_intelligence.content.asset_store import AssetStore
-from personal_intelligence.content.jobs.post_job import generate_posts_batch
+from private_internet.content.creator_selector import CreatorSelector, ALL_TONES, _TONE_MAP
+from private_internet.content.post_generator import PostTextGenerator, GeneratedPost
+from private_internet.content.image_generator import PostImageGenerator
+from private_internet.content.asset_store import AssetStore
+from private_internet.content.jobs.post_job import generate_posts_batch
 
 
 # ── Fixtures ───────────────────────────────────────────────────
@@ -102,7 +102,7 @@ class TestPostTextGenerator:
             "More here: https://example.com/swiss-salaries"
         )
         with patch(
-            "personal_intelligence.content.post_generator.converse_text",
+            "private_internet.content.post_generator.converse_text",
             new=AsyncMock(return_value=(body_text, {"inputTokens": 100, "outputTokens": 50})),
         ):
             generator = PostTextGenerator()
@@ -117,7 +117,7 @@ class TestPostTextGenerator:
     @pytest.mark.anyio
     async def test_generate_passes_creator_style_and_tone(self):
         mock_converse = AsyncMock(return_value=("post", {}))
-        with patch("personal_intelligence.content.post_generator.converse_text", new=mock_converse):
+        with patch("private_internet.content.post_generator.converse_text", new=mock_converse):
             generator = PostTextGenerator()
             await generator.generate(_topic(), _creator(), "critical", [])
 
@@ -141,9 +141,9 @@ class TestPostImageGenerator:
         mock_client.invoke_model.return_value = {"body": mock_body}
 
         with patch(
-            "personal_intelligence.content.image_generator.converse_text",
+            "private_internet.content.image_generator.converse_text",
             new=AsyncMock(return_value=("A dark editorial photo of the Alps.", {})),
-        ), patch("personal_intelligence.content.image_generator.boto3") as mock_boto3:
+        ), patch("private_internet.content.image_generator.boto3") as mock_boto3:
             mock_boto3.client.return_value = mock_client
             generator = PostImageGenerator()
             image_bytes, image_prompt = await generator.generate_for_post(
@@ -164,9 +164,9 @@ class TestPostImageGenerator:
         mock_client.invoke_model.return_value = {"body": mock_body}
 
         with patch(
-            "personal_intelligence.content.image_generator.converse_text",
+            "private_internet.content.image_generator.converse_text",
             new=AsyncMock(return_value=("prompt", {})),
-        ), patch("personal_intelligence.content.image_generator.boto3") as mock_boto3:
+        ), patch("private_internet.content.image_generator.boto3") as mock_boto3:
             mock_boto3.client.return_value = mock_client
             generator = PostImageGenerator()
             with pytest.raises(RuntimeError):
@@ -179,7 +179,7 @@ class TestAssetStore:
     def test_upload_post_image_returns_cdn_url(self, monkeypatch):
         monkeypatch.setenv("S3_CONTENT_BUCKET", "test-bucket")
         monkeypatch.setenv("CLOUDFRONT_BASE_URL", "https://cdn.example.com/")
-        with patch("personal_intelligence.content.asset_store.boto3") as mock_boto3:
+        with patch("private_internet.content.asset_store.boto3") as mock_boto3:
             mock_s3 = MagicMock()
             mock_boto3.client.return_value = mock_s3
             store = AssetStore()
@@ -225,11 +225,11 @@ class TestGeneratePostsBatch:
         mock_store = MagicMock()
         mock_store.upload_post_image.return_value = "https://cdn/content/posts/x/image.png"
 
-        with patch("personal_intelligence.content.jobs.post_job._connect", return_value=conn), \
-             patch("personal_intelligence.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
-             patch("personal_intelligence.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
-             patch("personal_intelligence.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
-             patch("personal_intelligence.content.jobs.post_job.AssetStore", return_value=mock_store):
+        with patch("private_internet.content.jobs.post_job._connect", return_value=conn), \
+             patch("private_internet.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
+             patch("private_internet.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
+             patch("private_internet.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
+             patch("private_internet.content.jobs.post_job.AssetStore", return_value=mock_store):
             result = await generate_posts_batch(count=1)
 
         assert result["created"] == 1
@@ -263,11 +263,11 @@ class TestGeneratePostsBatch:
         mock_image_gen = MagicMock()
         mock_image_gen.generate_for_post = AsyncMock(side_effect=RuntimeError("nova down"))
 
-        with patch("personal_intelligence.content.jobs.post_job._connect", return_value=conn), \
-             patch("personal_intelligence.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
-             patch("personal_intelligence.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
-             patch("personal_intelligence.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
-             patch("personal_intelligence.content.jobs.post_job.AssetStore", return_value=MagicMock()):
+        with patch("private_internet.content.jobs.post_job._connect", return_value=conn), \
+             patch("private_internet.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
+             patch("private_internet.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
+             patch("private_internet.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
+             patch("private_internet.content.jobs.post_job.AssetStore", return_value=MagicMock()):
             result = await generate_posts_batch(count=1)
 
         assert result["created"] == 1
@@ -282,8 +282,8 @@ class TestGeneratePostsBatch:
         cursor.fetchall.return_value = []
         conn.cursor.return_value = cursor
 
-        with patch("personal_intelligence.content.jobs.post_job._connect", return_value=conn), \
-             patch("personal_intelligence.content.jobs.post_job.AssetStore", return_value=MagicMock()):
+        with patch("private_internet.content.jobs.post_job._connect", return_value=conn), \
+             patch("private_internet.content.jobs.post_job.AssetStore", return_value=MagicMock()):
             result = await generate_posts_batch(count=3)
 
         assert result == {"created": 0, "failed": 0}
