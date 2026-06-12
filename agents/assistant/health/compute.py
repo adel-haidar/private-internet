@@ -4,8 +4,8 @@ from typing import Optional
 
 import asyncpg
 
-from assistant.health.db import fetch_metrics, fetch_latest_metric
-from assistant.health.models import DailyHealthSummary, WEIGHT_GOAL_KG
+from assistant.health.db import fetch_metrics, fetch_latest_metric, fetch_source_days
+from assistant.health.models import DailyHealthSummary, SourceAvailability, WEIGHT_GOAL_KG
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +144,53 @@ async def _compute(pool: asyncpg.Pool, target_date: date) -> DailyHealthSummary:
         progress_to_goal_kg=progress_to_goal_kg,
         weeks_to_goal_at_current_rate=weeks_to_goal,
     )
+
+
+# Device sources grouped per physical device. apple_health rows are Apple Watch
+# data that arrived via the export.xml route, so both count as the watch.
+_DEVICE_SOURCES: dict[str, list[str]] = {
+    "beurer_scale": ["beurer_scale"],
+    "apple_watch":  ["apple_watch", "apple_health"],
+}
+
+
+def _median_gap_days(days: list[date]) -> int:
+    """Median gap in days between consecutive data days. Defaults to 1 (daily)."""
+    if len(days) < 2:
+        return 1
+    gaps = sorted((b - a).days for a, b in zip(days, days[1:]))
+    return max(1, gaps[len(gaps) // 2])
+
+
+async def compute_source_availability(
+    pool: asyncpg.Pool,
+    target_date: date,
+) -> list[SourceAvailability]:
+    """For each device source: is there data on target_date, and if not, when is
+    new data expected (last data day + the source's observed reporting cadence)?"""
+    day_end = datetime(target_date.year, target_date.month, target_date.day,
+                       23, 59, 59, tzinfo=timezone.utc) + timedelta(seconds=1)
+
+    result: list[SourceAvailability] = []
+    for device, sources in _DEVICE_SOURCES.items():
+        days = await fetch_source_days(pool, sources, day_end, days=60)
+        available = target_date in days
+        last_data = max(days) if days else None
+
+        next_expected: Optional[date] = None
+        if not available and last_data is not None:
+            # Project the next data day from the observed cadence; if that day is
+            # already in the past, the earliest realistic arrival is tomorrow.
+            projected = last_data + timedelta(days=_median_gap_days(days))
+            next_expected = max(projected, target_date + timedelta(days=1))
+
+        result.append(SourceAvailability(
+            source=device,
+            available=available,
+            last_data_date=last_data,
+            next_expected_date=next_expected,
+        ))
+    return result
 
 
 async def detect_flags(

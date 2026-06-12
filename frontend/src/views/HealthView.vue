@@ -341,6 +341,17 @@ function flagMeta(f: string) {
   return FLAG_LABELS[f] ?? { label: f.toUpperCase().replace(/_/g, ' '), cls: 'flag--info' }
 }
 
+// ── Data availability display ────────────────────────────────────────────────
+
+const SOURCE_LABELS: Record<string, string> = {
+  beurer_scale: 'SCALE',
+  apple_watch:  'APPLE WATCH',
+}
+
+function sourceLabel(s: string): string {
+  return SOURCE_LABELS[s] ?? s.toUpperCase().replace(/_/g, ' ')
+}
+
 // ── Formatting ────────────────────────────────────────────────────────────────
 
 function fmtKg(v: number | null): string {
@@ -417,11 +428,38 @@ watch(trendDays, (d) => fetchTrends(d))
         {{ dailyError }}
       </div>
 
+      <!-- ── 0. No run stored for this date ───────────────────────────── -->
+      <div v-if="daily && daily.status === 'not_run'" class="state-card state-card--notice">
+        <div class="insight-label">// NO ANALYSIS STORED — {{ daily.date }}</div>
+        <p class="notice-text">{{ daily.reasoning }}</p>
+        <p class="state-hint">Press RUN TODAY to generate one.</p>
+      </div>
+
       <!-- ── 1. Coach insight card ────────────────────────────────────── -->
-      <template v-if="daily">
+      <template v-if="daily && daily.status !== 'not_run'">
         <div class="insight-card">
           <div class="insight-label">// DAILY COACHING NOTE — {{ daily.date }}</div>
           <p class="insight-text">{{ daily.coach_insight }}</p>
+        </div>
+
+        <!-- ── 1b. Device data availability ──────────────────────────── -->
+        <div
+          v-if="(daily.data_availability ?? []).some(a => !a.available)"
+          class="availability-row"
+        >
+          <div
+            v-for="a in (daily.data_availability ?? []).filter(a => !a.available)"
+            :key="a.source"
+            class="availability-card"
+          >
+            <span class="availability-source">{{ sourceLabel(a.source) }}</span>
+            <span class="availability-text">
+              no data for {{ daily.date }}
+              <template v-if="a.last_data_date"> · last: {{ a.last_data_date }}</template>
+              <template v-if="a.next_expected_date"> · expected: <strong>{{ a.next_expected_date }}</strong></template>
+              <template v-if="!a.last_data_date"> · no data ingested yet</template>
+            </span>
+          </div>
         </div>
 
         <!-- ── 2. Active flags ───────────────────────────────────────── -->
@@ -476,6 +514,30 @@ watch(trendDays, (d) => fetchTrends(d))
             >{{ fmtHours(daily.summary.sleep_duration_min) }}</div>
             <div class="kpi-sublabel">Steps: {{ fmtSteps(daily.summary.steps) }}</div>
           </div>
+        </div>
+
+        <!-- ── 4. Analysis (from medical records + metrics) ──────────── -->
+        <div v-if="daily.analysis" class="analysis-card">
+          <div class="insight-label">// ANALYSIS — BASED ON MEDICAL RECORDS + DEVICE DATA</div>
+          <p class="insight-text">{{ daily.analysis }}</p>
+        </div>
+
+        <!-- ── 5. Reasoning ──────────────────────────────────────────── -->
+        <div v-if="daily.reasoning" class="reasoning-block">
+          <div class="insight-label">// REASONING — WHY THIS ANALYSIS</div>
+          <p class="reasoning-text">{{ daily.reasoning }}</p>
+        </div>
+
+        <!-- ── 6. Documents consulted ────────────────────────────────── -->
+        <div v-if="(daily.documents ?? []).length > 0" class="documents-block">
+          <div class="insight-label">// DOCUMENTS FETCHED FROM MEMORY ({{ (daily.documents ?? []).length }})</div>
+          <ul class="documents-list">
+            <li v-for="d in daily.documents" :key="d" class="document-item">{{ d }}</li>
+          </ul>
+        </div>
+        <div v-else class="documents-block">
+          <div class="insight-label">// DOCUMENTS FETCHED FROM MEMORY (0)</div>
+          <p class="reasoning-text">No medical records found in the memory server.</p>
         </div>
       </template>
 
@@ -693,6 +755,101 @@ watch(trendDays, (d) => fetchTrends(d))
   font-size: 14px;
   line-height: 1.65;
   color: var(--text-1);
+}
+
+.state-card--notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notice-text {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+/* ── Data availability ───────────────────────────────────────────────────── */
+.availability-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.availability-card {
+  border: 1px solid var(--status-processing);
+  background: var(--surface);
+  padding: 10px 14px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.availability-source {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--status-processing);
+  border: 1px solid var(--status-processing);
+  padding: 2px 6px;
+  flex: 0 0 auto;
+}
+
+.availability-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  letter-spacing: 0.03em;
+}
+
+.availability-text strong { color: var(--text-1); font-weight: 500; }
+
+/* ── Analysis / reasoning / documents ────────────────────────────────────── */
+.analysis-card {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reasoning-block,
+.documents-block {
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  background: var(--surface);
+  padding: 14px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reasoning-text {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.documents-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.document-item {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  letter-spacing: 0.03em;
+}
+
+.document-item::before {
+  content: '▸ ';
+  color: var(--accent);
 }
 
 /* ── Flags ───────────────────────────────────────────────────────────────── */

@@ -7,9 +7,14 @@ import httpx
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from assistant.health.compute import compute_daily_summary, detect_flags
-from assistant.health.insight import generate_health_insight
+from assistant.health.compute import (
+    compute_daily_summary,
+    compute_source_availability,
+    detect_flags,
+)
+from assistant.health.insight import generate_health_analysis
 from assistant.health.models import HealthInsightResponse
+from assistant.health.records import fetch_medical_records
 
 logger = logging.getLogger(__name__)
 
@@ -35,18 +40,38 @@ async def run_daily_health_workflow(
 
     flags = await detect_flags(pool, summary, history)
 
-    # Step 3 — Generate insight (single LLM call, temp=0, tool_use)
-    insight = generate_health_insight(summary, flags, bedrock_client, model_id)
+    # Step 3 — Per-source data availability: did the scale / watch report today,
+    # and if not, when is new data expected? (pure Python, no LLM)
+    availability = await compute_source_availability(pool, target_date)
 
-    # Step 4 — Assemble response
+    # Step 4 — Fetch medical records from MCP memory (titles are reported back
+    # to the caller as the list of documents the analysis is based on)
+    medical_records: list[tuple[str, str]] = []
+    if mcp_url and mcp_token:
+        try:
+            medical_records = await fetch_medical_records(mcp_url, mcp_token)
+        except Exception:
+            logger.warning("Failed to fetch medical records from MCP memory", exc_info=True)
+
+    # Step 5 — Generate analysis (single LLM call, temp=0, tool_use):
+    # coach_insight + basic analysis + mandatory reasoning
+    llm = generate_health_analysis(
+        summary, flags, availability, medical_records, bedrock_client, model_id
+    )
+
+    # Step 6 — Assemble response
     result = HealthInsightResponse(
         date=target_date,
         summary=summary,
         flags=flags,
-        coach_insight=insight,
+        coach_insight=llm["coach_insight"],
+        analysis=llm["analysis"],
+        reasoning=llm["reasoning"],
+        documents=[title for title, _ in medical_records],
+        data_availability=availability,
     )
 
-    # Step 5 — Persist to MCP memory
+    # Step 7 — Persist to MCP memory
     if mcp_url and mcp_token:
         try:
             await _save_to_mcp_memory(result, mcp_url, mcp_token)

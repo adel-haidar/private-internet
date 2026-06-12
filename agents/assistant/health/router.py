@@ -159,10 +159,19 @@ async def get_daily(
 
     result = await fetch_from_mcp_memory(target_date, settings.mcp_memory_url, token)
     if not result:
-        raise HTTPException(
-            404,
-            f"No health summary found for {target_date.isoformat()}. "
-            "Run POST /api/health/run-daily/{date} first.",
+        # Do NOT raise 404 here: CloudFront rewrites 403/404 responses to the
+        # SPA's index.html (status 200), so the frontend would receive HTML
+        # instead of this error. Return a structured "not run" payload instead.
+        return HealthInsightResponse(
+            date=target_date,
+            status="not_run",
+            summary=DailyHealthSummary(date=target_date),
+            flags=[],
+            coach_insight="",
+            reasoning=(
+                f"No stored health summary for {target_date.isoformat()} — "
+                "the daily workflow has not run for this date yet."
+            ),
         )
     return result
 

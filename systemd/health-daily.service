@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/curl -s -o /dev/null -w "%%{http_code}" \
-    -X POST \
-    -H "Authorization: Bearer ${HEALTH_CRON_TOKEN}" \
-    http://localhost:8000/api/health/run-daily/$(date +%%Y-%%m-%%d)
+EnvironmentFile=/home/ec2-user/personal-intelligence/.env
+# Shell wrapper is required: systemd ExecStart does not perform $(...) command
+# substitution. Health routes are served by the agents service on port 8001.
+ExecStart=/bin/sh -c 'curl -s -o /dev/null -w "%%{http_code}" -X POST -H "Authorization: Bearer $HEALTH_CRON_TOKEN" http://127.0.0.1:8001/api/health/run-daily/$(date +%%Y-%%m-%%d)'

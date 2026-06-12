@@ -47,11 +47,24 @@ class DailyHealthSummary(BaseModel):
     weeks_to_goal_at_current_rate: Optional[float] = None
 
 
+class SourceAvailability(BaseModel):
+    """Data availability for one device source on the target date."""
+    source: Literal["beurer_scale", "apple_watch"]
+    available: bool
+    last_data_date: Optional[date] = None       # most recent day with any data
+    next_expected_date: Optional[date] = None   # when new data should arrive (from cadence)
+
+
 class HealthInsightResponse(BaseModel):
     date: date
+    status: Literal["ok", "not_run"] = "ok"
     summary: DailyHealthSummary
     flags: list[str]
     coach_insight: str
+    analysis: str = ""                          # basic analysis from medical records + metrics
+    reasoning: str = ""                         # why the analysis says what it says
+    documents: list[str] = []                   # mcp-memory documents consulted (titles)
+    data_availability: list[SourceAvailability] = []
 
 
 class ManualEntryRequest(BaseModel):

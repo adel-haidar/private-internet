@@ -20,11 +20,23 @@ export interface DailyHealthSummary {
   weeks_to_goal_at_current_rate: number | null
 }
 
+export interface SourceAvailability {
+  source: 'beurer_scale' | 'apple_watch'
+  available: boolean
+  last_data_date: string | null
+  next_expected_date: string | null
+}
+
 export interface HealthInsightResponse {
   date: string
+  status?: 'ok' | 'not_run'
   summary: DailyHealthSummary
   flags: string[]
   coach_insight: string
+  analysis?: string
+  reasoning?: string
+  documents?: string[]
+  data_availability?: SourceAvailability[]
 }
 
 export interface TrendPoint { date: string; value: number }

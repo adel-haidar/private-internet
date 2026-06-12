@@ -116,6 +116,27 @@ async def fetch_latest_metric(
         return dict(row) if row else None
 
 
+async def fetch_source_days(
+    pool: asyncpg.Pool,
+    sources: list[str],
+    end: datetime,
+    days: int = 60,
+) -> list[date]:
+    """Return the distinct days (ascending) that have any data from the given sources."""
+    start = end - timedelta(days=days)
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT DISTINCT (recorded_at AT TIME ZONE 'UTC')::date AS day
+            FROM health_metrics
+            WHERE source = ANY($1) AND recorded_at >= $2 AND recorded_at < $3
+            ORDER BY day ASC
+            """,
+            sources, start, end,
+        )
+        return [r["day"] for r in rows]
+
+
 async def fetch_trends(
     pool: asyncpg.Pool,
     metric_types: list[str],
