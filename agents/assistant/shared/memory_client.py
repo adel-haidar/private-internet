@@ -191,6 +191,27 @@ class MemoryClient(BaseLLMService):
                 page += 1
         return all_items
 
+    # Authoritative statement-month markers: the Sparkasse header
+    # 'Kontoauszug 5/2026' in the PDF text, or the filename
+    # 'Konto_..._Auszug_2026_0005.pdf' (statement number == month for
+    # monthly statements). Substring date matching (_mentions_month) is only
+    # a fallback — statement text routinely references neighbouring months
+    # ('Rundfunk 04.2026 - 06.2026', Wertstellung dates, opening balance
+    # dates), which previously pulled the SAME statement into several month
+    # buckets and double-counted every transaction.
+    _STATEMENT_HEADER_RE = re.compile(r"Kontoauszug\s+(\d{1,2})\s*/\s*(\d{4})")
+    _TITLE_STATEMENT_RE  = re.compile(r"Auszug_(\d{4})_0*(\d{1,2})")
+
+    def _statement_month(self, item: dict) -> str | None:
+        """Derive the statement month 'YYYY-MM' from header text or filename."""
+        m = self._STATEMENT_HEADER_RE.search(item.get("content") or "")
+        if m:
+            return f"{m.group(2)}-{int(m.group(1)):02d}"
+        m = self._TITLE_STATEMENT_RE.search(item.get("title") or "")
+        if m:
+            return f"{m.group(1)}-{int(m.group(2)):02d}"
+        return None
+
     def _mentions_month(self, text: str, month: str) -> bool:
         """Return True if *text* references *month* in any common German date format.
 
@@ -221,18 +242,24 @@ class MemoryClient(BaseLLMService):
         ).lower()
         return any(kw in haystack for kw in self._BANK_STATEMENT_KEYWORDS)
 
+    # Re-uploads of the same PDF get a numeric suffix before the extension
+    # ('Auszug_2025_0001_1.pdf'); strip it so they dedup against the original.
+    # Suffix is 1-2 digits ('_1') — the 4-digit statement number must not match.
+    _DUP_SUFFIX_RE = re.compile(r"(_\d{4})_\d{1,2}(\.pdf)", re.IGNORECASE)
+
     def _deduplicate_by_title(self, items: list[dict]) -> list[dict]:
-        """Keep only the most recently created memory per exact title.
+        """Keep only the most recently created memory per normalized title.
 
         When a bank statement PDF is uploaded more than once the resulting
-        memory chunks have identical titles (e.g. 'statement.pdf (2/3)').
-        Sorting by created_at ascending and overwriting on the same key means
-        the newest upload wins for every chunk.
+        memory chunks have identical titles (e.g. 'statement.pdf (2/3)') or
+        a '_1' re-upload suffix. Sorting by created_at ascending and
+        overwriting on the same key means the newest upload wins per chunk.
         """
         sorted_items = sorted(items, key=lambda m: m.get("created_at", ""))
         seen: dict[str, dict] = {}
         for item in sorted_items:
-            key = item.get("title") or item["id"]
+            title = item.get("title") or item["id"]
+            key = self._DUP_SUFFIX_RE.sub(r"\1\2", title)
             seen[key] = item
         return list(seen.values())
 
@@ -259,14 +286,32 @@ class MemoryClient(BaseLLMService):
                 query="Auszug", page_size=100
             )
 
-            relevant = [
+            statements = [
                 item for item in all_items
-                if (
-                    self._mentions_month(item.get("content", ""), month)
-                    or self._mentions_month(item.get("title", ""), month)
-                )
-                and self._looks_like_bank_statement(item)
+                if self._looks_like_bank_statement(item)
+                # Skip upload-event stubs ('File uploaded at ... Path: ...')
+                and not (item.get("title") or "").startswith("Uploaded file:")
             ]
+
+            # Primary: exact statement-month match from the 'Kontoauszug N/YYYY'
+            # header or the filename. Prevents a statement that merely MENTIONS
+            # a neighbouring month from being analysed twice.
+            relevant = [
+                item for item in statements
+                if self._statement_month(item) == month
+            ]
+
+            if not relevant:
+                # Fallback for statements without a parsable header/filename:
+                # substring date match (legacy behaviour).
+                relevant = [
+                    item for item in statements
+                    if self._statement_month(item) is None
+                    and (
+                        self._mentions_month(item.get("content", ""), month)
+                        or self._mentions_month(item.get("title", ""), month)
+                    )
+                ]
 
             if not relevant:
                 logger.info(

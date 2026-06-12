@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import date
+from datetime import date, datetime
 
 from assistant.shared.base_llm_service import BaseLLMService
 from assistant.shared.bedrock_retry import invoke_with_tool_retry
@@ -15,62 +15,100 @@ def parse_german_amount(s: str) -> float:
     return float(s)
 
 
-_SIGNED_AMOUNT_RE = re.compile(
-    r"(?<!\d)([+-])\s*(\d{1,3}(?:\.\d{3})*,\d{2})(?!\d)"
-    r"|"
-    r"(?<!\d)(\d{1,3}(?:\.\d{3})*,\d{2})\s*([+-])(?!\d)"
+# Sparkasse PDF-text layout: every transaction amount sits ALONE on its own
+# line, right-aligned. Debits carry a leading '-'; credits are UNSIGNED
+# (there is no '+' anywhere in the statement). Matching standalone amount
+# lines therefore captures exactly the booked transactions while excluding
+# fee-summary lines ('Paketpreis 1 x 9,90    9,90-'), balance lines
+# ('Kontostand am ... 6.443,29') and Rechnungsabschluss lines
+# ('Kontostand in EUR am ... 2.144,44 +'), all of which have other text on
+# the same line. Optional leading/trailing signs keep other bank formats
+# (explicit '+', trailing '-') working.
+_TXN_LINE_RE = re.compile(
+    r"^[ \t]*([+-])?[ \t]*(\d{1,3}(?:\.\d{3})*,\d{2})[ \t]*([+-])?[ \t]*$",
+    re.MULTILINE,
 )
 _SECTION_RE  = re.compile(r"=== BANK STATEMENT (\d{4}-\d{2}) ===")
-_OPENING_RE  = re.compile(
-    r"(?:Anfangssaldo|Saldo\s*alt|Alter\s*Saldo|Vortrag)\s*[:\s]+"
-    r"([+-]?\d{1,3}(?:\.\d{3})*,\d{2})",
-    re.IGNORECASE,
-)
-_CLOSING_RE  = re.compile(
-    r"(?:Endsaldo|Saldo\s*neu|Neuer\s*Saldo|Schlusssaldo)\s*[:\s]+"
-    r"([+-]?\d{1,3}(?:\.\d{3})*,\d{2})",
-    re.IGNORECASE,
+# Balance lines: 'Kontostand am 30.01.2026 um 20:05 Uhr      6.443,29' and
+# 'Kontostand in EUR am 29.12.2025      2.144,44 +'. The amount is the last
+# token on the line; the sign (if any) trails it.
+_BALANCE_LINE_RE = re.compile(
+    r"Kontostand[^\n]*?am\s+(\d{2}\.\d{2}\.\d{4})[^\n]*?"
+    r"(?<![\d.,])(\d{1,3}(?:\.\d{3})*,\d{2})\s*([+-])?\s*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
-def _extract_signed_totals(text: str) -> tuple[float, float]:
+def _extract_transaction_totals(text: str) -> tuple[float, float]:
+    """Sum standalone-line amounts into (credits, debits). Unsigned = credit."""
     credits = 0.0
     debits  = 0.0
-    for m in _SIGNED_AMOUNT_RE.finditer(text):
-        if m.group(1) is not None:
-            sign, raw = m.group(1), m.group(2)
-        else:
-            raw, sign = m.group(3), m.group(4)
+    for m in _TXN_LINE_RE.finditer(text):
+        leading, raw, trailing = m.groups()
+        sign = leading or trailing or "+"
         try:
             amount = parse_german_amount(raw)
         except ValueError:
             continue
-        if sign == "+":
-            credits += amount
-        else:
+        if sign == "-":
             debits += amount
+        else:
+            credits += amount
     return credits, debits
 
 
-def _extract_balance_net(text: str) -> float | None:
-    opening_m = _OPENING_RE.search(text)
-    closing_m = _CLOSING_RE.search(text)
-    if not (opening_m and closing_m):
+def _extract_balances(text: str) -> list[tuple[date, float]]:
+    """Extract dated 'Kontostand' balance lines, sorted by date.
+
+    A statement's first balance (dated in the previous month) is the opening
+    balance; the last is the closing balance. Rechnungsabschluss balances fall
+    in between and are harmless once sorted by date.
+    """
+    entries: list[tuple[date, float]] = []
+    for m in _BALANCE_LINE_RE.finditer(text):
+        date_str, raw, sign = m.groups()
+        try:
+            day   = datetime.strptime(date_str, "%d.%m.%Y").date()
+            value = parse_german_amount(raw)
+        except ValueError:
+            continue
+        if sign == "-":
+            value = -value
+        entries.append((day, value))
+    entries.sort(key=lambda e: e[0])
+    return entries
+
+
+def _balance_net_for_month(text: str, month_str: str) -> float | None:
+    """Net change derived from opening/closing balances, if both are present.
+
+    Only trusted when the earliest balance is dated BEFORE the statement month
+    (i.e. it is a genuine opening balance carried over from the prior month) —
+    otherwise the earliest line might be a mid-month Rechnungsabschluss.
+    """
+    entries = _extract_balances(text)
+    if len(entries) < 2:
         return None
     try:
-        opening = parse_german_amount(opening_m.group(1))
-        closing = parse_german_amount(closing_m.group(1))
-        return closing - opening
+        month_start = datetime.strptime(month_str, "%Y-%m").date()
     except ValueError:
         return None
+    opening_date, opening = entries[0]
+    _, closing = entries[-1]
+    if opening_date >= month_start:
+        return None
+    return closing - opening
 
 
 def compute_financial_aggregates(statement_text: str) -> dict:
     """Deterministically compute financial aggregates from raw bank statement text.
 
     Pure Python — no LLM involved. Splits the multi-month statement on
-    '=== BANK STATEMENT YYYY-MM ===' markers, extracts signed amounts via
-    regex, and accumulates totals.
+    '=== BANK STATEMENT YYYY-MM ===' markers, sums standalone transaction
+    lines (debits signed '-', credits unsigned in the Sparkasse layout), and
+    cross-validates each month's net against the statement's opening/closing
+    'Kontostand' balances. When both are available and disagree, the balance
+    delta wins — it is printed by the bank and immune to extraction noise.
     """
     today         = date.today()
     current_year  = today.year
@@ -91,22 +129,36 @@ def compute_financial_aggregates(statement_text: str) -> dict:
     monthly_nets: dict[str, float] = {}
 
     for month_str, content in sections.items():
-        match_count = len(_SIGNED_AMOUNT_RE.findall(content))
+        credits, debits = _extract_transaction_totals(content)
+        balance_net     = _balance_net_for_month(content, month_str)
+        txn_net         = credits - debits
+
         logger.info(
-            "Month %s: %d chars, %d signed-amount regex matches, preview: %r",
-            month_str, len(content), match_count, content[:300],
+            "Month %s: %d chars, credits=%.2f debits=%.2f txn_net=%.2f balance_net=%s",
+            month_str, len(content), credits, debits, txn_net,
+            f"{balance_net:.2f}" if balance_net is not None else "n/a",
         )
-        credits, debits = _extract_signed_totals(content)
 
-        if credits == 0.0 and debits == 0.0:
-            balance_net = _extract_balance_net(content)
-            if balance_net is not None:
-                if balance_net >= 0:
-                    credits = balance_net
-                else:
-                    debits = abs(balance_net)
+        if balance_net is not None:
+            if abs(balance_net - txn_net) > 2.0:
+                logger.warning(
+                    "Month %s: transaction sum (%.2f) disagrees with "
+                    "opening/closing balance delta (%.2f) — using balance delta",
+                    month_str, txn_net, balance_net,
+                )
+            net = balance_net
+        else:
+            net = txn_net
 
-        monthly_nets[month_str] = credits - debits
+        if credits == 0.0 and debits == 0.0 and balance_net is not None:
+            # No parseable transaction lines — attribute the whole net so the
+            # period totals still reflect this month.
+            if net >= 0:
+                credits = net
+            else:
+                debits = abs(net)
+
+        monthly_nets[month_str] = net
         period_income   += credits
         period_expenses += debits
 
@@ -115,7 +167,7 @@ def compute_financial_aggregates(statement_text: str) -> dict:
         if month_str.startswith(str(current_year))
     )
 
-    net_savings_this_period = period_income - period_expenses
+    net_savings_this_period = sum(monthly_nets.values())
     remaining_target        = yearly_target - savings_ytd
     months_elapsed          = current_month
     months_remaining        = 12 - months_elapsed
@@ -142,6 +194,7 @@ def compute_financial_aggregates(statement_text: str) -> dict:
         "total_income":             round(period_income, 2),
         "total_expenses":           round(period_expenses, 2),
         "net_savings_this_period":  round(net_savings_this_period, 2),
+        "monthly_nets":             {m: round(n, 2) for m, n in sorted(monthly_nets.items())},
         "savings_ytd":              round(savings_ytd, 2),
         "yearly_target":            yearly_target,
         "remaining_target":         round(remaining_target, 2),
@@ -385,6 +438,11 @@ ABOUT ADEL (immutable facts)
 
 MULTI-MONTH FORMAT
 Bank statements arrive labelled === BANK STATEMENT YYYY-MM ===.
+- Amount sign convention (Sparkasse PDF text): debits carry a leading '-',
+  credits (salary, rent received, refunds) are UNSIGNED positive amounts.
+- 'Kontostand am ...' lines are account BALANCES, not transactions.
+  'Entgeltabschluss'/'Rechnungsabschluss' annexes repeat fee/interest amounts
+  already booked as transactions — never count them twice.
 - chart_data arrays MUST contain one entry PER MONTH.
 - meta.analysis_period must be {from: "YYYY-MM-01", to: "YYYY-MM-DD"} using the first and last months.
 - yearly_progress.savings_ytd is the SUM of net_savings across all months in the range.
@@ -446,7 +504,7 @@ class BankAdviser(BaseLLMService):
             )
         else:
             logger.info(
-                "Pre-computation found no explicitly-signed amounts; "
+                "Pre-computation found no transaction lines or balances; "
                 "LLM will derive totals from statement text."
             )
 
@@ -482,12 +540,17 @@ class BankAdviser(BaseLLMService):
 
         if ground_truth.get("valid"):
             gt = ground_truth
+            monthly_lines = "".join(
+                f"    {month}: {net:+.2f} EUR\n"
+                for month, net in gt.get("monthly_nets", {}).items()
+            )
             parts.append(
                 "══════════════════════════════════════════\n"
                 "PRE-COMPUTED FINANCIAL AGGREGATES — DO NOT RECALCULATE\n"
                 "══════════════════════════════════════════\n"
                 "Copy these exact values into the corresponding tool fields.\n"
                 "Do NOT re-sum or re-derive them from the transaction list.\n\n"
+                f"  net savings per month:\n{monthly_lines}"
                 f"  total_income (this period):      {gt['total_income']:.2f} EUR\n"
                 f"  total_expenses (this period):    {gt['total_expenses']:.2f} EUR\n"
                 f"  net_savings_this_period:         {gt['net_savings_this_period']:.2f} EUR\n"
@@ -501,7 +564,9 @@ class BankAdviser(BaseLLMService):
                 f"  months_remaining:                {gt['months_remaining']}\n\n"
                 "Your tasks: categorise transactions, compute per-category spend,\n"
                 "detect anomalies, propose budget allocations, generate recommendations\n"
-                "and savings_opportunities, populate chart_data using the values above."
+                "and savings_opportunities, populate chart_data using the values above.\n"
+                "Use 'net savings per month' for income_vs_expenses_bar.savings and the\n"
+                "cumulative sums for savings_progress_line.cumulative_savings."
             )
 
         parts.append(f"<bank-statement>\n{statement}\n</bank-statement>")
