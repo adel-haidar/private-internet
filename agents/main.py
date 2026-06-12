@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from assistant.banking.bank_adviser import BankAdviser
 from assistant.banking.models import BankAdviserResult
+from assistant.health.router import router as health_router
 from assistant.job.router import router as job_router
 from assistant.email.auth_service import MicrosoftTokenStore, get_token_store
 from assistant.email.email_assessor import EmailAssessor
@@ -28,6 +29,7 @@ from assistant.shared.settings import Settings, get_settings
 logger = logging.getLogger(__name__)
 app = FastAPI()
 app.include_router(job_router, prefix="/api/jobs")
+app.include_router(health_router, prefix="/api")
 
 
 class AnalyseRequest(BaseModel):

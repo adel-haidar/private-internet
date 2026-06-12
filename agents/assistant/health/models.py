@@ -1,0 +1,61 @@
+from datetime import date, datetime
+from typing import Literal, Optional
+
+from pydantic import BaseModel
+
+METRIC_TYPE = Literal[
+    "weight_kg",
+    "body_fat_percent",
+    "resting_hr",
+    "hrv_ms",
+    "sleep_duration_min",
+    "sleep_score",
+    "steps",
+    "active_energy_kcal",
+    "vo2_max",
+]
+
+SOURCE = Literal["apple_watch", "apple_health", "beurer_scale", "manual"]
+
+WEIGHT_GOAL_KG = 73.0
+
+
+class HealthMetric(BaseModel):
+    id: Optional[int] = None
+    recorded_at: datetime
+    metric_type: METRIC_TYPE
+    value: float
+    unit: str
+    source: SOURCE
+    created_at: Optional[datetime] = None
+
+
+class DailyHealthSummary(BaseModel):
+    date: date
+    weight_kg: Optional[float] = None
+    weight_7day_avg: Optional[float] = None
+    weight_trend_kg_per_week: Optional[float] = None   # negative = losing
+    body_fat_percent: Optional[float] = None
+    resting_hr: Optional[float] = None
+    resting_hr_7day_avg: Optional[float] = None
+    hrv_ms: Optional[float] = None
+    sleep_duration_min: Optional[float] = None
+    sleep_score: Optional[float] = None
+    steps: Optional[int] = None
+    active_energy_kcal: Optional[float] = None
+    progress_to_goal_kg: Optional[float] = None        # current - 73.0
+    weeks_to_goal_at_current_rate: Optional[float] = None
+
+
+class HealthInsightResponse(BaseModel):
+    date: date
+    summary: DailyHealthSummary
+    flags: list[str]
+    coach_insight: str
+
+
+class ManualEntryRequest(BaseModel):
+    recorded_at: datetime
+    metric_type: METRIC_TYPE
+    value: float
+    unit: str

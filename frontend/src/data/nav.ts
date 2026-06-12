@@ -16,8 +16,9 @@ export const NAV: NavItem[] = [
   { idx: '02', label: 'Memory',             name: 'memory',     icon: 'memory',     status: 'active' },
   { idx: '03', label: 'Email Intelligence', name: 'email',      icon: 'email',      status: 'standby' },
   { idx: '04', label: 'Bank Adviser',       name: 'bank',       icon: 'bank',       status: 'error' },
-  { idx: '05', label: 'Job Agent',          name: 'job',        icon: 'job',        status: 'classified', badge: 'CLASSIFIED' },
-  { idx: '06', label: 'Hermes',             name: 'hermes',     icon: 'hermes',     status: 'standby' },
+  { idx: '05', label: 'Health Intel',       name: 'health',     icon: 'health',     status: 'active' },
+  { idx: '06', label: 'Job Agent',          name: 'job',        icon: 'job',        status: 'classified', badge: 'CLASSIFIED' },
+  { idx: '07', label: 'Hermes',             name: 'hermes',     icon: 'hermes',     status: 'standby' },
 ]
 
 export const SETTINGS: NavItem = {
@@ -42,4 +43,5 @@ export const ICONS: Record<string, string> = {
   hermes:     '<path d="M14.5 1.5L1.5 7l5 2 2 5z"/><path d="M14.5 1.5L6.5 9"/>',
   settings:   '<circle cx="8" cy="8" r="2.3"/><path d="M8 1.5v2.2M8 12.3v2.2M1.5 8h2.2M12.3 8h2.2M3.4 3.4l1.6 1.6M11 11l1.6 1.6M12.6 3.4L11 5M5 11l-1.6 1.6"/>',
   logout:     '<path d="M6 2.5H3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3"/><path d="M9.5 11l3-3-3-3"/><path d="M12.5 8H6"/>',
+  health:     '<circle cx="8" cy="8" r="5.5"/><path d="M2 8h2.5l2-4 2.5 8 2-4H14"/>',
 }

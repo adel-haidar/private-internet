@@ -1,0 +1,10 @@
+[Unit]
+Description=Run daily health workflow
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -s -o /dev/null -w "%%{http_code}" \
+    -X POST \
+    -H "Authorization: Bearer ${HEALTH_CRON_TOKEN}" \
+    http://localhost:8000/api/health/run-daily/$(date +%%Y-%%m-%%d)
