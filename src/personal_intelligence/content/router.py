@@ -11,6 +11,7 @@ from personal_intelligence.auth.oauth import validate_token
 from personal_intelligence.content.creators import list_creators
 from personal_intelligence.database import _connect
 from personal_intelligence.content.jobs.topic_job import run_topic_intelligence_job
+from personal_intelligence.content.jobs.post_job import generate_posts_batch
 
 router = APIRouter(prefix="/api/content")
 
@@ -24,6 +25,19 @@ async def _require_auth(request: Request) -> str:
     if not client_id:
         raise HTTPException(status_code=401, detail="invalid token")
     return client_id
+
+
+async def _require_internal_secret(
+    x_internal_secret: Optional[str] = Header(None, alias="X-Internal-Secret"),
+) -> None:
+    expected_secret = os.getenv("INTERNAL_SECRET")
+    if not expected_secret:
+        raise HTTPException(
+            status_code=500,
+            detail="INTERNAL_SECRET env var is not configured on the server",
+        )
+    if x_internal_secret != expected_secret:
+        raise HTTPException(status_code=401, detail="Invalid internal secret")
 
 
 def _serialize_row(row: dict) -> dict:
@@ -170,19 +184,24 @@ async def get_topics(
 @router.post("/jobs/topics/run", status_code=202)
 async def run_topic_intelligence_job_endpoint(
     background_tasks: BackgroundTasks,
-    x_internal_secret: Optional[str] = Header(None, alias="X-Internal-Secret"),
+    _: None = Depends(_require_internal_secret),
 ):
-    expected_secret = os.getenv("INTERNAL_SECRET")
-    if not expected_secret:
-        raise HTTPException(
-            status_code=500,
-            detail="INTERNAL_SECRET env var is not configured on the server"
-        )
-    if x_internal_secret != expected_secret:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid internal secret"
-        )
-    
     background_tasks.add_task(run_topic_intelligence_job)
     return {"status": "enqueued", "job": "topic_intelligence"}
+
+
+class PostsJobRequest(BaseModel):
+    count: int = 3
+
+
+@router.post("/jobs/posts/run", status_code=202)
+async def run_post_generation_job_endpoint(
+    background_tasks: BackgroundTasks,
+    body: Optional[PostsJobRequest] = None,
+    _: None = Depends(_require_internal_secret),
+):
+    count = body.count if body else 3
+    if not (1 <= count <= 10):
+        raise HTTPException(status_code=422, detail="count must be between 1 and 10")
+    background_tasks.add_task(generate_posts_batch, count)
+    return {"status": "enqueued", "job": "post_generation", "count": count}

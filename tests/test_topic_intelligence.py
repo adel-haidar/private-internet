@@ -277,29 +277,28 @@ class TestJobOrchestration:
 class TestRouterEndpoint:
     @pytest.mark.anyio
     async def test_run_job_endpoint_unauthorized(self):
-        from personal_intelligence.content.router import run_topic_intelligence_job_endpoint
-        
-        mock_bg = MagicMock()
+        from personal_intelligence.content.router import _require_internal_secret
+
         with (
             patch("os.getenv", return_value="super-secret"),
             pytest.raises(HTTPException) as exc_info
         ):
-            await run_topic_intelligence_job_endpoint(
-                background_tasks=mock_bg,
-                x_internal_secret="wrong-secret"
-            )
+            await _require_internal_secret(x_internal_secret="wrong-secret")
         assert exc_info.value.status_code == 401
 
     @pytest.mark.anyio
     async def test_run_job_endpoint_authorized(self):
-        from personal_intelligence.content.router import run_topic_intelligence_job_endpoint
-        
+        from personal_intelligence.content.router import (
+            _require_internal_secret,
+            run_topic_intelligence_job_endpoint,
+        )
+
         mock_bg = MagicMock()
         with patch("os.getenv", return_value="super-secret"):
-            response = await run_topic_intelligence_job_endpoint(
-                background_tasks=mock_bg,
-                x_internal_secret="super-secret"
-            )
-            
+            # Dependency passes with the right secret…
+            await _require_internal_secret(x_internal_secret="super-secret")
+            # …and the endpoint enqueues the job
+            response = await run_topic_intelligence_job_endpoint(background_tasks=mock_bg)
+
         assert response["status"] == "enqueued"
         mock_bg.add_task.assert_called_once()

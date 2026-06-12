@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 import google.generativeai as genai
+from google.generativeai import protos
 import boto3
 from personal_intelligence.config import get_settings
 from personal_intelligence.content.topic_intelligence import TopicCandidate
@@ -29,10 +30,13 @@ class WebResearchService:
             logger.warning("GEMINI_API_KEY environment variable is not set.")
         genai.configure(api_key=api_key)
         
-        # Configure the generative model with Google Search retrieval enabled
+        # Configure the generative model with Google Search grounding enabled.
+        # Note: gemini-2.0 models require the `google_search` tool — the API
+        # rejects the older `google_search_retrieval` (1.5-only). The legacy
+        # SDK can't build `google_search` from a dict, so use the proto directly.
         self.model = genai.GenerativeModel(
             model_name="gemini-2.0-flash",
-            tools=[{"google_search_retrieval": {}}]
+            tools=[protos.Tool(google_search=protos.Tool.GoogleSearch())]
         )
 
     async def research_topic(self, topic: TopicCandidate) -> List[ResearchResult]:

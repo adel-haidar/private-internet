@@ -30,6 +30,7 @@ def init_content_db() -> None:
             slug VARCHAR(256) UNIQUE NOT NULL,
             source VARCHAR(32) NOT NULL,
             source_ref TEXT,
+            keywords TEXT[],
             weight FLOAT DEFAULT 0.5,
             used_count INT DEFAULT 0,
             last_used_at TIMESTAMPTZ,
@@ -91,6 +92,9 @@ def init_content_db() -> None:
             created_at TIMESTAMPTZ DEFAULT now()
         )
     """)
+
+    # Added after P1: topic keywords feed the P3 creator-affinity matching.
+    cur.execute("ALTER TABLE content_topics ADD COLUMN IF NOT EXISTS keywords TEXT[]")
 
     cur.execute("CREATE INDEX IF NOT EXISTS idx_posts_creator ON content_posts(creator_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_posts_topic ON content_posts(topic_id)")

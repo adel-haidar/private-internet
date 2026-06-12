@@ -31,6 +31,7 @@ class ContentTopic:
     slug: str
     source: str
     source_ref: str
+    keywords: List[str] = field(default_factory=list)
     weight: float = 0.5
     used_count: int = 0
     last_used_at: Optional[datetime] = None
@@ -179,10 +180,10 @@ class TopicStorageService:
 
             if row:
                 topic_id = row["id"]
-                # Update weight to the new relevance weight
+                # Update weight to the new relevance weight (and refresh keywords)
                 cur.execute(
-                    "UPDATE content_topics SET weight = %s WHERE id = %s",
-                    (weight, topic_id)
+                    "UPDATE content_topics SET weight = %s, keywords = %s WHERE id = %s",
+                    (weight, candidate.keywords, topic_id)
                 )
 
                 # Append new research links only
@@ -210,6 +211,7 @@ class TopicStorageService:
                     slug=updated_row["slug"],
                     source=updated_row["source"],
                     source_ref=updated_row["source_ref"],
+                    keywords=updated_row.get("keywords") or [],
                     weight=updated_row["weight"],
                     used_count=updated_row["used_count"],
                     last_used_at=updated_row["last_used_at"],
@@ -220,9 +222,9 @@ class TopicStorageService:
                 created_at = datetime.now(timezone.utc)
                 
                 cur.execute(
-                    """INSERT INTO content_topics (id, name, slug, source, source_ref, weight, used_count, last_used_at, created_at)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (topic_id, candidate.name, candidate.slug, candidate.source, candidate.source_ref, weight, 0, None, created_at)
+                    """INSERT INTO content_topics (id, name, slug, source, source_ref, keywords, weight, used_count, last_used_at, created_at)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (topic_id, candidate.name, candidate.slug, candidate.source, candidate.source_ref, candidate.keywords, weight, 0, None, created_at)
                 )
 
                 for res in research:
@@ -240,6 +242,7 @@ class TopicStorageService:
                     slug=candidate.slug,
                     source=candidate.source,
                     source_ref=candidate.source_ref,
+                    keywords=candidate.keywords,
                     weight=weight,
                     used_count=0,
                     last_used_at=None,
