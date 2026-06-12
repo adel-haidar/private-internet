@@ -251,10 +251,12 @@ class MemoryClient(BaseLLMService):
             month: ISO year-month string, e.g. '2026-01'.
         """
         try:
-            # Primary: paginated REST API — deterministic and exhaustive
-            # Search for "Konto Auszug <month>" to bias toward bank statements
+            # Primary: paginated REST API — deterministic and exhaustive.
+            # Use "Auszug" so the ILIKE matches "Konto_NNNN-Auszug_..." filenames;
+            # the full phrase "Konto Auszug" never appears verbatim in the title.
+            # Month matching is done client-side by _mentions_month().
             all_items = await self._list_memories_api(
-                query=f"Konto Auszug {month}", page_size=100
+                query="Auszug", page_size=100
             )
 
             relevant = [
@@ -267,7 +269,7 @@ class MemoryClient(BaseLLMService):
             ]
 
             if not relevant:
-                logger.debug(
+                logger.info(
                     "No bank-statement memories found for %s via REST API "
                     "(checked %d items total)",
                     month, len(all_items),
@@ -278,7 +280,7 @@ class MemoryClient(BaseLLMService):
             # Sort by title so multi-chunk PDFs appear in order (Part 1, 2, …)
             deduplicated.sort(key=lambda m: m.get("title", ""))
 
-            logger.debug(
+            logger.info(
                 "Exhaustive fetch for %s: %d raw items → %d after filter+dedup",
                 month, len(all_items), len(deduplicated),
             )
