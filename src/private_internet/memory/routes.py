@@ -13,6 +13,7 @@ from private_internet.memory.service import (
     delete_memory,
     list_memories,
     save_memory,
+    search_memories,
     update_memory,
 )
 
@@ -56,6 +57,32 @@ async def list_memory(
     items, total = list_memories(page=page, page_size=page_size, query=q, user_id=ctx.user_id)
     pages = max(1, (total + page_size - 1) // page_size)
     return {"items": items, "total": total, "page": page, "pages": pages}
+
+
+@router.get("/memory/search")
+async def semantic_search_memory(
+    q: str,
+    k: int = 10,
+    ctx: RequestContext = Depends(get_request_context),
+):
+    """Semantic (vector) search over memory CONTENT — ranked by embedding
+    similarity, not title/tag substring. Returns full memories so workflows
+    (health, bank adviser, …) can retrieve by *meaning*, not by filename.
+    """
+    k = max(1, min(k, 50))
+    results = search_memories(q, user_id=ctx.user_id, limit=k)
+    return {
+        "items": [
+            {
+                "memory_id": m.memory_id,
+                "title": m.title,
+                "content": m.content,
+                "tags": m.tags,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in results
+        ]
+    }
 
 
 @router.get("/memory/stats")

@@ -10,7 +10,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from private_internet.memory.service import Memory, delete_memory, update_memory
+from private_internet.memory.service import (
+    Memory,
+    delete_memory,
+    search_memories,
+    update_memory,
+)
 
 
 def _make_memory(**kwargs) -> Memory:
@@ -132,6 +137,37 @@ class TestDeleteMemory:
         with patch("private_internet.memory.service._connect", return_value=_mock_conn(rowcount=0)):
             result = delete_memory("nonexistent-id", user_id="u1")
         assert result is False
+
+
+# ── search_memories: semantic, content-ranked, user-scoped ─────
+
+class TestSearchMemories:
+    def _row(self, mid="m1"):
+        return {
+            "memory_id": mid, "title": "Blood panel", "content": "Cholesterol 180 mg/dl",
+            "tags": "file-upload,pdf", "created_at": datetime.now(timezone.utc),
+            "updated_at": None,
+        }
+
+    def test_uses_vector_search_with_limit_and_user_scope(self):
+        conn = MagicMock()
+        cursor = MagicMock()
+        cursor.fetchall.return_value = [self._row()]
+        conn.cursor.return_value = cursor
+        with (
+            patch("private_internet.memory.service._get_embedding", return_value=[0.1] * 1024),
+            patch("private_internet.memory.service._connect", return_value=conn),
+        ):
+            results = search_memories("lab results", user_id="u1", limit=12)
+
+        assert len(results) == 1
+        assert results[0].content == "Cholesterol 180 mg/dl"
+        sql, params = cursor.execute.call_args.args
+        # ranks by embedding distance (semantic), not title/tags substring
+        assert "embedding <=> %s::vector" in sql and "ORDER BY distance" in sql
+        assert "LIMIT %s" in sql
+        assert params[-1] == 12      # limit honored
+        assert "u1" in params        # MUST SCOPE BY USER
 
 
 # ── MCP delete tool: confirm=False guard ──────────────────────

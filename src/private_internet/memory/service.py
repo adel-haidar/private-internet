@@ -113,7 +113,10 @@ def fetch_memory(memory_id: str, *, user_id: str) -> Memory | None:
     return _row_to_memory(row)
 
 
-def search_memories(query: str, *, user_id: str) -> list[Memory]:
+def search_memories(query: str, *, user_id: str, limit: int = 5) -> list[Memory]:
+    """Semantic search over memory CONTENT via pgvector cosine distance on the
+    Titan embedding. Returns the `limit` most semantically-relevant memories
+    (full content), NOT a title/tag substring match."""
     assert user_id is not None, "user_id must be set before any memory operation"
     embedding = _get_embedding(query)
 
@@ -124,8 +127,8 @@ def search_memories(query: str, *, user_id: str) -> list[Memory]:
            FROM memories
            WHERE user_id = %s
            ORDER BY distance
-           LIMIT 5""",
-        (str(embedding), user_id),
+           LIMIT %s""",
+        (str(embedding), user_id, limit),
     )
     rows = cur.fetchall()
     cur.close()
@@ -166,19 +169,21 @@ def list_memories(
 
     if query:
         like = f"%{query}%"
+        # Match content as well as title/tags — a document's text matters more
+        # than its filename. (Semantic ranking is available via search_memories.)
         cur.execute(
             """SELECT COUNT(*) FROM memories
-               WHERE user_id = %s AND (title ILIKE %s OR tags ILIKE %s)""",
-            (user_id, like, like),
+               WHERE user_id = %s AND (title ILIKE %s OR tags ILIKE %s OR content ILIKE %s)""",
+            (user_id, like, like, like),
         )
         total = cur.fetchone()["count"]
         cur.execute(
             """SELECT memory_id, title, tags, created_at, updated_at, content
                FROM memories
-               WHERE user_id = %s AND (title ILIKE %s OR tags ILIKE %s)
+               WHERE user_id = %s AND (title ILIKE %s OR tags ILIKE %s OR content ILIKE %s)
                ORDER BY created_at DESC
                LIMIT %s OFFSET %s""",
-            (user_id, like, like, page_size, offset),
+            (user_id, like, like, like, page_size, offset),
         )
     else:
         cur.execute("SELECT COUNT(*) FROM memories WHERE user_id = %s", (user_id,))

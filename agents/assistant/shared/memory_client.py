@@ -280,13 +280,12 @@ class MemoryClient(BaseLLMService):
             month: ISO year-month string, e.g. '2026-01'.
         """
         try:
-            # Primary: paginated REST API — deterministic and exhaustive.
-            # Use "Auszug" so the ILIKE matches "Konto_NNNN-Auszug_..." filenames;
-            # the full phrase "Konto Auszug" never appears verbatim in the title.
-            # Month matching is done client-side by _mentions_month().
-            all_items = await self._list_memories_api(
-                query="Auszug", page_size=100
-            )
+            # Primary: fetch ALL memories and select bank statements by their
+            # CONTENT (_looks_like_bank_statement checks German banking keywords in
+            # title+content), NOT by filename. Retrieval must not depend on how a
+            # statement happens to be named or tagged. Month matching is done
+            # client-side from the statement header/content.
+            all_items = await self._list_memories_api(page_size=100)
 
             statements = [
                 item for item in all_items

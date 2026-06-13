@@ -33,10 +33,25 @@ def _api_base_url(mcp_url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
+async def _semantic_search_api(
+    base_url: str, token: str, query: str, k: int = 25
+) -> list[dict]:
+    """Semantic (vector) search over memory CONTENT — finds documents by meaning,
+    regardless of filename or tags. This is the primary retrieval path."""
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+        resp = await client.get(
+            f"{base_url}/api/memory/search", params={"q": query, "k": str(k)}
+        )
+        resp.raise_for_status()
+        return resp.json().get("items", [])
+
+
 async def _list_memories_api(
     base_url: str, token: str, query: str, page_size: int = 100
 ) -> list[dict]:
-    """Paginated REST fetch — deterministic and exhaustive for a given filter."""
+    """Paginated REST fetch. The server-side `q` filter now matches title, tags
+    AND content, so keyword recall covers document text too."""
     headers = {"Authorization": f"Bearer {token}"}
     all_items: list[dict] = []
     page = 1
@@ -67,16 +82,24 @@ async def fetch_medical_records(
     base_url = _api_base_url(mcp_url)
     by_title: dict[str, str] = {}
 
+    def _absorb(items: list[dict]) -> None:
+        for item in items:
+            title = (item.get("title") or "").strip()
+            content = item.get("content") or ""
+            if not title or not content:
+                continue
+            if title.lower().startswith(_SELF_TITLE_PREFIX):
+                continue
+            by_title.setdefault(title, content)
+
     try:
+        # Primary: semantic search over content — finds medical docs by meaning
+        # (lab values, diagnoses, medications), independent of how they're named.
+        _absorb(await _semantic_search_api(base_url, token, _SEMANTIC_QUERY, k=25))
+        # Supplementary recall: keyword filter (now matches content server-side),
+        # so an explicit term in a document's text is never missed.
         for query in _MEDICAL_QUERIES:
-            for item in await _list_memories_api(base_url, token, query):
-                title = (item.get("title") or "").strip()
-                content = item.get("content") or ""
-                if not title or not content:
-                    continue
-                if title.lower().startswith(_SELF_TITLE_PREFIX):
-                    continue
-                by_title.setdefault(title, content)
+            _absorb(await _list_memories_api(base_url, token, query))
     except Exception:
         logger.warning(
             "REST medical-record fetch failed — falling back to MCP semantic search",
