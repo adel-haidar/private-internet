@@ -34,6 +34,7 @@ import PiInput from '../components/ui/PiInput.vue'
 import ProgressBar from '../components/ui/ProgressBar.vue'
 import Tag from '../components/ui/Tag.vue'
 import PIIcon from '../components/ui/PIIcon.vue'
+import IconButton from '../components/ui/IconButton.vue'
 import { useToast } from '../components/ui/useToast'
 import { requireAuth } from '../composables/useAuth'
 import { deleteMemory } from '../composables/useMemories'
@@ -60,6 +61,7 @@ const loadingMore = ref(false)
 const initialLoading = ref(true)
 const justAddedId = ref<string | null>(null)
 const hoverId = ref<string | null>(null)
+const viewing = ref<Memory | null>(null)  // memory shown in the "View full" modal
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const sentinelRef = ref<HTMLElement | null>(null)
 let observer: IntersectionObserver | null = null
@@ -448,7 +450,7 @@ const hasMore = computed(() => page.value < pages.value)
               class="brain-card__actions"
               :style="{ opacity: hoverId === m.memory_id ? 1 : 0 }"
             >
-              <PiButton variant="ghost" size="compact">View full</PiButton>
+              <PiButton variant="ghost" size="compact" @click.stop="viewing = m">View full</PiButton>
               <PiButton
                 variant="ghost"
                 size="compact"
@@ -471,6 +473,27 @@ const hasMore = computed(() => page.value < pages.value)
         </div>
       </div>
     </template>
+
+    <!-- ------------------------------------------------------------------ -->
+    <!-- View full modal                                                      -->
+    <!-- ------------------------------------------------------------------ -->
+    <div v-if="viewing" class="brain-modal" @click.self="viewing = null">
+      <div class="brain-modal__panel" role="dialog" aria-modal="true">
+        <div class="brain-modal__head">
+          <span class="brain-modal__source">
+            <PIIcon :name="SOURCE_META[deriveSource(viewing.tags)].icon" :size="14" />
+            {{ SOURCE_META[deriveSource(viewing.tags)].label }}
+          </span>
+          <span class="t-mono brain-modal__date">{{ formatDate(viewing.created_at) }}</span>
+          <IconButton icon="close" label="Close" @click="viewing = null" />
+        </div>
+        <h2 v-if="viewing.title" class="brain-modal__title">{{ viewing.title }}</h2>
+        <p class="t-serif brain-modal__body">{{ viewing.content }}</p>
+        <div v-if="viewing.tags.length" class="brain-modal__tags">
+          <Tag v-for="t in viewing.tags" :key="t">{{ t }}</Tag>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -619,6 +642,81 @@ const hasMore = computed(() => page.value < pages.value)
   color: var(--text-primary);
   font-size: var(--text-base);
   line-height: 1.7;
+  /* Long unbroken strings (e.g. pasted JSON) must wrap, not spill the card. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* View full modal */
+.brain-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  background: color-mix(in srgb, var(--background-page) 75%, transparent);
+  animation: pi-fade-in 0.15s var(--ease);
+}
+
+.brain-modal__panel {
+  background: var(--background-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-menu);
+  width: 100%;
+  max-width: 640px;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: var(--space-6);
+}
+
+.brain-modal__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.brain-modal__source {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-tertiary);
+  font-size: var(--text-sm);
+}
+
+.brain-modal__date {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin-left: auto;
+}
+
+.brain-modal__title {
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-3);
+  overflow-wrap: anywhere;
+}
+
+.brain-modal__body {
+  color: var(--text-primary);
+  font-size: var(--text-base);
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  margin-bottom: var(--space-4);
+}
+
+.brain-modal__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .brain-card__footer {

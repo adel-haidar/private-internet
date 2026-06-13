@@ -19,7 +19,11 @@ const props = withDefaults(defineProps<Props>(), {
   disabled: false,
 })
 
-defineEmits<{ click: [e: MouseEvent] }>()
+// Do NOT declare `click` as an emit: doing so removes the parent's @click
+// listener from $attrs, so `v-bind="$attrs"` below would never receive it and
+// every <PiButton @click> would be dead. With inheritAttrs:false + v-bind we
+// forward @click (and all other listeners/attrs) straight to the native button.
+defineOptions({ inheritAttrs: false })
 
 function cls(): string[] {
   const c = ['pi-btn', `pi-btn--${props.variant}`]

@@ -31,7 +31,6 @@ const router = createRouter({
     },
     { path: '/overview',   component: () => import('../views/OverviewView.vue') },
     { path: '/memory',     component: () => import('../views/BrainView.vue'), meta: { title: 'Your Brain' } },
-    { path: '/repository', component: () => import('../views/FileRepository.vue') },
     { path: '/email',      component: () => import('../views/EmailView.vue') },
     { path: '/bank',   component: () => import('../views/BankAdviser.vue') },
     { path: '/health', component: () => import('../views/HealthView.vue') },

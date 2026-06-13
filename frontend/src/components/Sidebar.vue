@@ -45,7 +45,6 @@ const NAV_TOOLS: NavItem[] = [
   { label: 'Bank adviser', to: '/bank',       icon: 'bank' },
   { label: 'Job hunt',     to: '/job',        icon: 'job' },
   { label: 'Hermes',       to: '/hermes',     icon: 'hermes' },
-  { label: 'Files',        to: '/repository', icon: 'repository' },
 ]
 </script>
 
