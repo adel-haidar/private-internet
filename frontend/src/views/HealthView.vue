@@ -9,7 +9,12 @@ import {
   type ChartConfiguration,
 } from 'chart.js'
 import PageHead from '../components/ui/PageHead.vue'
-import { useHealthDaily, useHealthTrends } from '../composables/useHealth'
+import PiCard from '../components/ui/PiCard.vue'
+import PIIcon from '../components/ui/PIIcon.vue'
+import HealthExportTeaser from '../components/health/HealthExportTeaser.vue'
+import HealthExportGuide from '../components/health/HealthExportGuide.vue'
+import { useHealthDaily, useHealthTrends, useAppleHealthImport } from '../composables/useHealth'
+import { useToast } from '../components/ui/useToast'
 
 Chart.register(
   LineElement, PointElement, LineController,
@@ -22,6 +27,55 @@ Chart.register(
 
 const { status: dailyStatus, result: daily, error: dailyError, fetchDaily, runDaily } = useHealthDaily()
 const { status: trendStatus, trends, error: trendError, fetchTrends } = useHealthTrends()
+const { status: importStatus, error: importError, uploadFile } = useAppleHealthImport()
+const toast = useToast()
+
+// ── Export guide state ───────────────────────────────────────────────────────
+
+const guideOpen     = ref(false)
+const guidePlatform = ref<'ios' | 'android'>('ios')
+
+function openGuide(platform: 'ios' | 'android') {
+  guidePlatform.value = platform
+  guideOpen.value     = true
+}
+
+// ── Apple Health upload ──────────────────────────────────────────────────────
+
+const isDragging = ref(false)
+
+async function handleFileInput(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file  = input.files?.[0]
+  if (!file) return
+  input.value = '' // reset so re-selecting the same file fires again
+  await doUpload(file)
+}
+
+function onDragOver(e: DragEvent) {
+  e.preventDefault()
+  isDragging.value = true
+}
+function onDragLeave() { isDragging.value = false }
+async function onDrop(e: DragEvent) {
+  e.preventDefault()
+  isDragging.value = false
+  const file = e.dataTransfer?.files?.[0]
+  if (!file) return
+  await doUpload(file)
+}
+
+async function doUpload(file: File) {
+  try {
+    const r = await uploadFile(file)
+    toast(`Imported ${r.inserted} health records (${r.date_range[0]} → ${r.date_range[1]})`, 'success')
+    // Refresh charts + daily
+    fetchDaily(today)
+    fetchTrends(trendDays.value)
+  } catch {
+    toast(importError.value ?? 'Upload failed', 'error')
+  }
+}
 
 // ── Date + range controls ────────────────────────────────────────────────────
 
@@ -606,8 +660,56 @@ watch(trendDays, (d) => fetchTrends(d))
 
       </div>
 
+      <!-- ── Upload control ──────────────────────────────────────────────── -->
+      <PiCard>
+        <div style="font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 16px;">
+          IMPORT APPLE HEALTH EXPORT
+        </div>
+        <div
+          class="pi-upload-zone"
+          :class="{
+            'pi-upload-zone--drag': isDragging,
+            'pi-upload-zone--busy': importStatus === 'uploading',
+          }"
+          @dragover="onDragOver"
+          @dragleave="onDragLeave"
+          @drop="onDrop"
+        >
+          <input
+            v-if="importStatus !== 'uploading'"
+            type="file"
+            accept=".zip,.xml"
+            @change="handleFileInput"
+          />
+          <div class="pi-upload-zone__icon">
+            <PIIcon name="upload" :size="24" />
+          </div>
+          <template v-if="importStatus === 'uploading'">
+            <div class="pi-upload-zone__busy-row">
+              <span class="pi-btn__spinner" aria-hidden="true" />
+              Uploading and processing — this may take a minute for large exports…
+            </div>
+          </template>
+          <template v-else>
+            <div class="pi-upload-zone__label">Drop your export here, or click to browse</div>
+            <div class="pi-upload-zone__hint">Accepts .zip (Apple Health export) or export.xml — no need to unzip</div>
+          </template>
+        </div>
+      </PiCard>
+
+      <!-- ── Export guide teaser ──────────────────────────────────────────── -->
+      <HealthExportTeaser @open="openGuide" />
+
     </div>
   </div>
+
+  <!-- ── Export guide modal (teleports to body) ──────────────────────────── -->
+  <HealthExportGuide
+    :open="guideOpen"
+    :platform="guidePlatform"
+    @close="guideOpen = false"
+    @update:platform="guidePlatform = $event"
+  />
 </template>
 
 <style scoped>

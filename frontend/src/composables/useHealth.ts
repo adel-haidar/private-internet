@@ -146,3 +146,39 @@ export function useHealthTrends() {
 
   return { status, trends, error, fetchTrends }
 }
+
+// ── Apple Health import ────────────────────────────────────────────────────
+
+export interface AppleHealthImportResult {
+  inserted: number
+  date_range: [string, string]
+}
+
+export function useAppleHealthImport() {
+  const status  = ref<'idle' | 'uploading' | 'error' | 'success'>('idle')
+  const error   = ref<string | null>(null)
+  const result  = ref<AppleHealthImportResult | null>(null)
+
+  async function uploadFile(file: File): Promise<AppleHealthImportResult> {
+    status.value = 'uploading'
+    error.value  = null
+    result.value = null
+
+    const token = await requireAuth()
+    const form  = new FormData()
+    form.append('file', file)
+
+    const res = await fetch(`${BASE}/health/import/apple-health`, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body:    form,
+    })
+
+    const data = await parseJson<AppleHealthImportResult>(res)
+    result.value = data
+    status.value = 'success'
+    return data
+  }
+
+  return { status, error, result, uploadFile }
+}
