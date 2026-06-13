@@ -72,17 +72,19 @@ async def run_topic_intelligence_job(*, user_id: str):
                 skipped += 1
                 return
 
-            # Perform Google Search Grounded research
+            # Research (web-grounded) is best-effort ENRICHMENT — a topic extracted
+            # from the user's own memories is still worth generating content about
+            # even if web research is unavailable (e.g. no/invalid Gemini key). Don't
+            # let a research failure throw away the topic.
             research_results = await research_service.research_topic(candidate)
-            if not research_results:
-                logger.warning(f"No research results retrieved for topic '{candidate.name}'. Skipping storage.")
-                failed += 1
-                return
+            if research_results:
+                weight = await research_service.assess_topic_relevance(candidate, research_results)
+            else:
+                logger.info(f"No research for '{candidate.name}' — saving topic without research links.")
+                research_results = []
+                weight = 0.6
 
-            # Assess relevance weight using Bedrock
-            weight = await research_service.assess_topic_relevance(candidate, research_results)
-
-            # Store the topic and research links
+            # Store the topic (+ any research links)
             storage_service.save_topic(conn, candidate, research_results, weight, user_id=user_id)
             logger.info(f"Successfully added/updated topic '{candidate.name}' with weight {weight:.2f}")
             added += 1
