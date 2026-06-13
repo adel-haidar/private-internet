@@ -49,6 +49,11 @@ class Settings(BaseSettings):
 
     mcp_memory_refresh_token: str | None = None
 
+    internal_secret: str | None = None
+    """Shared secret for same-host service auth to the memory API (read from
+    INTERNAL_SECRET). Sent to Service A, which resolves it to the seed admin —
+    replaces the fragile OAuth refresh-token dance. Stable, no expiry."""
+
     # Job hunting agent
     database_url: str | None = None
     """PostgreSQL DSN for the job_matches table, e.g. postgresql://user:pass@localhost/adel_intelligence.

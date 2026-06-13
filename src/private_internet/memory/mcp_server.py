@@ -2,6 +2,9 @@
 # first call `search` to find the existing memory, then call `update`
 # (with append_content=True to add new facts, or field replacement to correct
 # old facts) instead of calling `save` to create a duplicate.
+import hmac
+import os
+
 from mcp.server.fastmcp import FastMCP
 from mcp.server.auth.provider import TokenVerifier, AccessToken
 from mcp.server.auth.settings import AuthSettings
@@ -50,6 +53,12 @@ transport_security = TransportSecuritySettings(
 
 class PostgresTokenVerifier(TokenVerifier):
     async def verify_token(self, token: str) -> AccessToken | None:
+        # Same-host services authenticate with the shared INTERNAL_SECRET — the
+        # same credential the REST RequestContext accepts. The MCP tools scope to
+        # the seed admin via _mcp_user_id(), so this grants seed-admin access.
+        internal_secret = os.getenv("INTERNAL_SECRET")
+        if internal_secret and hmac.compare_digest(token, internal_secret):
+            return AccessToken(token=token, client_id="internal-service", scopes=[])
         client_id = check_token(token)
         if not client_id:
             return None

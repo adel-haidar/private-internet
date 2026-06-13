@@ -30,15 +30,12 @@ TREND_METRICS = ["weight_kg", "resting_hr", "sleep_duration_min", "steps",
 
 
 def _get_fresh_token() -> str:
-    response = httpx.post(
-        "http://localhost:8000/api/oauth/token",
-        data={
-            "grant_type":    "refresh_token",
-            "refresh_token": os.environ["MCP_MEMORY_REFRESH_TOKEN"],
-            "client_id":     os.environ["MCP_MEMORY_CLIENT_ID"],
-        },
-    )
-    return response.json()["access_token"]
+    """Same-host auth to the memory API uses the shared INTERNAL_SECRET, which
+    Service A resolves to the seed admin. Stable — no OAuth token to refresh."""
+    secret = os.environ.get("INTERNAL_SECRET")
+    if not secret:
+        raise RuntimeError("INTERNAL_SECRET is not configured")
+    return secret
 
 
 @lru_cache

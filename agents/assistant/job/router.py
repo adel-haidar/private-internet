@@ -164,21 +164,6 @@ async def _run_job_agent(settings: Settings) -> None:
 
 
 def _get_mcp_token(settings: Settings) -> Optional[str]:
-    import httpx
-
-    if not settings.mcp_memory_client_id or not settings.mcp_memory_refresh_token:
-        return None
-    try:
-        r = httpx.post(
-            "http://localhost:8000/api/oauth/token",
-            data={
-                "grant_type": "refresh_token",
-                "refresh_token": settings.mcp_memory_refresh_token,
-                "client_id": settings.mcp_memory_client_id,
-            },
-            timeout=10.0,
-        )
-        return r.json().get("access_token")
-    except Exception:
-        logger.warning("Failed to obtain MCP memory token")
-        return None
+    # Same-host auth to the memory API uses the shared INTERNAL_SECRET, which
+    # Service A resolves to the seed admin. Stable — no OAuth token to refresh.
+    return settings.internal_secret or None

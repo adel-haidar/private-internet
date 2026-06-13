@@ -89,15 +89,13 @@ delta_links: dict[str, str | None] = {"inbox": None, "junkemail": None}
 
 
 def get_fresh_token() -> str:
-    response = httpx.post(
-        "http://localhost:8000/api/oauth/token",
-        data={
-            "grant_type": "refresh_token",
-            "refresh_token": os.environ["MCP_MEMORY_REFRESH_TOKEN"],
-            "client_id": os.environ["MCP_MEMORY_CLIENT_ID"],
-        },
-    )
-    return response.json()["access_token"]
+    """Same-host auth to the memory API uses the shared INTERNAL_SECRET, which
+    Service A resolves to the seed admin. Stable — no OAuth token to refresh,
+    rotate, or harvest from a browser."""
+    secret = os.environ.get("INTERNAL_SECRET")
+    if not secret:
+        raise RuntimeError("INTERNAL_SECRET is not configured")
+    return secret
 
 
 def _make_memory_client(settings: Settings) -> MemoryClient:
