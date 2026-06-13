@@ -19,6 +19,11 @@ const router = createRouter({
       component: () => import('../views/OAuthCallback.vue'),
       meta:      { public: true },
     },
+    {
+      path:      '/register',
+      component: () => import('../views/Register.vue'),
+      meta:      { public: true },
+    },
     { path: '/overview',   component: () => import('../views/OverviewView.vue') },
     { path: '/memory',     component: () => import('../views/MemoryBrowser.vue') },
     { path: '/repository', component: () => import('../views/FileRepository.vue') },
@@ -33,7 +38,7 @@ const router = createRouter({
   ],
 })
 
-const PUBLIC = new Set(['/login', '/oauth/callback'])
+const PUBLIC = new Set(['/login', '/register', '/oauth/callback'])
 
 router.beforeEach(async (to) => {
   if (PUBLIC.has(to.path)) return true

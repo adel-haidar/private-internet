@@ -11,6 +11,7 @@ from private_internet.core.tenancy import migrate_multi_tenancy
 from private_internet.memory.mcp_server import mcp
 from private_internet.memory.routes import router as memory_router
 from private_internet.memory.service import init_db
+from private_internet.users.routes import router as users_router
 
 # Build the MCP sub-app eagerly so the session manager is created before the
 # lifespan runs. Starlette does not propagate sub-app lifespans to the parent,
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Private Internet API", lifespan=lifespan)
 
 app.include_router(auth_router)
+app.include_router(users_router)
 app.include_router(memory_router)
 app.include_router(content_router)
 

@@ -1,5 +1,6 @@
-import { OAUTH_BASE, REDIRECT_URI } from '../config/env'
+import { OAUTH_BASE, REDIRECT_URI, API_BASE } from '../config/env'
 import { generateVerifier, generateChallenge, generateState } from '../utils/pkce'
+import type { User } from '../types/user'
 
 export class AuthError extends Error {
   constructor(msg: string) {
@@ -141,4 +142,81 @@ export function logout(): void {
   clearTokens()
   // Dynamic import avoids circular dep: router imports useAuth, useAuth imports router.
   import('../router/index').then(m => m.default.push('/login'))
+}
+
+// ---------------------------------------------------------------------------
+// Password-based auth (Section 2)
+// ---------------------------------------------------------------------------
+
+/** Decode a JWT's payload segment without verifying the signature. */
+function decodeJwtExp(token: string): number | null {
+  try {
+    const segment = token.split('.')[1]
+    if (!segment) return null
+    const json = atob(segment.replace(/-/g, '+').replace(/_/g, '/'))
+    const payload = JSON.parse(json) as { exp?: number }
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null
+  } catch {
+    return null
+  }
+}
+
+/** Store a JWT returned from the password-auth endpoints. */
+function storeJwt(token: string): void {
+  const expMs = decodeJwtExp(token) ?? Date.now() + 7 * 24 * 60 * 60 * 1000
+  sessionStorage.setItem(SS.access,    token)
+  sessionStorage.setItem(SS.expiresAt, String(expMs))
+  // No refresh token on this auth path.
+  sessionStorage.removeItem(SS.refresh)
+}
+
+export interface RegisterParams {
+  email: string
+  display_name: string
+  password: string
+  referral_source?: string
+}
+
+export interface LoginParams {
+  email: string
+  password: string
+}
+
+export interface PasswordAuthResult {
+  token: string
+  user: User
+}
+
+export async function registerWithPassword(params: RegisterParams): Promise<PasswordAuthResult> {
+  const res = await fetch(`${API_BASE}/api/auth/register`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(params),
+  })
+
+  const data = await res.json() as PasswordAuthResult & { error?: string }
+
+  if (!res.ok) {
+    throw new AuthError(data.error ?? `Registration failed (${res.status})`)
+  }
+
+  storeJwt(data.token)
+  return data
+}
+
+export async function loginWithPassword(params: LoginParams): Promise<PasswordAuthResult> {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(params),
+  })
+
+  const data = await res.json() as PasswordAuthResult & { error?: string }
+
+  if (!res.ok) {
+    throw new AuthError(data.error ?? `Login failed (${res.status})`)
+  }
+
+  storeJwt(data.token)
+  return data
 }
