@@ -35,9 +35,9 @@ const store = useJobsStore()
 }
 
 .stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 2px;
+  background: var(--background-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
@@ -45,21 +45,19 @@ const store = useJobsStore()
 }
 
 .stat-label {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .stat-value {
   font-size: 24px;
   font-weight: 500;
-  color: var(--text-1);
+  color: var(--text-primary);
   line-height: 1;
 }
 
-.stat-card--green  .stat-value { color: var(--status-active); }
-.stat-card--blue   .stat-value { color: var(--accent); }
-.stat-card--amber  .stat-value { color: var(--status-processing); }
+.stat-card--green  .stat-value { color: var(--success); }
+.stat-card--blue   .stat-value { color: var(--accent-primary); }
+.stat-card--amber  .stat-value { color: var(--brain-amber); }
 </style>

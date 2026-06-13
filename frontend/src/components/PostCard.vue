@@ -12,14 +12,14 @@ const emit = defineEmits<{
   (e: 'feedback', message: string): void
 }>()
 
-const TONE_META: Record<string, { color: string; label: string }> = {
-  critical:    { color: '#c94a4a', label: 'CRITICAL' },
-  supportive:  { color: '#4ac94a', label: 'SUPPORTIVE' },
-  satirical:   { color: '#c9a84c', label: 'SATIRICAL' },
-  informative: { color: '#4a6fa5', label: 'INTEL' },
+const TONE_META: Record<string, { cls: string; label: string }> = {
+  critical:    { cls: 'tone--critical',    label: 'Critical' },
+  supportive:  { cls: 'tone--supportive',  label: 'Supportive' },
+  satirical:   { cls: 'tone--satirical',   label: 'Satirical' },
+  informative: { cls: 'tone--informative', label: 'Intel' },
 }
 
-const tone = computed(() => (props.post.tone ? TONE_META[props.post.tone] : null))
+const tone = computed(() => (props.post.tone && props.post.tone in TONE_META ? TONE_META[props.post.tone] : null))
 
 const ago = computed(() => {
   const then = new Date(props.post.created_at).getTime()
@@ -85,14 +85,10 @@ async function share() {
         <span class="dot">·</span>
         <span class="time">{{ ago }}</span>
       </div>
-      <span
-        v-if="tone"
-        class="tone mono"
-        :style="{ borderColor: tone.color, color: tone.color }"
-      >██ {{ tone.label }}</span>
+      <span v-if="tone" :class="['tone', tone.cls]">{{ tone.label }}</span>
     </header>
 
-    <div v-if="topicName" class="topic mono">TOPIC: {{ topicName }} →</div>
+    <div v-if="topicName" class="topic">{{ topicName }}</div>
 
     <img
       v-if="post.image_url"
@@ -104,76 +100,80 @@ async function share() {
 
     <div class="body">{{ post.body }}</div>
 
-    <footer class="card-actions mono">
+    <footer class="card-actions">
       <button
         class="action"
         :class="{ active: voted === 'like' }"
         :disabled="sending"
         @click="vote('like')"
-      >▲ LIKE</button>
+      >▲ Like</button>
       <button
         class="action"
         :class="{ active: voted === 'dislike' }"
         :disabled="sending"
         @click="vote('dislike')"
-      >▼ DISLIKE</button>
-      <button class="action" @click="share">→ {{ copied ? 'COPIED' : 'SHARE LINK' }}</button>
-      <span class="post-score">[{{ localScore.toFixed(2) }}]</span>
+      >▼ Dislike</button>
+      <button class="action" @click="share">{{ copied ? 'Copied!' : 'Share' }}</button>
+      <span class="post-score">{{ localScore.toFixed(2) }}</span>
     </footer>
   </article>
 </template>
 
 <style scoped>
 .post-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0;
+  background: var(--background-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
+  overflow: hidden;
 }
 .card-head {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .head-meta {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
-  color: var(--text-2);
+  font-size: 12px;
+  color: var(--text-secondary);
   min-width: 0;
   flex: 1;
 }
 .handle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tone {
   flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-size: 11px;
+  font-weight: 500;
   border: 1px solid;
+  border-radius: var(--radius-pill, 999px);
   padding: 2px 8px;
 }
+.tone--critical    { color: var(--danger);  border-color: var(--danger); }
+.tone--supportive  { color: var(--success); border-color: var(--success); }
+.tone--satirical   { color: var(--brain-amber); border-color: var(--brain-amber); }
+.tone--informative { color: var(--accent-primary); border-color: var(--accent-primary); }
+
 .topic {
   padding: 8px 16px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--accent-2);
-  border-bottom: 1px solid var(--border);
-  text-transform: uppercase;
+  font-size: 12px;
+  color: var(--brain-amber);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .post-image {
   display: block;
   width: 100%;
   max-height: 300px;
   object-fit: cover;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .body {
   padding: 16px;
   font-size: 14px;
   line-height: 1.7;
-  color: var(--text-1);
+  color: var(--text-primary);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -182,31 +182,31 @@ async function share() {
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
 }
 .action {
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  padding: 5px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill, 999px);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 4px 12px;
   cursor: pointer;
-  transition: color 0.12s, border-color 0.12s, background 0.12s;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
 }
-.action:hover { color: var(--text-1); border-color: var(--accent); }
+.action:hover { color: var(--text-primary); border-color: var(--border-medium); }
 .action.active {
-  color: var(--accent-2);
-  border-color: var(--accent-2);
-  background: rgba(196, 164, 85, 0.08);
+  color: var(--brain-amber);
+  border-color: var(--brain-amber);
+  background: var(--brain-amber-surface);
 }
 .action:disabled { opacity: 0.5; cursor: default; }
 .post-score {
   margin-left: auto;
-  font-size: 11px;
-  color: var(--text-3);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
 }
 
 @media (max-width: 640px) {

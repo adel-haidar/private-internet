@@ -32,14 +32,14 @@ const router = createRouter({
     { path: '/overview',   component: () => import('../views/OverviewView.vue') },
     { path: '/memory',     component: () => import('../views/BrainView.vue'), meta: { title: 'Your Brain' } },
     { path: '/email',      component: () => import('../views/EmailView.vue') },
-    { path: '/bank',   component: () => import('../views/BankAdviser.vue') },
     { path: '/health', component: () => import('../views/HealthView.vue') },
     { path: '/job', name: 'jobs', component: () => import('../views/JobsView.vue'), meta: { title: 'Job Hunt' } },
     { path: '/hermes',     component: () => import('../views/HermesView.vue') },
     { path: '/pulse',      component: () => import('../views/PulseFeed.vue'), meta: { title: 'Pulse' } },
     { path: '/signal',     component: () => import('../views/SignalPlayer.vue'), meta: { title: 'Signal' } },
     { path: '/settings',   component: () => import('../views/SettingsView.vue') },
-    { path: '/finances',   component: () => import('../views/FinancesView.vue') },
+    // Finances IS the bank adviser (statements, investing, day-trading analysis).
+    { path: '/finances',   component: () => import('../views/BankAdviser.vue'), meta: { title: 'Finances' } },
     { path: '/about',      component: () => import('../views/AboutView.vue'), meta: { public: true } },
   ],
 })

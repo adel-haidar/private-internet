@@ -91,8 +91,8 @@ onUnmounted(() => {
 
 <style scoped>
 .progress-wrap {
-  border: 1px solid var(--border);
-  border-radius: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
   padding: 10px 14px;
   margin: 10px 0;
   flex-shrink: 0;
@@ -101,9 +101,18 @@ onUnmounted(() => {
   gap: 8px;
 }
 
-.progress-wrap--running { background: rgba(74,127,165,0.06); border-color: rgba(74,127,165,0.3); }
-.progress-wrap--done    { background: rgba(58,122,90,0.08);  border-color: rgba(58,122,90,0.4); }
-.progress-wrap--error   { background: rgba(122,58,58,0.08);  border-color: rgba(122,58,58,0.4); }
+.progress-wrap--running {
+  background: var(--accent-surface);
+  border-color: var(--accent-primary);
+}
+.progress-wrap--done {
+  background: var(--success-surface);
+  border-color: var(--success);
+}
+.progress-wrap--error {
+  background: var(--danger-surface);
+  border-color: var(--danger);
+}
 
 .progress-row {
   display: flex;
@@ -112,33 +121,32 @@ onUnmounted(() => {
   font-size: 13px;
 }
 
-.progress-text { flex: 1 1 auto; color: var(--text-1); }
+.progress-text { flex: 1 1 auto; color: var(--text-primary); }
 
 .elapsed {
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--text-3);
-  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
 }
 
 .spinner {
   width: 14px;
   height: 14px;
-  border: 1.5px solid rgba(74,127,165,0.3);
-  border-top-color: var(--accent);
+  border: 1.5px solid var(--border-medium);
+  border-top-color: var(--accent-primary);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   flex-shrink: 0;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.icon-done  { color: var(--status-active); font-size: 14px; flex-shrink: 0; }
-.icon-error { color: var(--status-error);  font-size: 14px; flex-shrink: 0; }
+.icon-done  { color: var(--success); font-size: 14px; flex-shrink: 0; }
+.icon-error { color: var(--danger);  font-size: 14px; flex-shrink: 0; }
 
 /* Indeterminate progress bar */
 .progress-bar-track {
   height: 2px;
-  background: var(--border);
+  background: var(--border-subtle);
   border-radius: 1px;
   overflow: hidden;
   position: relative;
@@ -148,7 +156,7 @@ onUnmounted(() => {
   top: 0;
   height: 100%;
   width: 40%;
-  background: var(--accent);
+  background: var(--accent-primary);
   border-radius: 1px;
   animation: slide 1.8s ease-in-out infinite;
 }
@@ -160,16 +168,16 @@ onUnmounted(() => {
 .dismiss-btn {
   background: none;
   border: none;
-  color: var(--text-3);
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: 13px;
   padding: 0 4px;
   flex-shrink: 0;
 }
-.dismiss-btn:hover { color: var(--text-1); }
+.dismiss-btn:hover { color: var(--text-primary); }
 
 .retry-btn {
-  font-size: 11px;
+  font-size: 12px;
   padding: 4px 10px;
   flex-shrink: 0;
 }

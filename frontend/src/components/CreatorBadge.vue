@@ -15,7 +15,9 @@ const props = withDefaults(
 
 // Deterministic geometric avatar: hash the slug into a mirrored 5x5 cell grid
 // + a palette color. Same slug → same avatar, no asset needed.
-const PALETTE = ['#4A7FA5', '#C4A455', '#3A7A5A', '#8A6A20', '#7A5AA5', '#A55A4A']
+// Palette values are kept as literal hex (used inside an SVG fill attr) — they're
+// decorative, not theme-sensitive, so hardcoding is acceptable here.
+const PALETTE = ['#5B5BD6', '#E8A444', '#2D7A4F', '#B45309', '#7C5CB5', '#C0392B']
 
 function hash(s: string): number {
   let h = 0x811c9dc5
@@ -74,7 +76,7 @@ const active = computed(() => props.score === undefined || props.score >= 0.3)
       role="img"
       :aria-label="name"
     >
-      <rect x="0" y="0" width="5" height="5" fill="#141620" />
+      <rect x="0" y="0" width="5" height="5" fill="transparent" />
       <rect
         v-for="(c, i) in cells"
         :key="i"
@@ -85,9 +87,9 @@ const active = computed(() => props.score === undefined || props.score >= 0.3)
         :fill="avatarColor"
       />
     </svg>
-    <span class="name mono">{{ name.toUpperCase() }}</span>
-    <span v-if="score !== undefined" class="score mono" :class="scoreClass">
-      [{{ score.toFixed(2) }}]
+    <span class="name">{{ name }}</span>
+    <span v-if="score !== undefined" class="score t-mono" :class="scoreClass">
+      {{ score.toFixed(2) }}
     </span>
     <span class="status-dot" :class="active ? 'on' : 'off'">{{ active ? '●' : '○' }}</span>
   </div>
@@ -102,29 +104,28 @@ const active = computed(() => props.score === undefined || props.score >= 0.3)
 }
 .avatar {
   flex-shrink: 0;
-  border: 1px solid var(--border);
-  border-radius: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
   object-fit: cover;
   display: block;
   image-rendering: pixelated;
 }
 .name {
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .score {
-  font-size: 11px;
+  font-size: 12px;
   flex-shrink: 0;
 }
-.score-high { color: var(--status-active); }
-.score-mid  { color: var(--accent-2); }
-.score-low  { color: var(--status-error); }
-.status-dot { font-size: 9px; flex-shrink: 0; }
-.status-dot.on  { color: var(--status-active); }
-.status-dot.off { color: var(--text-3); }
+.score-high { color: var(--success); }
+.score-mid  { color: var(--brain-amber); }
+.score-low  { color: var(--danger); }
+.status-dot { font-size: 10px; flex-shrink: 0; }
+.status-dot.on  { color: var(--success); }
+.status-dot.off { color: var(--text-tertiary); }
 </style>

@@ -42,11 +42,11 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
       </div>
 
       <div v-if="isProcessing" class="thumb-overlay">
-        <span class="overlay-text">RENDERING...</span>
+        <span class="overlay-text">Rendering…</span>
         <div class="render-track"><div class="render-fill" /></div>
       </div>
       <div v-else-if="isFailed" class="thumb-overlay thumb-overlay--failed">
-        <span class="overlay-text overlay-text--failed">GENERATION FAILED</span>
+        <span class="overlay-text overlay-text--failed">Generation failed</span>
       </div>
       <span v-else class="duration-tag">{{ duration }}</span>
     </div>
@@ -54,10 +54,10 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
     <div class="card-meta">
       <div class="card-title">{{ video.title }}</div>
       <div class="card-sub">
-        <span class="card-creator">{{ video.creator_name.toUpperCase() }}</span>
+        <span class="card-creator">{{ video.creator_name }}</span>
         <span class="card-dot">·</span>
         <span>{{ duration }}</span>
-        <span class="card-score">[{{ video.score.toFixed(2) }}]</span>
+        <span class="card-score">{{ video.score.toFixed(2) }}</span>
       </div>
     </div>
   </button>
@@ -69,16 +69,17 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
   flex-direction: column;
   width: 100%;
   text-align: left;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0;
+  background: var(--background-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
   padding: 0;
   cursor: pointer;
-  transition: border-color 0.12s ease;
+  overflow: hidden;
+  transition: border-color 0.15s ease;
 }
-.video-card:hover:not(:disabled)  { border-color: var(--accent); }
-.video-card--active               { border-color: var(--accent); }
-.video-card--failed               { border-color: var(--status-error); }
+.video-card:hover:not(:disabled)  { border-color: var(--accent-primary); }
+.video-card--active               { border-color: var(--accent-primary); }
+.video-card--failed               { border-color: var(--danger); }
 .video-card:disabled              { cursor: default; opacity: 0.75; }
 
 /* ── Thumbnail ──────────────────────────────────────────────────────────── */
@@ -87,7 +88,7 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
   width: 100%;
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .thumb {
   width: 100%;
@@ -99,13 +100,12 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
   display: flex;
   align-items: center;
   justify-content: center;
-  background: repeating-linear-gradient(90deg, #12121a 0px, #1e1e2e 40px, #12121a 80px);
+  background: var(--background-raised);
 }
 .thumb-placeholder {
   font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-3);
-  letter-spacing: 0.2em;
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 .thumb-overlay {
@@ -116,29 +116,27 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
   align-items: center;
   justify-content: center;
   gap: 8px;
-  background: rgba(10, 10, 15, 0.78);
+  background: rgba(0, 0, 0, 0.65);
   padding: 0 16px;
 }
-.thumb-overlay--failed { background: rgba(30, 8, 8, 0.82); }
+.thumb-overlay--failed { background: rgba(0, 0, 0, 0.75); }
 
 .overlay-text {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: var(--text-2);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
 }
-.overlay-text--failed { color: var(--status-error); }
+.overlay-text--failed { color: var(--danger); }
 
 .render-track {
   width: 70%;
   height: 2px;
-  background: var(--border);
+  background: rgba(255,255,255,0.2);
   overflow: hidden;
 }
 .render-fill {
   height: 100%;
   width: 40%;
-  background: var(--accent);
+  background: var(--accent-primary);
   animation: renderSweep 1.6s ease-in-out infinite;
 }
 @keyframes renderSweep {
@@ -151,12 +149,11 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
   right: 6px;
   bottom: 6px;
   font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: var(--text-1);
-  background: rgba(10, 10, 15, 0.85);
-  border: 1px solid var(--border);
-  padding: 1px 5px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: var(--radius-sm, 8px);
+  padding: 1px 6px;
 }
 
 /* ── Meta ───────────────────────────────────────────────────────────────── */
@@ -167,11 +164,9 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
   padding: 10px 12px;
 }
 .card-title {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--text-1);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
   line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -182,10 +177,8 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: var(--text-3);
+  font-size: 12px;
+  color: var(--text-tertiary);
   min-width: 0;
 }
 .card-creator {
@@ -197,7 +190,8 @@ const isProcessing = computed(() => props.video.status === 'processing' || props
 .card-score {
   margin-left: auto;
   flex: 0 0 auto;
-  color: var(--accent-2);
+  color: var(--brain-amber);
+  font-family: var(--font-mono);
 }
 
 @media (prefers-reduced-motion: reduce) { .render-fill { animation: none; } }

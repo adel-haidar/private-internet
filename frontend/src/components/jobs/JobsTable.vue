@@ -21,7 +21,7 @@ const COLUMNS: ColDef[] = [
   { label: 'Platform',                            sortable: false },
   { label: 'Found',      field: 'run_timestamp',  sortable: true  },
   { label: 'Status',                              sortable: false },
-  { label: 'AI Summary',                          sortable: false },
+  { label: 'AI summary',                          sortable: false },
 ]
 
 function headerClass(col: ColDef): Record<string, boolean> {
@@ -63,7 +63,7 @@ function onHeaderClick(col: ColDef): void {
     <div v-else-if="store.sortedMatches.length === 0" class="empty-state">
       <p class="empty-msg">No matches yet — run the agent to start searching.</p>
       <button class="btn btn-secondary empty-run-btn" @click="store.triggerRun()">
-        Run Agent →
+        Run agent →
       </button>
     </div>
 
@@ -108,38 +108,36 @@ function onHeaderClick(col: ColDef): void {
   position: sticky;
   top: 0;
   z-index: 2;
-  background: var(--elevated);
+  background: var(--background-raised);
 }
 
 .jobs-table th {
   padding: 9px 12px;
   text-align: left;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-2);
-  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
   user-select: none;
 }
 
 .sortable {
   cursor: pointer;
-  transition: color 0.1s;
+  transition: color 0.12s;
 }
-.sortable:hover { color: var(--text-1); }
-.sort-active { color: var(--accent); }
+.sortable:hover { color: var(--text-primary); }
+.sort-active { color: var(--accent-primary); }
 
 /* Skeleton rows */
 .skeleton-row td {
   padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .skel {
   height: 13px;
-  border-radius: 2px;
-  background: var(--elevated);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--background-raised);
   animation: pulse 1.4s ease-in-out infinite;
 }
 .skel-sm { width: 48px; }
@@ -162,8 +160,8 @@ function onHeaderClick(col: ColDef): void {
 }
 .empty-msg {
   font-size: 14px;
-  color: var(--text-2);
+  color: var(--text-secondary);
   text-align: center;
 }
-.empty-run-btn { font-size: 12px; }
+.empty-run-btn { font-size: 13px; }
 </style>

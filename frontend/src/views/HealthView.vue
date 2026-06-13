@@ -8,6 +8,7 @@ import {
   Tooltip,
   type ChartConfiguration,
 } from 'chart.js'
+import PageHead from '../components/ui/PageHead.vue'
 import { useHealthDaily, useHealthTrends } from '../composables/useHealth'
 
 Chart.register(
@@ -49,10 +50,10 @@ function cssVar(name: string): string {
 
 function tooltipDefaults() {
   return {
-    backgroundColor: cssVar('--elevated'),
-    titleColor:      cssVar('--text-1'),
-    bodyColor:       cssVar('--text-2'),
-    borderColor:     cssVar('--border'),
+    backgroundColor: cssVar('--background-raised'),
+    titleColor:      cssVar('--text-primary'),
+    bodyColor:       cssVar('--text-secondary'),
+    borderColor:     cssVar('--border-subtle'),
     borderWidth:     1,
     titleFont:       { family: cssVar('--font-mono'), size: 11 },
     bodyFont:        { family: cssVar('--font-mono'), size: 11 },
@@ -60,8 +61,8 @@ function tooltipDefaults() {
 }
 
 function makeScales(yLabel?: string) {
-  const border = cssVar('--border')
-  const text2  = cssVar('--text-2')
+  const border = cssVar('--border-subtle')
+  const text2  = cssVar('--text-secondary')
   return {
     x: {
       grid:  { color: `${border}60`, borderColor: 'transparent' },
@@ -395,26 +396,21 @@ watch(trendDays, (d) => fetchTrends(d))
   <div class="page">
 
     <!-- ── Header ──────────────────────────────────────────────────────── -->
-    <header class="page-header">
-      <div class="header-left">
-        <span class="page-tag">SECTION</span>
-        <h1 class="page-title">HEALTH INTEL</h1>
-      </div>
+    <div class="page-top-row">
+      <PageHead title="Health" :desc="`Daily coaching, biometrics, and trend analysis — ${today}`" />
       <div class="header-actions">
-        <span class="header-date">{{ today }}</span>
         <button
           class="btn btn--ghost"
           :disabled="dailyStatus === 'loading'"
           @click="fetchDaily(today)"
-        >FETCH</button>
+        >Fetch</button>
         <button
           class="btn btn--primary"
           :disabled="dailyStatus === 'loading'"
           @click="runDaily(today)"
-        >RUN TODAY</button>
+        >Run today</button>
       </div>
-    </header>
-    <div class="rule" />
+    </div>
 
     <div class="body">
 
@@ -623,51 +619,19 @@ watch(trendDays, (d) => fetchTrends(d))
 }
 
 /* ── Header ─────────────────────────────────────────────────────────────── */
-.page-header {
+.page-top-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 28px 32px 24px;
-}
-
-.header-left {
-  display: flex;
-  align-items: baseline;
   gap: 16px;
-}
-
-.page-tag {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  padding: 2px 6px;
-}
-
-.page-title {
-  font-family: var(--font-mono);
-  font-size: 18px;
-  letter-spacing: 0.07em;
-  color: var(--text-primary);
 }
 
 .header-actions {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.header-date {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  letter-spacing: 0.08em;
-}
-
-.rule {
-  height: 1px;
-  background: var(--border);
+  padding-top: 4px;
+  flex-shrink: 0;
 }
 
 /* ── Body ───────────────────────────────────────────────────────────────── */
@@ -680,45 +644,48 @@ watch(trendDays, (d) => fetchTrends(d))
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 .btn {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  border: 1px solid var(--border);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
   padding: 6px 14px;
   cursor: pointer;
   background: transparent;
-  color: var(--text-2);
-  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  color: var(--text-secondary);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn--ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--text-1); }
+.btn--ghost:hover:not(:disabled) { border-color: var(--accent-primary); color: var(--text-primary); }
 .btn--primary {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-primary);
+  background: var(--accent-primary);
+  color: #fff;
 }
 .btn--primary:hover:not(:disabled) {
-  background: var(--accent);
-  color: var(--bg-base);
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 /* ── State cards ─────────────────────────────────────────────────────────── */
 .state-card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
   padding: 16px 20px;
-  background: var(--surface);
+  background: var(--background-surface);
 }
 .state-card--loading { display: flex; flex-direction: column; gap: 10px; }
-.state-card--error   { border-color: var(--status-error); color: var(--status-error); font-family: var(--font-mono); font-size: 11px; }
+.state-card--error   { border-color: var(--danger); color: var(--danger); font-family: var(--font-mono); font-size: 11px; }
 
 .progress-track {
   height: 2px;
-  background: var(--border);
+  background: var(--border-subtle);
   overflow: hidden;
 }
 .progress-fill {
   height: 100%;
   width: 40%;
-  background: var(--accent);
+  background: var(--accent-primary);
   animation: progressSweep 1.8s ease-in-out infinite;
 }
 @keyframes progressSweep {
@@ -735,8 +702,9 @@ watch(trendDays, (d) => fetchTrends(d))
 
 /* ── Insight card ────────────────────────────────────────────────────────── */
 .insight-card {
-  border: 1px solid var(--accent);
-  background: var(--surface);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md, 12px);
+  background: var(--background-surface);
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
@@ -778,8 +746,9 @@ watch(trendDays, (d) => fetchTrends(d))
 }
 
 .availability-card {
-  border: 1px solid var(--status-processing);
-  background: var(--surface);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--warning-surface);
   padding: 10px 14px;
   display: flex;
   align-items: baseline;
@@ -788,10 +757,10 @@ watch(trendDays, (d) => fetchTrends(d))
 
 .availability-source {
   font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  color: var(--status-processing);
-  border: 1px solid var(--status-processing);
+  font-size: 11px;
+  color: var(--warning);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm, 8px);
   padding: 2px 6px;
   flex: 0 0 auto;
 }
@@ -807,8 +776,9 @@ watch(trendDays, (d) => fetchTrends(d))
 
 /* ── Analysis / reasoning / documents ────────────────────────────────────── */
 .analysis-card {
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
+  background: var(--background-surface);
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
@@ -817,9 +787,10 @@ watch(trendDays, (d) => fetchTrends(d))
 
 .reasoning-block,
 .documents-block {
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--accent);
-  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--accent-primary);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--background-surface);
   padding: 14px 20px;
   display: flex;
   flex-direction: column;
@@ -867,10 +838,10 @@ watch(trendDays, (d) => fetchTrends(d))
   border: 1px solid;
 }
 
-.flag--success { color: var(--status-active);     border-color: var(--status-active);     }
-.flag--warning { color: var(--status-processing); border-color: var(--status-processing); }
-.flag--danger  { color: var(--status-error);      border-color: var(--status-error);      }
-.flag--info    { color: var(--text-2);            border-color: var(--border);            }
+.flag--success { color: var(--success); border-color: var(--success); }
+.flag--warning { color: var(--warning); border-color: var(--warning); }
+.flag--danger  { color: var(--danger);  border-color: var(--danger);  }
+.flag--info    { color: var(--text-secondary); border-color: var(--border-subtle); }
 
 /* ── KPI row ─────────────────────────────────────────────────────────────── */
 .kpi-row {
@@ -883,8 +854,9 @@ watch(trendDays, (d) => fetchTrends(d))
 @media (max-width: 700px)  { .kpi-row { grid-template-columns: 1fr; } }
 
 .kpi-card {
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
+  background: var(--background-surface);
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
@@ -906,9 +878,9 @@ watch(trendDays, (d) => fetchTrends(d))
   line-height: 1;
 }
 
-.kpi-value--positive { color: var(--status-active); }
-.kpi-value--negative { color: var(--status-error);  }
-.kpi-value--neutral  { color: var(--text-primary);  }
+.kpi-value--positive { color: var(--success); }
+.kpi-value--negative { color: var(--danger);  }
+.kpi-value--neutral  { color: var(--text-primary); }
 
 .kpi-sublabel {
   font-family: var(--font-sans);
@@ -925,11 +897,10 @@ watch(trendDays, (d) => fetchTrends(d))
 
 .section-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
+  font-size: 12px;
   color: var(--text-secondary);
   padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -943,17 +914,17 @@ watch(trendDays, (d) => fetchTrends(d))
 
 .pill {
   font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  border: 1px solid var(--border);
-  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill, 999px);
+  padding: 2px 10px;
   cursor: pointer;
   background: transparent;
-  color: var(--text-2);
-  transition: border-color 0.1s, color 0.1s;
+  color: var(--text-secondary);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
-.pill:hover    { border-color: var(--accent); color: var(--text-1); }
-.pill--active  { border-color: var(--accent); color: var(--accent); }
+.pill:hover    { border-color: var(--accent-primary); color: var(--text-primary); }
+.pill--active  { border-color: var(--accent-primary); background: var(--accent-surface); color: var(--accent-primary); }
 
 /* ── Charts ──────────────────────────────────────────────────────────────── */
 .chart-block {
@@ -989,8 +960,9 @@ watch(trendDays, (d) => fetchTrends(d))
 .chart-wrap {
   height: 180px;
   position: relative;
-  background: var(--surface);
-  border: 1px solid var(--border);
+  background: var(--background-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
   padding: 8px;
 }
 

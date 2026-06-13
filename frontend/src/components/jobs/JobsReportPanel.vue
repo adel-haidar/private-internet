@@ -30,7 +30,7 @@ async function copyReport(): Promise<void> {
 <template>
   <div class="report-panel" :class="{ 'report-panel--expanded': expanded }">
     <button class="report-toggle" aria-label="Toggle report panel" @click="$emit('toggle')">
-      <span class="report-toggle-label">Last Run Report</span>
+      <span class="report-toggle-label">Last run report</span>
       <span v-if="summaryLine" class="report-summary">{{ summaryLine }}</span>
       <span class="chevron" :class="{ 'chevron--up': expanded }">▾</span>
     </button>
@@ -53,9 +53,9 @@ async function copyReport(): Promise<void> {
 
 <style scoped>
 .report-panel {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
   flex-shrink: 0;
-  background: var(--surface);
+  background: var(--background-surface);
 }
 
 .report-toggle {
@@ -68,29 +68,26 @@ async function copyReport(): Promise<void> {
   border: none;
   cursor: pointer;
   text-align: left;
-  transition: background 0.1s;
+  transition: background 0.15s;
 }
-.report-toggle:hover { background: var(--elevated); }
+.report-toggle:hover { background: var(--background-raised); }
 
 .report-toggle-label {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
 .report-summary {
-  font-size: 11px;
-  color: var(--text-3);
+  font-size: 12px;
+  color: var(--text-tertiary);
   font-family: var(--font-mono);
-  letter-spacing: 0.04em;
   flex: 1 1 auto;
 }
 
 .chevron {
   font-size: 14px;
-  color: var(--text-3);
+  color: var(--text-tertiary);
   transition: transform 0.18s;
   flex-shrink: 0;
 }
@@ -102,7 +99,7 @@ async function copyReport(): Promise<void> {
 
 .no-report {
   font-size: 13px;
-  color: var(--text-3);
+  color: var(--text-tertiary);
   padding: 12px 0;
 }
 
@@ -113,19 +110,19 @@ async function copyReport(): Promise<void> {
 }
 
 .copy-btn {
-  font-size: 11px;
+  font-size: 12px;
   padding: 4px 12px;
 }
 
 .report-pre {
-  background: var(--bg-base);
-  border: 1px solid var(--border);
-  border-radius: 2px;
+  background: var(--background-page);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
   padding: 14px;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
-  color: var(--text-2);
+  color: var(--text-secondary);
   white-space: pre-wrap;
   overflow-y: auto;
   max-height: 400px;

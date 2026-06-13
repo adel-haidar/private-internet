@@ -1,7 +1,27 @@
 <script setup lang="ts">
-import SectionStub from '../components/SectionStub.vue'
+import PageHead from '../components/ui/PageHead.vue'
 </script>
 
 <template>
-  <SectionStub idx="07" title="Hermes" name="hermes" status="standby" />
+  <div class="hermes-page">
+    <PageHead title="Hermes" desc="Personal messaging, communication intelligence, and drafts." />
+    <div class="placeholder">
+      <p class="t-secondary">This module is coming soon.</p>
+    </div>
+  </div>
 </template>
+
+<style scoped>
+.hermes-page {
+  padding: var(--space-8, 32px);
+}
+.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
+  background: var(--background-surface);
+}
+</style>

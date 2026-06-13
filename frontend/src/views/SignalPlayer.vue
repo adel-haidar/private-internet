@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
+import PageHead from '../components/ui/PageHead.vue'
 import { useSignalLibrary, logInteraction, type Video } from '../composables/useContent'
 import VideoCard from '../components/VideoCard.vue'
 import CreatorBadge from '../components/CreatorBadge.vue'
@@ -86,16 +87,7 @@ onMounted(() => { void loadMore() })
   <div class="page">
 
     <!-- ── Header ──────────────────────────────────────────────────────── -->
-    <header class="page-header">
-      <div class="header-left">
-        <span class="page-tag">SECTION</span>
-        <h1 class="page-title">SIGNAL // VIDEO CHANNEL</h1>
-      </div>
-      <div class="header-actions">
-        <span class="header-count">{{ total }} TRANSMISSIONS</span>
-      </div>
-    </header>
-    <div class="rule" />
+    <PageHead title="Signal" :desc="total ? `${total} video${total === 1 ? '' : 's'} in the library` : 'AI-generated video channel'" />
 
     <div class="body">
       <div v-if="error" class="state-card state-card--error">{{ error }}</div>
@@ -104,15 +96,15 @@ onMounted(() => { void loadMore() })
 
         <!-- ── Library (left) ────────────────────────────────────────── -->
         <aside class="library">
-          <div class="section-label">VIDEO LIBRARY</div>
+          <div class="section-label">Video library</div>
 
           <div v-if="loading && videos.length === 0" class="library-skeleton">
             <div v-for="i in 4" :key="i" class="skeleton-card" />
           </div>
 
           <div v-else-if="videos.length === 0" class="library-empty">
-            <p class="empty-text">NO TRANSMISSIONS YET</p>
-            <p class="empty-hint">Videos appear here once the SIGNAL pipeline generates them.</p>
+            <p class="empty-text">No videos yet</p>
+            <p class="empty-hint">Videos appear here once the Signal pipeline generates them.</p>
           </div>
 
           <div v-else class="library-list">
@@ -130,7 +122,7 @@ onMounted(() => { void loadMore() })
             class="btn btn--ghost load-more"
             :disabled="loading"
             @click="loadMore"
-          >{{ loading ? 'LOADING…' : 'LOAD MORE' }}</button>
+          >{{ loading ? 'Loading…' : 'Load more' }}</button>
         </aside>
 
         <!-- ── Player (right) ────────────────────────────────────────── -->
@@ -160,7 +152,7 @@ onMounted(() => { void loadMore() })
                 :score="selectedCreator?.score ?? selected.score"
                 :bio="selectedCreator?.bio ?? undefined"
               />
-              <span v-if="selectedTopic" class="topic-tag">TOPIC: {{ selectedTopic }}</span>
+              <span v-if="selectedTopic" class="topic-tag">{{ selectedTopic }}</span>
             </div>
 
             <p v-if="selected.description" class="player-description">{{ selected.description }}</p>
@@ -172,18 +164,18 @@ onMounted(() => { void loadMore() })
                 class="btn btn--ghost rate-btn"
                 :class="{ 'rate-btn--active': rated[selected.id] === 'like' }"
                 @click="rate('like')"
-              >▲ LIKE</button>
+              >▲ Like</button>
               <button
                 class="btn btn--ghost rate-btn rate-btn--down"
                 :class="{ 'rate-btn--active-down': rated[selected.id] === 'dislike' }"
                 @click="rate('dislike')"
-              >▼ DISLIKE</button>
-              <span class="watch-readout">WATCHED: {{ (watchPct * 100).toFixed(0) }}%</span>
+              >▼ Dislike</button>
+              <span class="watch-readout">Watched: {{ (watchPct * 100).toFixed(0) }}%</span>
             </div>
           </template>
 
           <div v-else class="player-empty">
-            <p class="empty-text">NO TRANSMISSION SELECTED</p>
+            <p class="empty-text">No video selected</p>
             <p class="empty-hint">Select a ready video from the library.</p>
           </div>
         </section>
@@ -192,33 +184,14 @@ onMounted(() => { void loadMore() })
 
     <!-- ── Toast ─────────────────────────────────────────────────────── -->
     <Transition name="toast">
-      <div v-if="toastVisible" class="toast">FEEDBACK LOGGED</div>
+      <div v-if="toastVisible" class="toast">Feedback logged</div>
     </Transition>
   </div>
 </template>
 
 <style scoped>
-/* ── Shell (mirrors HealthView conventions) ─────────────────────────────── */
+/* ── Shell ──────────────────────────────────────────────────────────────── */
 .page { min-height: 100%; display: flex; flex-direction: column; }
-
-.page-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 28px 32px 24px;
-}
-.header-left { display: flex; align-items: baseline; gap: 16px; }
-.page-tag {
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.14em;
-  color: var(--text-muted); border: 1px solid var(--border); padding: 2px 6px;
-}
-.page-title {
-  font-family: var(--font-mono); font-size: 18px; letter-spacing: 0.07em;
-  color: var(--text-primary);
-}
-.header-count {
-  font-family: var(--font-mono); font-size: 10px;
-  color: var(--text-muted); letter-spacing: 0.12em;
-}
-.rule { height: 1px; background: var(--border); }
 
 .body { padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 20px; flex: 1; }
 
@@ -235,9 +208,11 @@ onMounted(() => { void loadMore() })
 .library { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 
 .section-label {
-  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em;
-  color: var(--text-secondary); padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .library-list {
@@ -251,30 +226,40 @@ onMounted(() => { void loadMore() })
 .library-skeleton { display: flex; flex-direction: column; gap: 12px; }
 .skeleton-card {
   height: 120px;
-  border: 1px solid var(--border);
-  background: repeating-linear-gradient(90deg, #12121a 0px, #1e1e2e 40px, #12121a 80px);
-  background-size: 200% 100%;
-  animation: scan 1.5s infinite linear;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--background-raised);
+  position: relative;
+  overflow: hidden;
 }
-@keyframes scan { 0% { background-position: 0% 0; } 100% { background-position: -200% 0; } }
+.skeleton-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, var(--background-surface) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+@keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
 
 .library-empty, .player-empty {
-  border: 1px solid var(--border); background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
+  background: var(--background-surface);
   padding: 28px 20px; display: flex; flex-direction: column; gap: 8px;
   align-items: center; text-align: center;
 }
-.empty-text {
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.18em;
-  color: var(--text-2);
-}
-.empty-hint { font-family: var(--font-sans); font-size: 11px; color: var(--text-muted); }
+.empty-text { font-size: 15px; font-weight: 500; color: var(--text-secondary); }
+.empty-hint { font-size: 13px; color: var(--text-tertiary); }
 
 .load-more { width: 100%; }
 
 /* ── Player panel ───────────────────────────────────────────────────────── */
 .player-panel {
   display: flex; flex-direction: column; gap: 14px;
-  border: 1px solid var(--border); background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
+  background: var(--background-surface);
   padding: 20px;
   min-width: 0;
 }
@@ -283,13 +268,14 @@ onMounted(() => { void loadMore() })
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #000;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
 }
 .player-video { width: 100%; height: 100%; display: block; }
 
 .player-title {
-  font-family: var(--font-mono); font-size: 15px; font-weight: 600;
-  letter-spacing: 0.04em; color: var(--text-1); line-height: 1.4;
+  font-size: 16px; font-weight: 600;
+  color: var(--text-primary); line-height: 1.4;
 }
 
 .player-meta {
@@ -297,64 +283,79 @@ onMounted(() => { void loadMore() })
 }
 
 .topic-tag {
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em;
-  color: var(--accent); border: 1px solid var(--accent); padding: 2px 8px;
+  font-size: 12px;
+  color: var(--brain-amber);
+  border: 1px solid var(--brain-amber);
+  border-radius: var(--radius-pill, 999px);
+  padding: 2px 10px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
 }
 
 .player-description {
-  font-family: var(--font-sans); font-size: 13px; line-height: 1.65;
-  color: var(--text-2);
+  font-size: 14px; line-height: 1.65;
+  color: var(--text-secondary);
 }
 
-.player-divider { height: 1px; background: var(--border); }
+.player-divider { height: 1px; background: var(--border-subtle); }
 
 /* ── Rating ─────────────────────────────────────────────────────────────── */
 .rating-row { display: flex; align-items: center; gap: 10px; }
 
 .btn {
-  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em;
-  border: 1px solid var(--border); padding: 6px 14px; cursor: pointer;
-  background: transparent; color: var(--text-2); border-radius: 0;
-  transition: border-color 0.12s, color 0.12s, background 0.12s;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill, 999px);
+  padding: 6px 16px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: border-color 0.15s, color 0.15s;
 }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn--ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--text-1); }
+.btn--ghost:hover:not(:disabled) { border-color: var(--border-medium); color: var(--text-primary); }
 
 .rate-btn--active {
-  border-color: var(--status-active); color: var(--status-active);
+  border-color: var(--success); color: var(--success); background: var(--success-surface);
 }
 .rate-btn--active-down {
-  border-color: var(--status-error); color: var(--status-error);
+  border-color: var(--danger); color: var(--danger); background: var(--danger-surface);
 }
 
 .watch-readout {
   margin-left: auto;
-  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em;
-  color: var(--text-muted);
+  font-family: var(--font-mono); font-size: 12px;
+  color: var(--text-tertiary);
 }
 
 /* ── Error card ─────────────────────────────────────────────────────────── */
 .state-card {
-  border: 1px solid var(--border); padding: 16px 20px; background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
+  padding: 16px 20px;
+  background: var(--background-surface);
 }
 .state-card--error {
-  border-color: var(--status-error); color: var(--status-error);
-  font-family: var(--font-mono); font-size: 11px;
+  border-color: var(--danger); color: var(--danger);
+  background: var(--danger-surface);
+  font-size: 13px;
 }
 
 /* ── Toast ──────────────────────────────────────────────────────────────── */
 .toast {
   position: fixed;
   right: 24px; bottom: 24px;
-  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.16em;
-  color: var(--text-1); background: var(--elevated);
-  border: 1px solid var(--accent);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--background-raised);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-sm, 8px);
   padding: 10px 16px;
   z-index: 100;
 }
 .toast-enter-active, .toast-leave-active { transition: opacity 0.18s ease; }
 .toast-enter-from, .toast-leave-to { opacity: 0; }
 
-@media (prefers-reduced-motion: reduce) { .skeleton-card { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-card::after { animation: none; } }
 </style>

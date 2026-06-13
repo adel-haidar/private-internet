@@ -42,7 +42,6 @@ const NAV_SYS: NavItem[] = [
 
 const NAV_TOOLS: NavItem[] = [
   { label: 'Email',        to: '/email',      icon: 'email' },
-  { label: 'Bank adviser', to: '/bank',       icon: 'bank' },
   { label: 'Job hunt',     to: '/job',        icon: 'job' },
   { label: 'Hermes',       to: '/hermes',     icon: 'hermes' },
 ]

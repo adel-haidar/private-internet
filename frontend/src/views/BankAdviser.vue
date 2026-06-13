@@ -9,6 +9,7 @@ import {
   Tooltip,
   type ChartConfiguration,
 } from 'chart.js'
+import PageHead from '../components/ui/PageHead.vue'
 import { useBankAdviser } from '../composables/useBankAdviser'
 import type {
   BankAdviserResult,
@@ -149,10 +150,6 @@ function eur(val: number, showSign = false): string {
 function num(val: unknown): number | null {
   const n = typeof val === 'string' ? parseFloat(val) : (val as number)
   return Number.isFinite(n) ? n : null
-}
-
-function fmtDate(iso: string): string {
-  return iso
 }
 
 // ── Budget allocation helper ─────────────────────────────────────────────────
@@ -489,18 +486,10 @@ onBeforeUnmount(destroyCharts)
   <div class="page">
 
     <!-- ── 1. Section header ───────────────────────────────────────────── -->
-    <header class="page-header">
-      <div class="header-left">
-        <span class="page-tag">SECTION</span>
-        <h1 class="page-title">BANK ADVISER</h1>
-      </div>
-      <div v-if="lastRun" class="header-meta">
-        <span v-if="cached" class="badge badge--standby">CACHED</span>&nbsp;
-        LAST ANALYSIS:&nbsp;
-        <span class="mono">{{ result?.meta.analysis_date ?? fmtDate(lastRun.toISOString().slice(0,10)) }}</span>
-      </div>
-    </header>
-    <div class="rule" />
+    <PageHead
+      title="Finances"
+      :desc="lastRun ? `Last analysis: ${result?.meta.analysis_date ?? lastRun.toISOString().slice(0,10)}${cached ? ' (cached)' : ''}` : 'Spending analysis, budget recommendations, and investment signals.'"
+    />
 
     <div class="body">
 
@@ -843,8 +832,7 @@ onBeforeUnmount(destroyCharts)
       <div class="rule rule--gap" />
       <div class="adv-header">
         <div class="header-left">
-          <span class="page-tag">SECTION</span>
-          <h2 class="page-title">INVESTMENT RECOMMENDATIONS</h2>
+          <h2 class="adv-section-title">Investment recommendations</h2>
         </div>
         <div class="adv-header-actions">
           <span v-if="invSavedAt" class="header-meta mono">{{ savedAtLabel(invSavedAt, invCached) }}</span>
@@ -954,8 +942,7 @@ onBeforeUnmount(destroyCharts)
       <div class="rule rule--gap" />
       <div class="adv-header">
         <div class="header-left">
-          <span class="page-tag">SECTION</span>
-          <h2 class="page-title">DAY TRADING DESK</h2>
+          <h2 class="adv-section-title">Day trading desk</h2>
         </div>
         <div class="adv-header-actions">
           <span v-if="dtSavedAt" class="header-meta mono">{{ savedAtLabel(dtSavedAt, dtCached) }}</span>
@@ -1072,47 +1059,10 @@ onBeforeUnmount(destroyCharts)
   flex-direction: column;
 }
 
-/* ── Header ─────────────────────────────────────────────────────────── */
-.page-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 28px 32px 24px;
-}
-
-.header-left {
-  display: flex;
-  align-items: baseline;
-  gap: 16px;
-}
-
-.page-tag {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
-  padding: 2px 6px;
-}
-
-.page-title {
-  font-family: var(--font-mono);
-  font-size: 18px;
-  letter-spacing: 0.07em;
-  color: var(--text-primary);
-}
-
-.header-meta {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.09em;
-  color: var(--text-muted);
-}
-
 /* ── Dividers ───────────────────────────────────────────────────────── */
 .rule {
   height: 1px;
-  background: var(--border);
+  background: var(--border-subtle);
 }
 
 /* ── Body ───────────────────────────────────────────────────────────── */
@@ -1125,18 +1075,19 @@ onBeforeUnmount(destroyCharts)
 
 /* ── Trigger card ───────────────────────────────────────────────────── */
 .trigger-card {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  background: var(--bg-surface);
+  background: var(--background-surface);
   transition: border-color 0.15s, max-height 0.3s, opacity 0.3s, padding 0.3s;
   overflow: hidden;
 }
 
 .trigger-card--error {
-  border-color: var(--status-error);
+  border-color: var(--danger);
 }
 
 .trigger-card--hidden {
@@ -1154,7 +1105,7 @@ onBeforeUnmount(destroyCharts)
   flex-direction: column;
   gap: 10px;
   padding-bottom: 14px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   margin-bottom: 4px;
 }
 
@@ -1195,12 +1146,11 @@ onBeforeUnmount(destroyCharts)
 
 .select-control {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.06em;
+  font-size: 11px;
   color: var(--text-primary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 0;
+  background: var(--background-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
   padding: 5px 8px;
   cursor: pointer;
   appearance: auto;
@@ -1218,25 +1168,24 @@ onBeforeUnmount(destroyCharts)
 .context-area {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  font-size: 11px;
   color: var(--text-primary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 0;
+  background: var(--background-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
   padding: 7px 10px;
   resize: vertical;
   min-height: 44px;
 }
 
 .context-area:focus {
-  outline: none;
-  border-color: var(--accent-primary);
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 1px;
+  border-color: transparent;
 }
 
 .context-area::placeholder {
-  color: var(--text-muted);
-  opacity: 0.7;
+  color: var(--text-tertiary);
 }
 
 /* ── Trigger button ─────────────────────────────────────────────────── */
@@ -1246,15 +1195,14 @@ onBeforeUnmount(destroyCharts)
 }
 
 .btn {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
   padding: 8px 20px;
   cursor: pointer;
   border: 1px solid transparent;
-  border-radius: 0;
-  transition: background 0.12s, opacity 0.12s;
+  border-radius: var(--radius-sm, 8px);
+  transition: background 0.15s, opacity 0.15s;
 }
 
 .btn:disabled {
@@ -1264,13 +1212,13 @@ onBeforeUnmount(destroyCharts)
 
 .btn--primary {
   background: var(--accent-primary);
-  color: var(--bg-base);
+  color: #fff;
   border-color: var(--accent-primary);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: #588fb6;
-  border-color: #588fb6;
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 /* ── Progress bar ───────────────────────────────────────────────────── */
@@ -1282,7 +1230,7 @@ onBeforeUnmount(destroyCharts)
 
 .progress-track {
   height: 2px;
-  background: var(--bg-elevated);
+  background: var(--background-raised);
   position: relative;
   overflow: hidden;
 }
@@ -1345,8 +1293,9 @@ onBeforeUnmount(destroyCharts)
 }
 
 .kpi-card {
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
+  background: var(--background-surface);
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
@@ -1396,11 +1345,10 @@ onBeforeUnmount(destroyCharts)
 
 .section-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.12em;
+  font-size: 11px;
   color: var(--text-secondary);
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 /* ── Data table ─────────────────────────────────────────────────────── */
@@ -1412,18 +1360,17 @@ onBeforeUnmount(destroyCharts)
 }
 
 .data-table th {
-  font-size: 9px;
-  letter-spacing: 0.1em;
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text-tertiary);
   text-align: left;
   padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 400;
+  border-bottom: 1px solid var(--border-subtle);
+  font-weight: 600;
 }
 
 .data-table td {
   padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   color: var(--text-primary);
   vertical-align: middle;
 }
@@ -1433,11 +1380,11 @@ onBeforeUnmount(destroyCharts)
 }
 
 .data-table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--background-raised);
 }
 
 .row--expanded td {
-  background: rgba(74, 127, 165, 0.04);
+  background: var(--accent-surface);
 }
 
 .col-num     { text-align: right; }
@@ -1456,15 +1403,15 @@ onBeforeUnmount(destroyCharts)
 
 /* ── Anomaly / expand rows ──────────────────────────────────────────── */
 .anomaly-row td {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .anomaly-cell {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: 11px;
   padding: 8px 16px 10px 24px !important;
   color: var(--text-secondary);
-  background: rgba(240, 68, 68, 0.04);
+  background: var(--danger-surface);
 }
 
 .anomaly-severity {
@@ -1533,8 +1480,8 @@ onBeforeUnmount(destroyCharts)
 
 .budget-bar-track {
   height: 4px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  background: var(--background-raised);
+  border: 1px solid var(--border-subtle);
   position: relative;
 }
 
@@ -1558,11 +1505,10 @@ onBeforeUnmount(destroyCharts)
 
 .budget-footer {
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text-tertiary);
   padding-top: 10px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .accent { color: var(--accent-primary); }
@@ -1580,8 +1526,9 @@ onBeforeUnmount(destroyCharts)
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  border: 1px solid var(--border);
-  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--background-surface);
 }
 
 .rec-header {
@@ -1608,7 +1555,7 @@ onBeforeUnmount(destroyCharts)
 }
 
 .opp-row:hover {
-  background: rgba(255, 255, 255, 0.025);
+  background: var(--background-raised);
 }
 
 .opp-detail-line {
@@ -1662,11 +1609,10 @@ onBeforeUnmount(destroyCharts)
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.7;
-  letter-spacing: 0.03em;
   color: var(--text-secondary);
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
-  border-radius: 0;
+  background: var(--background-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
   padding: 14px 16px;
   resize: vertical;
   box-sizing: border-box;
@@ -1738,8 +1684,9 @@ onBeforeUnmount(destroyCharts)
 }
 
 .region-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border);
+  background: var(--background-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
   padding: 14px 16px;
 }
 
@@ -1782,12 +1729,19 @@ onBeforeUnmount(destroyCharts)
   opacity: 0.75;
 }
 
+.adv-section-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 .adv-meta-key {
   display: inline-block;
   margin-right: 10px;
   padding: 1px 6px;
-  border: 1px solid var(--border);
-  color: var(--text-muted, var(--text-secondary));
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--text-tertiary);
 }
 
 .adv-meta-key--failed {

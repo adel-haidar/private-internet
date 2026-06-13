@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import PostCard from '../components/PostCard.vue'
+import PageHead from '../components/ui/PageHead.vue'
 import { usePulseFeed, type PostSort } from '../composables/useContent'
 import { requireAuth } from '../composables/useAuth'
 
@@ -51,22 +52,21 @@ onMounted(() => {
   <div class="pulse">
     <div class="pulse-head">
       <div class="title-row">
-        <h1 class="title mono">PULSE // AI CONTENT FEED</h1>
-        <span class="count mono" v-if="total">{{ total }} DISPATCHES</span>
+        <PageHead title="Pulse" :desc="total ? `${total} dispatches` : 'AI content feed'" />
       </div>
-      <div class="sort-row mono">
-        <span class="sort-label">SORT:</span>
+      <div class="sort-row">
+        <span class="sort-label">Sort:</span>
         <button
           v-for="s in SORTS"
           :key="s.id"
           class="sort-tab"
           :class="{ active: sort === s.id }"
           @click="setSort(s.id)"
-        >[{{ s.label }}]</button>
+        >{{ s.label.charAt(0) + s.label.slice(1).toLowerCase() }}</button>
       </div>
     </div>
 
-    <div v-if="error" class="error mono">// TRANSMISSION ERROR: {{ error }}</div>
+    <div v-if="error" class="error">{{ error }}</div>
 
     <div class="feed">
       <PostCard
@@ -85,17 +85,17 @@ onMounted(() => {
         </div>
       </template>
 
-      <div v-if="!loading && posts.length === 0 && !error" class="empty mono">
-        // NO DISPATCHES ON FILE — RUN THE POST GENERATION JOB
+      <div v-if="!loading && posts.length === 0 && !error" class="empty">
+        No posts yet — run the post generation job.
       </div>
     </div>
 
     <button
       v-if="hasMore() && posts.length > 0"
-      class="load-more mono"
+      class="load-more"
       :disabled="loading"
       @click="loadMore"
-    >{{ loading ? 'RETRIEVING...' : '[LOAD MORE]' }}</button>
+    >{{ loading ? 'Loading…' : 'Load more' }}</button>
 
     <Transition name="toast">
       <div v-if="toast" class="toast mono">{{ toast }}</div>
@@ -107,55 +107,42 @@ onMounted(() => {
 .pulse {
   max-width: 680px;
   margin: 0 auto;
-  padding: var(--gutter);
+  padding: var(--gutter, 24px);
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 .pulse-head {
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
+  background: var(--background-surface);
+  overflow: hidden;
 }
 .title-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--border);
-}
-.title {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-.count {
-  font-size: 10px;
-  color: var(--text-3);
-  letter-spacing: 0.08em;
-  white-space: nowrap;
+  padding: 0;
 }
 .sort-row {
   display: flex;
   align-items: center;
   gap: 4px;
   padding: 8px 16px;
-  font-size: 11px;
+  font-size: 13px;
+  border-top: 1px solid var(--border-subtle);
 }
-.sort-label { color: var(--text-3); margin-right: 6px; letter-spacing: 0.08em; }
+.sort-label { color: var(--text-tertiary); margin-right: 6px; }
 .sort-tab {
   background: transparent;
-  border: none;
-  border-radius: 0;
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  padding: 3px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill, 999px);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 3px 10px;
   cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
 }
-.sort-tab:hover { color: var(--text-1); }
-.sort-tab.active { color: var(--accent-2); }
+.sort-tab:hover { color: var(--text-primary); border-color: var(--border-subtle); }
+.sort-tab.active { color: var(--accent-primary); border-color: var(--accent-primary); background: var(--accent-surface); }
 
 .feed {
   display: flex;
@@ -165,56 +152,67 @@ onMounted(() => {
 
 .error {
   border: 1px solid var(--danger);
-  color: var(--status-error);
-  background: rgba(122, 58, 58, 0.08);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--danger);
+  background: var(--danger-surface);
   padding: 10px 14px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .empty {
-  border: 1px dashed var(--border);
-  color: var(--text-3);
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
+  color: var(--text-tertiary);
   padding: 32px 16px;
   text-align: center;
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  font-size: 13px;
 }
 
-/* Skeleton — horizontal scan per design system */
+/* Skeleton — uses theme tokens */
 .skeleton {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 12px);
   padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: repeating-linear-gradient(90deg, #12121a 0px, #1e1e2e 40px, #12121a 80px);
+  background: var(--background-surface);
+  overflow: hidden;
+  position: relative;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, var(--background-raised) 50%, transparent 100%);
   background-size: 200% 100%;
-  animation: scan 1.5s infinite linear;
+  animation: shimmer 1.4s infinite linear;
 }
 .skeleton-line {
-  font-size: 12px;
-  color: var(--text-3);
-  opacity: 0.5;
-  user-select: none;
+  height: 12px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--background-raised);
 }
-@keyframes scan {
-  from { background-position: 0% 0; }
-  to { background-position: -200% 0; }
+.skeleton-line:nth-child(1) { width: 55%; }
+.skeleton-line:nth-child(2) { width: 80%; }
+.skeleton-line:nth-child(3) { width: 40%; }
+@keyframes shimmer {
+  from { background-position: -200% 0; }
+  to   { background-position:  200% 0; }
 }
 
 .load-more {
   align-self: center;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  letter-spacing: 0.1em;
-  padding: 10px 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill, 999px);
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 8px 28px;
   cursor: pointer;
-  transition: color 0.12s, border-color 0.12s;
+  transition: color 0.15s, border-color 0.15s;
 }
-.load-more:hover { color: var(--text-1); border-color: var(--accent); }
+.load-more:hover { color: var(--text-primary); border-color: var(--border-medium); }
 .load-more:disabled { opacity: 0.5; cursor: default; }
 
 .toast {
@@ -222,11 +220,11 @@ onMounted(() => {
   right: 24px;
   bottom: 24px;
   z-index: 100;
-  background: var(--elevated);
-  border: 1px solid var(--accent-2);
-  color: var(--accent-2);
-  font-size: 11px;
-  letter-spacing: 0.1em;
+  background: var(--background-raised);
+  border: 1px solid var(--brain-amber);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--brain-amber);
+  font-size: 13px;
   padding: 8px 16px;
 }
 .toast-enter-active, .toast-leave-active { transition: opacity 0.15s; }

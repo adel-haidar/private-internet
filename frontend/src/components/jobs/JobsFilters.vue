@@ -18,9 +18,9 @@ const hasFilters = () =>
       @change="store.setFilter('tier', ($event.target as HTMLSelectElement).value)"
     >
       <option value="">Tier: All</option>
-      <option value="STRONG_MATCH">Strong Match</option>
-      <option value="GOOD_MATCH">Good Match</option>
-      <option value="WEAK_MATCH">Weak Match</option>
+      <option value="STRONG_MATCH">Strong match</option>
+      <option value="GOOD_MATCH">Good match</option>
+      <option value="WEAK_MATCH">Weak match</option>
     </select>
 
     <select
@@ -68,7 +68,7 @@ const hasFilters = () =>
       aria-label="Clear all filters"
       @click="store.clearFilters()"
     >
-      ✕ Clear
+      Clear filters
     </button>
   </div>
 </template>
@@ -83,43 +83,39 @@ const hasFilters = () =>
 }
 
 select {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  color: var(--text-2);
+  background: var(--background-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--text-secondary);
   font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 500;
   padding: 6px 10px;
   cursor: pointer;
   appearance: none;
-  padding-right: 24px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236A6B7A' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%239090AA' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  transition: border-color 0.12s, color 0.12s;
+  transition: border-color 0.15s, color 0.15s;
 }
 select:hover, select:focus {
-  border-color: #2a2d3e;
-  color: var(--text-1);
+  border-color: var(--border-medium);
+  color: var(--text-primary);
   outline: none;
 }
 
 .clear-btn {
   background: none;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  color: var(--text-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm, 8px);
+  color: var(--text-secondary);
   font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 12px;
   cursor: pointer;
-  transition: color 0.12s, border-color 0.12s;
+  transition: color 0.15s, border-color 0.15s;
 }
-.clear-btn:hover { color: var(--text-1); border-color: #2a2d3e; }
+.clear-btn:hover { color: var(--text-primary); border-color: var(--border-medium); }
 </style>
