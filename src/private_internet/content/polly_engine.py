@@ -3,12 +3,14 @@ import logging
 import subprocess
 
 import boto3
+from botocore.exceptions import ClientError
 
 from private_internet.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Voices that are not available on the neural engine — fall back to standard.
+# Known voices that aren't available on the neural engine — start them on
+# standard. The runtime fallback below covers any voice not listed here.
 NON_NEURAL_VOICES = {"Maxim", "Tatyana"}
 
 
@@ -30,8 +32,28 @@ class PollyEngine:
         Synthesize `text` to an mp3 at `output_path`.
         Returns the audio duration in milliseconds.
         """
-        engine = "standard" if voice_id in NON_NEURAL_VOICES else "neural"
-        response = self.polly.synthesize_speech(
+        preferred = "standard" if voice_id in NON_NEURAL_VOICES else "neural"
+        alternate = "neural" if preferred == "standard" else "standard"
+        try:
+            response = self._synthesize(text, voice_id, language_code, preferred)
+        except ClientError as exc:
+            # Polly voices vary in engine support per locale ("This voice does not
+            # support the selected engine: ..."). Retry on the other engine rather
+            # than failing the whole video.
+            if "does not support the selected engine" in str(exc):
+                logger.warning(
+                    f"Voice {voice_id} does not support the {preferred} engine; "
+                    f"retrying on {alternate}."
+                )
+                response = self._synthesize(text, voice_id, language_code, alternate)
+            else:
+                raise
+        with open(output_path, "wb") as f:
+            f.write(response["AudioStream"].read())
+        return self._probe_duration_ms(output_path)
+
+    def _synthesize(self, text: str, voice_id: str, language_code: str, engine: str):
+        return self.polly.synthesize_speech(
             Engine=engine,
             OutputFormat="mp3",
             VoiceId=voice_id,
@@ -39,9 +61,6 @@ class PollyEngine:
             TextType="text",
             Text=text,
         )
-        with open(output_path, "wb") as f:
-            f.write(response["AudioStream"].read())
-        return self._probe_duration_ms(output_path)
 
     @staticmethod
     def _probe_duration_ms(audio_path: str) -> int:
