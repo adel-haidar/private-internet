@@ -212,6 +212,39 @@
 .pi-rule { height: 1px; background: var(--border-subtle); border: 0; margin: var(--space-4) 0; }
 
 /* ============================================================================
+   ONBOARDING LAYOUT — ported from pi-shell.css + pi-screen-onboarding.jsx
+   ============================================================================ */
+.pi-onb { min-height: 100vh; display: flex; flex-direction: column; }
+.pi-onb[data-arrival="true"] { background: var(--accent-surface); }
+[data-theme="dark"] .pi-onb[data-arrival="true"] { background: linear-gradient(180deg, var(--accent-surface), var(--background-page)); }
+.pi-onb__top {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--space-5) var(--space-8);
+}
+.pi-onb__track { height: 3px; background: var(--border-subtle); flex-shrink: 0; }
+.pi-onb__bar { height: 100%; background: var(--brain-amber); transition: width .4s var(--ease); }
+.pi-onb__body { flex: 1; display: flex; align-items: center; justify-content: center; padding: var(--space-10) var(--space-6); }
+.pi-onb__inner { width: 100%; max-width: 640px; }
+
+/* Counter — used inside step 2 textarea overlay */
+.pi-counter { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); }
+
+/* Device icon container for step 3 */
+.pi-device__ic {
+  width: 40px; height: 40px; border-radius: var(--radius-sm);
+  display: grid; place-items: center;
+  background: var(--background-raised); color: var(--text-secondary); flex: 0 0 auto;
+}
+
+/* Step fade-in animation */
+@keyframes pi-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (max-width: 768px) {
+  .pi-onb__top { padding: var(--space-4); }
+  .pi-onb__body { padding: var(--space-6) var(--space-4); }
+}
+
+/* ============================================================================
    AUTH LAYOUT — ported from pi-shell.css
    ============================================================================ */
 

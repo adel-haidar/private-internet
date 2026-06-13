@@ -24,6 +24,11 @@ const router = createRouter({
       component: () => import('../views/Register.vue'),
       meta:      { public: true },
     },
+    {
+      path:      '/onboarding',
+      component: () => import('../views/OnboardingView.vue'),
+      meta:      { fullscreen: true },
+    },
     { path: '/overview',   component: () => import('../views/OverviewView.vue') },
     { path: '/memory',     component: () => import('../views/BrainView.vue'), meta: { title: 'Your Brain' } },
     { path: '/repository', component: () => import('../views/FileRepository.vue') },

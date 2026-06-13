@@ -7,6 +7,8 @@ import { isAuthenticated, hasRefreshToken, refreshTokens } from './composables/u
 
 const route = useRoute()
 const isPublic = computed(() => !!route.meta.public)
+// Fullscreen routes (e.g. /onboarding) are authenticated but render without the sidebar shell
+const isBare = computed(() => isPublic.value || !!route.meta.fullscreen)
 
 onMounted(async () => {
   if (!isAuthenticated() && hasRefreshToken()) {
@@ -17,8 +19,8 @@ onMounted(async () => {
 
 <template>
   <ToastProvider>
-    <!-- Public routes (login, register, about) render full-screen -->
-    <RouterView v-if="isPublic" />
+    <!-- Public and fullscreen routes render without the sidebar shell -->
+    <RouterView v-if="isBare" />
 
     <!-- Authenticated shell: sidebar + scrollable content -->
     <div v-else class="pi-shell">

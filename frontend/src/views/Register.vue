@@ -84,8 +84,7 @@ async function handleRegister() {
         ? { referral_source: referralSource.value.trim() }
         : {}),
     })
-    // TODO: redirect to /onboarding once Section 3 lands
-    router.replace('/')
+    router.replace('/onboarding')
   } catch (e) {
     error.value   = (e as Error).message ?? 'Registration failed'
     loading.value = false
