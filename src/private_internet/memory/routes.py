@@ -156,45 +156,62 @@ def _chunk_text(text: str) -> list[str]:
     return chunks
 
 
+# Only documents whose text we can actually extract and embed belong in the
+# brain. Anything else (XML, images, archives, Apple Health exports, …) would
+# just store a content-less stub the agents can't read, so we reject it.
+_INDEXED_TEXT_EXTS = {"txt", "md", "markdown", "text", "rst", "log"}
+
+
+def _save_text_chunks(text: str, filename: str, ext: str, user_id: str):
+    chunks = _chunk_text(text)
+    total = len(chunks)
+    first_saved = None
+    for i, chunk in enumerate(chunks):
+        title = filename if total == 1 else f"{filename} ({i + 1}/{total})"
+        saved = save_memory(
+            title=title, content=chunk, tags=["file-upload", ext], user_id=user_id
+        )
+        if first_saved is None:
+            first_saved = saved
+    return first_saved
+
+
 async def _save_uploaded_file(file: UploadFile, upload_dir: str, user_id: str) -> dict:
     content = await file.read()
 
     if not content:
         return {"error": "Empty file", "filename": file.filename}
 
-    file_hash = hashlib.sha256(content).hexdigest()[:12]
-    timestamp = datetime.datetime.now().isoformat()
-    filename = f"{file_hash}_{file.filename}"
-    filepath = os.path.join(upload_dir, filename)
-
-    with open(filepath, "wb") as f:
-        f.write(content)
-
     ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
 
+    # Extract indexable text up front; reject types we can't index rather than
+    # silently saving a stub.
     if ext == "pdf":
         text = _extract_pdf_text(content)
-        chunks = _chunk_text(text)
-        total = len(chunks)
-        first_saved = None
-        for i, chunk in enumerate(chunks):
-            title = file.filename if total == 1 else f"{file.filename} ({i + 1}/{total})"
-            saved = save_memory(
-                title=title, content=chunk, tags=["file-upload", "pdf"], user_id=user_id
-            )
-            if first_saved is None:
-                first_saved = saved
+    elif ext in _INDEXED_TEXT_EXTS:
+        text = content.decode("utf-8", errors="replace")
     else:
-        first_saved = save_memory(
-            title=f"Uploaded file: {file.filename}",
-            content=(
-                f"File uploaded at {timestamp}. "
-                f"Path: {filepath}. Size: {len(content)} bytes. "
-                f"Hash: {file_hash}."
+        return {
+            "error": (
+                f"'{file.filename}' was not added to your brain. Only PDF and text "
+                "documents (.pdf, .txt, .md) can be indexed. For Apple Health data, "
+                "use the Health page's Apple Health import instead."
             ),
-            tags=["file-upload", ext],
-            user_id=user_id,
-        )
+            "filename": file.filename,
+        }
+
+    if not text.strip():
+        return {
+            "error": f"No readable text could be extracted from '{file.filename}'.",
+            "filename": file.filename,
+        }
+
+    file_hash = hashlib.sha256(content).hexdigest()[:12]
+    filename = f"{file_hash}_{file.filename}"
+    with open(os.path.join(upload_dir, filename), "wb") as f:
+        f.write(content)
+
+    first_saved = _save_text_chunks(text, file.filename, ext, user_id)
 
     return {
         "status": "ok",

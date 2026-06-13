@@ -1,3 +1,5 @@
+import hmac
+import os
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -25,6 +27,12 @@ async def require_auth(request: Request) -> str:
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing token")
     token = auth[7:]
+
+    # Same-host callers (cron timers, sibling agents) authenticate with the
+    # stable INTERNAL_SECRET instead of an expiring OAuth access token.
+    internal_secret = getattr(get_settings(), "internal_secret", None) or os.getenv("INTERNAL_SECRET")
+    if internal_secret and hmac.compare_digest(token, internal_secret):
+        return "internal-service"
 
     pool = await _get_pool()
     async with pool.acquire() as conn:
