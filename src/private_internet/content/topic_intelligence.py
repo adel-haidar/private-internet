@@ -95,7 +95,8 @@ class MCPMemoryReader:
         loop = asyncio.get_event_loop()
         
         def invoke_bedrock():
-            client = boto3.client("bedrock-runtime", region_name=settings.aws_region)
+            from private_internet.content.llm import bedrock_text_region
+            client = boto3.client("bedrock-runtime", region_name=bedrock_text_region())
             try:
                 response = client.converse(
                     modelId=model_id,

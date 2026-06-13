@@ -12,6 +12,18 @@ from private_internet.config import get_settings
 logger = logging.getLogger(__name__)
 
 
+def bedrock_text_region() -> str:
+    """Region for Bedrock TEXT models (Claude Haiku, Nova). These are NOT in
+    eu-central-1, so never default there: follow the image region (which already
+    points at a region that has Nova Canvas) and allow an explicit override.
+    Embeddings (Titan) and Polly stay on settings.aws_region, where they work."""
+    return (
+        os.getenv("BEDROCK_TEXT_REGION")
+        or os.getenv("BEDROCK_IMAGE_REGION")
+        or "eu-west-1"
+    )
+
+
 async def converse_text(
     user_prompt: str,
     system_prompt: Optional[str] = None,
@@ -28,7 +40,7 @@ async def converse_text(
     model_id = os.getenv("BEDROCK_HAIKU_MODEL_ID", "anthropic.claude-3-haiku-20240307-v1:0")
 
     def invoke():
-        client = boto3.client("bedrock-runtime", region_name=settings.aws_region)
+        client = boto3.client("bedrock-runtime", region_name=bedrock_text_region())
         kwargs = {
             "messages": [{"role": "user", "content": [{"text": user_prompt}]}],
             "inferenceConfig": {"temperature": temperature, "maxTokens": max_tokens},
