@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Private Internet — AWS &amp; Server Setup</title>
+<style>
+  :root{
+    --bg:#F8F7F4; --surface:#FFFFFF; --raised:#F2F1EE;
+    --text:#1C1B2E; --text2:#5A5970; --text3:#9896A8;
+    --accent:#5B5BD6; --accent2:#4A4ABE; --accent-surface:#EEECFF;
+    --amber:#E8A444; --amber-surface:#FEF3E0;
+    --border:#E8E6E0; --border2:#D4D1C8;
+    --green:#2D7A4F; --green-surface:#E4F2EA;
+    --red:#C0392B; --warn:#B45309;
+    --mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+    --sans:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+       line-height:1.65;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:880px;margin:0 auto;padding:48px 24px 96px}
+  header.page{margin-bottom:32px}
+  .brand{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+  .mark{width:34px;height:34px;border-radius:9px;background:#13131E;position:relative;flex:0 0 auto}
+  .mark i{position:absolute;border-radius:50%;background:var(--amber);transform:translate(-50%,-50%)}
+  h1{font-size:30px;font-weight:600;letter-spacing:-.01em;margin:0 0 6px}
+  .lede{color:var(--text2);font-size:17px;margin:0}
+  .meta{margin-top:16px;display:flex;flex-wrap:wrap;gap:8px}
+  .pill{font-family:var(--mono);font-size:12px;padding:4px 10px;border-radius:999px;
+        background:var(--accent-surface);color:var(--accent2);border:1px solid var(--border)}
+  .pill.amber{background:var(--amber-surface);color:var(--warn)}
+  .progress{margin:26px 0 8px;background:var(--surface);border:1px solid var(--border);
+            border-radius:12px;padding:16px 20px}
+  .bar{height:8px;border-radius:999px;background:var(--raised);overflow:hidden;margin-top:8px}
+  .bar > span{display:block;height:100%;width:0;background:var(--amber);transition:width .3s}
+  h2{font-size:22px;font-weight:600;margin:42px 0 4px;scroll-margin-top:20px}
+  .sub{color:var(--text2);margin:0 0 16px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+        padding:22px 24px;margin:14px 0}
+  .step{display:flex;gap:14px;padding:14px 0;border-top:1px solid var(--border)}
+  .step:first-child{border-top:0}
+  .step .n{flex:0 0 auto}
+  .chk{appearance:none;-webkit-appearance:none;width:22px;height:22px;border:2px solid var(--border2);
+       border-radius:7px;cursor:pointer;position:relative;background:var(--surface);margin-top:2px;transition:.15s}
+  .chk:checked{background:var(--green);border-color:var(--green)}
+  .chk:checked::after{content:"";position:absolute;left:6px;top:2px;width:6px;height:11px;
+       border:solid #fff;border-width:0 2.5px 2.5px 0;transform:rotate(45deg)}
+  .step .body{flex:1;min-width:0}
+  .step h3{margin:0 0 4px;font-size:16px;font-weight:600}
+  .step.done h3{color:var(--text3);text-decoration:line-through}
+  .step p{margin:4px 0;color:var(--text2)}
+  .where{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.06em;
+         color:var(--text3);margin-bottom:6px}
+  code{font-family:var(--mono);font-size:.9em;background:var(--raised);padding:2px 6px;border-radius:6px}
+  pre{position:relative;background:#13131E;color:#E4E4F0;border-radius:10px;padding:16px 16px;
+      overflow:auto;font-family:var(--mono);font-size:13px;line-height:1.6;margin:10px 0}
+  pre .cmt{color:#9090AA}
+  .copy{position:absolute;top:8px;right:8px;background:#1E1E38;color:#E4E4F0;border:1px solid #363650;
+        border-radius:7px;font-size:11px;font-family:var(--mono);padding:4px 9px;cursor:pointer}
+  .copy:hover{background:#2a2a4a}
+  .badge{display:inline-block;font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:999px;
+         vertical-align:middle;margin-left:6px}
+  .b-done{background:var(--green-surface);color:var(--green)}
+  .b-todo{background:var(--amber-surface);color:var(--warn)}
+  .b-opt{background:var(--accent-surface);color:var(--accent2)}
+  table{width:100%;border-collapse:collapse;margin:8px 0;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:600}
+  td code{font-size:12px}
+  .note{background:var(--amber-surface);border-left:3px solid var(--amber);border-radius:8px;
+        padding:12px 16px;margin:12px 0;color:#6b4f17;font-size:14px}
+  .note.info{background:var(--accent-surface);border-left-color:var(--accent);color:#3a3a6e}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .toc{font-size:14px;columns:2;column-gap:28px;margin:0}
+  .toc a{display:block;padding:3px 0;color:var(--text2)}
+  footer{margin-top:48px;padding-top:20px;border-top:1px solid var(--border);color:var(--text3);font-size:13px}
+  @media(max-width:640px){.toc{columns:1}.wrap{padding:32px 16px 64px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="page">
+    <div class="brand">
+      <span class="mark" id="mark"></span>
+      <strong style="font-size:15px">Private Internet</strong>
+    </div>
+    <h1>AWS &amp; server setup</h1>
+    <p class="lede">Everything you need to do on AWS (and the EC2 host) to make the platform fully
+      operational — multi-user auth, health &amp; finance agents, and automatic PULSE/SIGNAL
+      content generation. Work top to bottom; tick items as you go (your progress is saved in this browser).</p>
+    <div class="meta">
+      <span class="pill">Region: eu-central-1</span>
+      <span class="pill">Images: eu-west-1</span>
+      <span class="pill">.env: ~/personal-intelligence/.env</span>
+      <span class="pill amber">Restart after .env edits</span>
+    </div>
+    <div class="progress">
+      <div style="display:flex;justify-content:space-between;font-size:14px">
+        <strong>Progress</strong><span id="pct" class="mono">0%</span>
+      </div>
+      <div class="bar"><span id="prog"></span></div>
+    </div>
+  </header>
+
+  <div class="card">
+    <strong>Sections</strong>
+    <nav class="toc" style="margin-top:8px">
+      <a href="#prereq">0 · Before you start</a>
+      <a href="#env">1 · Environment variables</a>
+      <a href="#bedrock">2 · Bedrock model access</a>
+      <a href="#s3">3 · S3 bucket + CloudFront</a>
+      <a href="#iam">4 · IAM permissions</a>
+      <a href="#gemini">5 · Gemini API key</a>
+      <a href="#ffmpeg">6 · FFmpeg on EC2</a>
+      <a href="#restart">7 · Restart &amp; verify</a>
+      <a href="#phase8">8 · Turn on content generation</a>
+    </nav>
+  </div>
+
+  <!-- 0 -->
+  <h2 id="prereq">0 · Before you start</h2>
+  <p class="sub">Orientation — what's already set up and how to reach the box.</p>
+  <div class="card">
+    <div class="note info">Already done for you: the EC2 instance, RDS PostgreSQL, the dashboard's
+      S3 bucket + CloudFront, nginx, the systemd services, and CI/CD. This page only covers the
+      pieces the content/agent features still need.</div>
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="ssh"></span>
+      <div class="body">
+        <div class="where">Your laptop</div>
+        <h3>Get a shell on the EC2 host</h3>
+        <p>Use SSM Session Manager (no SSH key needed) or SSH. Everything below that says
+          <em>“on EC2”</em> runs here. The app lives in <code>~/personal-intelligence</code>.</p>
+        <pre><button class="copy">Copy</button>aws ssm start-session --target &lt;EC2_INSTANCE_ID&gt; --region eu-central-1
+cd ~/personal-intelligence</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1 -->
+  <h2 id="env">1 · Environment variables <span class="badge b-todo">some missing</span></h2>
+  <p class="sub">All services read <code>~/personal-intelligence/.env</code>. Fill in the ones marked “set this”.</p>
+  <div class="card">
+    <table>
+      <tr><th>Variable</th><th>What it's for</th><th>Value</th></tr>
+      <tr><td><code>INTERNAL_SECRET</code></td><td>The one shared secret the agents use to read memory, and that the content-job endpoints require. <strong>Critical.</strong></td><td>Generate: <code>openssl rand -hex 32</code></td></tr>
+      <tr><td><code>SECRET_KEY</code></td><td>Signs platform login (JWT) sessions.</td><td>Generate: <code>openssl rand -hex 32</code></td></tr>
+      <tr><td><code>SEED_ADMIN_EMAIL</code></td><td>The account that owns all existing data. Set to your email.</td><td><code>you@example.com</code></td></tr>
+      <tr><td><code>GEMINI_API_KEY</code></td><td>Topic research (web-grounded) for PULSE/SIGNAL.</td><td>From section 5</td></tr>
+      <tr><td><code>S3_CONTENT_BUCKET</code></td><td>Where generated images/videos are stored.</td><td>From section 3</td></tr>
+      <tr><td><code>CLOUDFRONT_BASE_URL</code></td><td>How those assets are served.</td><td>From section 3</td></tr>
+      <tr><td><code>BEDROCK_HAIKU_MODEL_ID</code></td><td>Text generation (posts, scripts).</td><td><code>anthropic.claude-3-haiku-20240307-v1:0</code></td></tr>
+      <tr><td><code>NOVA_CANVAS_MODEL_ID</code></td><td>Image generation.</td><td><code>amazon.nova-canvas-v1:0</code></td></tr>
+      <tr><td><code>BEDROCK_IMAGE_REGION</code></td><td>Nova Canvas isn't in eu-central-1.</td><td><code>eu-west-1</code></td></tr>
+      <tr><td><code>REGISTRATION_OPEN</code> / <code>MAX_USERS</code></td><td>Who can sign up.</td><td><code>true</code> / <code>100</code></td></tr>
+    </table>
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="env-write"></span>
+      <div class="body">
+        <div class="where">On EC2</div>
+        <h3>Add the missing lines to <code>.env</code></h3>
+        <p>Append any that aren't already set, then save. (Don't duplicate lines that already exist.)</p>
+        <pre><button class="copy">Copy</button><span class="cmt"># run once to generate the two secrets, then paste the printed lines into .env</span>
+echo "INTERNAL_SECRET=$(openssl rand -hex 32)"
+echo "SECRET_KEY=$(openssl rand -hex 32)"
+
+<span class="cmt"># then edit the file and ensure these exist:</span>
+nano ~/personal-intelligence/.env</pre>
+        <pre><button class="copy">Copy</button>SEED_ADMIN_EMAIL=you@example.com
+GEMINI_API_KEY=
+S3_CONTENT_BUCKET=personal-intelligence-content
+CLOUDFRONT_BASE_URL=https://dXXXXXXXX.cloudfront.net
+BEDROCK_HAIKU_MODEL_ID=anthropic.claude-3-haiku-20240307-v1:0
+NOVA_CANVAS_MODEL_ID=amazon.nova-canvas-v1:0
+BEDROCK_IMAGE_REGION=eu-west-1
+REGISTRATION_OPEN=true
+MAX_USERS=100</pre>
+        <div class="note"><strong>Obsolete now:</strong> <code>MCP_MEMORY_CLIENT_ID</code> and
+          <code>MCP_MEMORY_REFRESH_TOKEN</code> are no longer used — the agents authenticate with
+          <code>INTERNAL_SECRET</code>. You can delete those two lines.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2 -->
+  <h2 id="bedrock">2 · Enable Bedrock model access <span class="badge b-todo">console</span></h2>
+  <p class="sub">Model access is granted per-region. You need two regions.</p>
+  <div class="card">
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="bedrock-ec"></span>
+      <div class="body">
+        <div class="where">AWS console · Bedrock · eu-central-1</div>
+        <h3>Request access in Frankfurt (eu-central-1)</h3>
+        <p>Bedrock → <em>Model access</em> → Manage/Enable, and turn on:</p>
+        <p>• <strong>Anthropic — Claude 3 Haiku</strong><br>
+           • <strong>Amazon — Nova</strong> (the text model you use, <code>nova-2-lite</code>)</p>
+      </div>
+    </div>
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="bedrock-ew"></span>
+      <div class="body">
+        <div class="where">AWS console · Bedrock · eu-west-1</div>
+        <h3>Request access in Ireland (eu-west-1)</h3>
+        <p>Switch region to <strong>eu-west-1</strong> (top-right), then Model access → enable
+           <strong>Amazon — Nova Canvas</strong> (image generation isn't offered in Frankfurt).</p>
+        <div class="note">Access approval is usually instant for Amazon/Anthropic models, but can take a few minutes.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3 -->
+  <h2 id="s3">3 · Content bucket + CloudFront <span class="badge b-todo">console / CLI</span></h2>
+  <p class="sub">Where PULSE images and SIGNAL videos live and are served from.</p>
+  <div class="card">
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="s3-bucket"></span>
+      <div class="body">
+        <div class="where">On EC2 (or console)</div>
+        <h3>Create a private S3 bucket</h3>
+        <pre><button class="copy">Copy</button>aws s3 mb s3://personal-intelligence-content --region eu-central-1</pre>
+        <p>Keep “Block all public access” ON — CloudFront will serve it.</p>
+      </div>
+    </div>
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="s3-cf"></span>
+      <div class="body">
+        <div class="where">AWS console · CloudFront</div>
+        <h3>Create a CloudFront distribution for it</h3>
+        <p>New distribution → Origin = the bucket above → <strong>Origin access control (OAC)</strong>
+           (so the bucket stays private) → create. Copy the policy CloudFront offers and paste it
+           onto the bucket. Use a <em>separate</em> distribution from the dashboard one (avoids the
+           5-behaviour limit).</p>
+        <p>Take the distribution domain (e.g. <code>d1abcd.cloudfront.net</code>) and set it as
+           <code>CLOUDFRONT_BASE_URL=https://d1abcd.cloudfront.net</code> in <code>.env</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 4 -->
+  <h2 id="iam">4 · IAM permissions for the EC2 role <span class="badge b-todo">console / CLI</span></h2>
+  <p class="sub">The server needs to call Bedrock, Polly, and write to the content bucket.</p>
+  <div class="card">
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="iam"></span>
+      <div class="body">
+        <div class="where">AWS console · IAM · the EC2 instance role</div>
+        <h3>Attach this inline policy</h3>
+        <p>IAM → Roles → the role your EC2 instance uses → Add permissions → Create inline policy → JSON:</p>
+        <pre><button class="copy">Copy</button>{
+  "Version": "2012-10-17",
+  "Statement": [
+    { "Sid": "Bedrock", "Effect": "Allow", "Action": "bedrock:InvokeModel", "Resource": "*" },
+    { "Sid": "Polly",   "Effect": "Allow", "Action": "polly:SynthesizeSpeech", "Resource": "*" },
+    { "Sid": "Content", "Effect": "Allow",
+      "Action": ["s3:PutObject","s3:GetObject"],
+      "Resource": "arn:aws:s3:::personal-intelligence-content/*" }
+  ]
+}</pre>
+        <p>(Bedrock is scoped to <code>*</code> on purpose — cross-region inference-profile ARNs are
+           fiddly; tighten later if you like.)</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5 -->
+  <h2 id="gemini">5 · Gemini API key <span class="badge b-opt">not AWS</span></h2>
+  <p class="sub">Topic research uses Google's web-grounded search.</p>
+  <div class="card">
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="gemini"></span>
+      <div class="body">
+        <div class="where"><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a></div>
+        <h3>Create a key and put it in <code>.env</code></h3>
+        <p>Sign in → Create API key → paste it as <code>GEMINI_API_KEY=...</code> in
+           <code>~/personal-intelligence/.env</code>.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 6 -->
+  <h2 id="ffmpeg">6 · FFmpeg on the host <span class="badge b-todo">on EC2</span></h2>
+  <p class="sub">SIGNAL assembles videos with FFmpeg (and reads durations with ffprobe).</p>
+  <div class="card">
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="ffmpeg"></span>
+      <div class="body">
+        <div class="where">On EC2</div>
+        <h3>Install it</h3>
+        <pre><button class="copy">Copy</button><span class="cmt"># Ubuntu/Debian</span>
+sudo apt update && sudo apt install -y ffmpeg
+<span class="cmt"># Amazon Linux: sudo yum install -y ffmpeg  (or enable EPEL/rpmfusion)</span>
+ffmpeg -version | head -1   <span class="cmt"># confirm</span></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7 -->
+  <h2 id="restart">7 · Restart &amp; verify <span class="badge b-todo">on EC2</span></h2>
+  <p class="sub">Load the new config and confirm the agents can read memory.</p>
+  <div class="card">
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="restart"></span>
+      <div class="body">
+        <div class="where">On EC2</div>
+        <h3>Restart both services</h3>
+        <pre><button class="copy">Copy</button>sudo systemctl restart personal-intelligence-api personal-intelligence-agents
+systemctl is-active personal-intelligence-api personal-intelligence-agents</pre>
+      </div>
+    </div>
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="verify"></span>
+      <div class="body">
+        <div class="where">Anywhere (use a real dashboard token)</div>
+        <h3>Verify the agents can reach memory</h3>
+        <p>Grab a token in the browser console on the dashboard:
+           <code>copy(sessionStorage.getItem('pi_access_token'))</code>, then:</p>
+        <pre><button class="copy">Copy</button>TOK='&lt;paste real token&gt;'
+curl -s -o /dev/null -w "health: %{http_code}\n" -H "Authorization: Bearer $TOK" \
+  https://adel-intelligence.com/api/health/daily/$(date +%F)</pre>
+        <p><strong>200</strong> = the health &amp; finance agents work. A 503 mentioning
+           <code>INTERNAL_SECRET</code> means it isn't set/loaded — recheck section 1 and restart.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8 -->
+  <h2 id="phase8">8 · Turn on content generation (Phase 8)</h2>
+  <p class="sub">First test by hand, then schedule it. PULSE/SIGNAL build content from your brain's memories,
+     so make sure you've written/uploaded a few first.</p>
+  <div class="card">
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="smoke"></span>
+      <div class="body">
+        <div class="where">On EC2</div>
+        <h3>Smoke test — run the pipeline by hand (in order)</h3>
+        <p>Topics must exist before posts/videos. These use <code>INTERNAL_SECRET</code>, not a user token.</p>
+        <pre><button class="copy">Copy</button>S=$(grep '^INTERNAL_SECRET=' ~/personal-intelligence/.env | cut -d= -f2-)
+curl -s -XPOST localhost:8000/api/content/jobs/topics/run -H "X-Internal-Secret: $S"; sleep 45
+curl -s -XPOST localhost:8000/api/content/jobs/posts/run  -H "X-Internal-Secret: $S" \
+     -H 'Content-Type: application/json' -d '{"count":3}'; sleep 60
+curl -s -XPOST localhost:8000/api/content/jobs/videos/run -H "X-Internal-Secret: $S" \
+     -H 'Content-Type: application/json' -d '{"count":1}'
+journalctl -u personal-intelligence-api -n 60 --no-pager   <span class="cmt"># watch for errors</span></pre>
+        <p>Then check the <strong>PULSE</strong> and <strong>SIGNAL</strong> pages on the dashboard,
+           and that objects appeared in the S3 content bucket.</p>
+      </div>
+    </div>
+    <div class="step">
+      <span class="n"><input type="checkbox" class="chk" data-id="schedule"></span>
+      <div class="body">
+        <div class="where">Your call — tell me which and I'll generate it</div>
+        <h3>Make it run on a schedule</h3>
+        <p>Once the smoke test produces content, pick one and I'll build the artifact for you:</p>
+        <p>• <strong>EC2 systemd timer</strong> (simplest — like the existing email-sync cron): topics
+           daily, posts twice a day, a video daily. Version-controlled so deploys install it.<br>
+           • <strong>EventBridge Scheduler → API destination</strong> (serverless): the AWS-native option.</p>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <p><strong>If a call returns HTML instead of JSON</strong> (“unexpected character at line 1”): the API
+      request is hitting a 404/error that CloudFront rewrites to the SPA — check the URL/route, not the data.</p>
+    <p>Generated for Private Internet · keep this file; reopen any time — your checkboxes persist locally.</p>
+  </footer>
+
+</div>
+
+<script>
+  // Brain mark dots
+  (function(){
+    var m=document.getElementById('mark');
+    [[50,50,5,.95],[50,18,4,.95],[80,40,4,.75],[72,76,4,.85],[24,70,4,.6]].forEach(function(d){
+      var i=document.createElement('i');
+      i.style.left=d[0]+'%';i.style.top=d[1]+'%';i.style.width=d[2]+'px';i.style.height=d[2]+'px';
+      i.style.opacity=d[3];m.appendChild(i);
+    });
+  })();
+
+  // Copy buttons
+  document.querySelectorAll('pre .copy').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var pre=btn.parentNode.cloneNode(true);
+      pre.querySelector('.copy').remove();
+      navigator.clipboard.writeText(pre.innerText.trim()).then(function(){
+        var t=btn.textContent;btn.textContent='Copied';setTimeout(function(){btn.textContent=t;},1200);
+      });
+    });
+  });
+
+  // Checkbox persistence + progress
+  var KEY='pi-aws-setup';
+  var saved=JSON.parse(localStorage.getItem(KEY)||'{}');
+  var boxes=Array.prototype.slice.call(document.querySelectorAll('.chk'));
+  function refresh(){
+    var done=boxes.filter(function(b){return b.checked;}).length;
+    var pct=boxes.length?Math.round(done/boxes.length*100):0;
+    document.getElementById('prog').style.width=pct+'%';
+    document.getElementById('pct').textContent=pct+'%';
+  }
+  boxes.forEach(function(b){
+    var id=b.dataset.id;
+    if(saved[id]){b.checked=true;b.closest('.step').classList.add('done');}
+    b.addEventListener('change',function(){
+      saved[id]=b.checked;localStorage.setItem(KEY,JSON.stringify(saved));
+      b.closest('.step').classList.toggle('done',b.checked);refresh();
+    });
+  });
+  refresh();
+</script>
+</body>
+</html>
