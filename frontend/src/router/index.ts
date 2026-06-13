@@ -25,7 +25,7 @@ const router = createRouter({
       meta:      { public: true },
     },
     { path: '/overview',   component: () => import('../views/OverviewView.vue') },
-    { path: '/memory',     component: () => import('../views/MemoryBrowser.vue') },
+    { path: '/memory',     component: () => import('../views/BrainView.vue'), meta: { title: 'Your Brain' } },
     { path: '/repository', component: () => import('../views/FileRepository.vue') },
     { path: '/email',      component: () => import('../views/EmailView.vue') },
     { path: '/bank',   component: () => import('../views/BankAdviser.vue') },
