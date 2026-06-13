@@ -1,6 +1,8 @@
+import io
 import logging
 import os
 import tempfile
+import zipfile
 from datetime import date, datetime
 
 import boto3
@@ -57,11 +59,13 @@ async def import_apple_health(
     file: UploadFile = File(...),
     _: str = Depends(require_auth),
 ):
-    """Accept export.xml (potentially large). Stream to /tmp, parse, bulk-insert new rows."""
+    """Accept the Apple Health export — either the raw export.xml OR the
+    'Export All Health Data' .zip (which contains apple_health_export/export.xml).
+    Streams to /tmp, parses, bulk-inserts new rows."""
     pool = await _pool()
 
     # Stream to temp file to avoid loading 100MB+ into memory
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as tmp:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as tmp:
         tmp_path = tmp.name
         chunk_size = 64 * 1024
         while chunk := await file.read(chunk_size):
@@ -69,9 +73,25 @@ async def import_apple_health(
 
     try:
         with open(tmp_path, "rb") as f:
-            xml_bytes = f.read()
+            data = f.read()
     finally:
         os.unlink(tmp_path)
+
+    # The .zip archive starts with the ZIP magic bytes "PK". Extract export.xml
+    # from it so users can upload the file Apple gives them without unzipping.
+    if data[:2] == b"PK":
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                names = [n for n in zf.namelist() if n.endswith("export.xml")]
+                if not names:
+                    raise HTTPException(
+                        400, "That .zip doesn't contain an Apple Health export.xml."
+                    )
+                xml_bytes = zf.read(names[0])
+        except zipfile.BadZipFile:
+            raise HTTPException(400, "Could not read that .zip file.")
+    else:
+        xml_bytes = data
 
     metrics = parse_apple_health_export(xml_bytes)
     if not metrics:
