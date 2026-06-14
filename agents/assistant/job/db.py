@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS job_matches (
     company           TEXT            NOT NULL,
     location          TEXT            NOT NULL,
     country           VARCHAR(50)     NOT NULL,
-    job_url           TEXT            NOT NULL UNIQUE,
+    job_url           TEXT            NOT NULL,
     posted_date       DATE,
     salary_raw        TEXT,
     salary_min_local  NUMERIC(12,2),
@@ -33,13 +33,30 @@ CREATE TABLE IF NOT EXISTS job_matches (
     ai_summary        TEXT,
     status            VARCHAR(30)     NOT NULL DEFAULT 'new',
     applied_at        TIMESTAMPTZ,
-    notes             TEXT
+    notes             TEXT,
+    user_id           UUID
 );
+-- Per-user multi-tenancy: the same job_url can belong to multiple users, so
+-- uniqueness is (user_id, job_url), not job_url alone. Idempotent for tables
+-- created before this (mirrors migrations/0009).
+ALTER TABLE job_matches ADD COLUMN IF NOT EXISTS user_id UUID;
+ALTER TABLE job_matches DROP CONSTRAINT IF EXISTS job_matches_job_url_key;
 CREATE INDEX IF NOT EXISTS idx_jm_score   ON job_matches (match_score DESC);
 CREATE INDEX IF NOT EXISTS idx_jm_country ON job_matches (country);
 CREATE INDEX IF NOT EXISTS idx_jm_tier    ON job_matches (match_tier);
 CREATE INDEX IF NOT EXISTS idx_jm_run     ON job_matches (run_timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_jm_status  ON job_matches (status);
+CREATE INDEX IF NOT EXISTS idx_jm_user    ON job_matches (user_id);
+"""
+
+# ADD CONSTRAINT has no IF NOT EXISTS, so the per-user unique is applied separately.
+_DDL_CONSTRAINT = """
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_job_user_url') THEN
+        ALTER TABLE job_matches ADD CONSTRAINT uq_job_user_url UNIQUE (user_id, job_url);
+    END IF;
+END $$;
 """
 
 _pool: Optional[asyncpg.Pool] = None
@@ -51,6 +68,7 @@ async def init_pool(database_url: str) -> asyncpg.Pool:
         _pool = await asyncpg.create_pool(database_url)
         async with _pool.acquire() as conn:
             await conn.execute(_DDL)
+            await conn.execute(_DDL_CONSTRAINT)
         logger.info("PostgreSQL pool initialized and schema verified")
     return _pool
 
@@ -62,9 +80,9 @@ def get_pool() -> asyncpg.Pool:
 
 
 async def upsert_match(
-    pool: asyncpg.Pool, listing: JobListing, result: MatchResult
+    pool: asyncpg.Pool, listing: JobListing, result: MatchResult, *, user_id: str
 ) -> tuple[Optional[int], bool]:
-    """Insert or conditionally update a job match.
+    """Insert or conditionally update a job match for a user.  # MUST SCOPE BY USER
 
     Returns (row_id, was_saved) where was_saved is True only for a fresh insert
     or a score-bump update.  False means the row already existed and was not
@@ -79,9 +97,9 @@ async def upsert_match(
                     posted_date, salary_raw, salary_min_local, salary_max_local,
                     currency, remote_type, match_score, match_tier,
                     tech_flags, domain_flags, positive_flags,
-                    disqualifier_flag, rejection_reason, ai_summary
-                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
-                ON CONFLICT (job_url) DO UPDATE SET
+                    disqualifier_flag, rejection_reason, ai_summary, user_id
+                ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21::uuid)
+                ON CONFLICT (user_id, job_url) DO UPDATE SET
                     match_score   = EXCLUDED.match_score,
                     ai_summary    = EXCLUDED.ai_summary,
                     run_timestamp = NOW()
@@ -99,13 +117,14 @@ async def upsert_match(
                 result.tech_flags or [], result.domain_flags or [],
                 result.positive_flags or [],
                 result.disqualifier_code, result.rejection_reason,
-                result.ai_summary,
+                result.ai_summary, user_id,
             )
             if row:
                 return row["id"], True
             # Conflict resolved without update — already exists, not worth updating
             existing = await conn.fetchrow(
-                "SELECT id FROM job_matches WHERE job_url = $1", listing.job_url
+                "SELECT id FROM job_matches WHERE user_id = $1::uuid AND job_url = $2",
+                user_id, listing.job_url,
             )
             return (existing["id"] if existing else None), False
         except Exception:
@@ -113,20 +132,21 @@ async def upsert_match(
             return None, False
 
 
-async def list_unknown_companies(pool: asyncpg.Pool) -> list[dict]:
+async def list_unknown_companies(pool: asyncpg.Pool, *, user_id: str) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             "SELECT id, job_url, platform FROM job_matches "
-            "WHERE company IN ('Explore companies', 'Unknown')"
+            "WHERE user_id = $1::uuid AND company IN ('Explore companies', 'Unknown')",
+            user_id,
         )
         return [dict(r) for r in rows]
 
 
-async def update_company(pool: asyncpg.Pool, job_url: str, company: str) -> bool:
+async def update_company(pool: asyncpg.Pool, job_url: str, company: str, *, user_id: str) -> bool:
     async with pool.acquire() as conn:
         tag = await conn.execute(
-            "UPDATE job_matches SET company = $1 WHERE job_url = $2",
-            company, job_url,
+            "UPDATE job_matches SET company = $1 WHERE user_id = $3::uuid AND job_url = $2",
+            company, job_url, user_id,
         )
         return tag == "UPDATE 1"
 
@@ -147,9 +167,11 @@ async def list_matches(
     country: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 100,
+    *,
+    user_id: str,
 ) -> list[dict]:
-    conditions: list[str] = []
-    params: list = []
+    conditions: list[str] = ["user_id = $1::uuid"]  # MUST SCOPE BY USER
+    params: list = [user_id]
 
     if tier:
         params.append(tier)
@@ -173,11 +195,12 @@ async def list_matches(
         return [dict(r) for r in rows]
 
 
-async def set_status(pool: asyncpg.Pool, match_id: int, status: str) -> bool:
+async def set_status(pool: asyncpg.Pool, match_id: int, status: str, *, user_id: str) -> bool:
     if status not in _VALID_STATUSES:
         return False
     async with pool.acquire() as conn:
         tag = await conn.execute(
-            "UPDATE job_matches SET status = $1 WHERE id = $2", status, match_id
+            "UPDATE job_matches SET status = $1 WHERE id = $2 AND user_id = $3::uuid",
+            status, match_id, user_id,
         )
         return tag == "UPDATE 1"

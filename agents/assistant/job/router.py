@@ -9,31 +9,49 @@ from assistant.job import agent as job_agent
 from assistant.job.db import init_pool, list_matches, list_unknown_companies, set_status, update_company
 from assistant.job.models import RunReport
 from assistant.job.report import format_report
-from assistant.shared.auth import require_auth
+from assistant.shared.auth import require_user
 from assistant.shared.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["jobs"])
 
-_latest_report: Optional[RunReport] = None
+# Last run report per user (in-memory). Internal/legacy callers key off the seed admin.
+_latest_reports: dict[str, RunReport] = {}
+_seed_admin_id: Optional[str] = None
 
 
 class StatusUpdate(BaseModel):
     status: str
 
 
+async def _resolve_user_id(ident: dict, pool) -> str:
+    """The caller's user_id, or the seed admin for internal/legacy callers.
+    # MUST SCOPE BY USER"""
+    if ident.get("user_id"):
+        return ident["user_id"]
+    global _seed_admin_id
+    if _seed_admin_id is None:
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT id FROM users WHERE is_admin = true LIMIT 1")
+        if not row:
+            raise HTTPException(503, "No admin user to attribute internal job data to")
+        _seed_admin_id = str(row["id"])
+    return _seed_admin_id
+
+
 @router.get("/run")
 async def trigger_run(
     background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),
-    _: str = Depends(require_auth),
+    ident: dict = Depends(require_user),
 ):
-    # Owner-only: job_matches is a single shared pool (no user_id column yet),
-    # so the whole module stays gated to the owner to avoid exposing the owner's
-    # matches to other tenants. Per-user jobs needs a schema migration.
+    # Per-user: matches scrape into the caller's own pool (scoped by user_id).
+    # Search criteria are still the shared defaults — per-user criteria is a follow-up.
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
-    background_tasks.add_task(_run_job_agent, settings)
+    pool = await init_pool(settings.database_url)
+    user_id = await _resolve_user_id(ident, pool)
+    background_tasks.add_task(_run_job_agent, settings, user_id, ident["token"])
     return {
         "status": "started",
         "message": "Job hunt agent running in background. Poll GET /api/jobs/report for results.",
@@ -46,12 +64,13 @@ async def get_matches(
     country: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     settings: Settings = Depends(get_settings),
-    _: str = Depends(require_auth),
+    ident: dict = Depends(require_user),
 ):
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     pool = await init_pool(settings.database_url)
-    matches = await list_matches(pool, tier=tier, country=country, status=status)
+    user_id = await _resolve_user_id(ident, pool)
+    matches = await list_matches(pool, tier=tier, country=country, status=status, user_id=user_id)
     return {"count": len(matches), "matches": matches}
 
 
@@ -60,12 +79,13 @@ async def update_status(
     match_id: int,
     body: StatusUpdate,
     settings: Settings = Depends(get_settings),
-    _: str = Depends(require_auth),
+    ident: dict = Depends(require_user),
 ):
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     pool = await init_pool(settings.database_url)
-    ok = await set_status(pool, match_id, body.status)
+    user_id = await _resolve_user_id(ident, pool)
+    ok = await set_status(pool, match_id, body.status, user_id=user_id)
     if not ok:
         raise HTTPException(
             400,
@@ -76,12 +96,13 @@ async def update_status(
 
 
 @router.get("/fix-companies")
-async def fix_companies(settings: Settings = Depends(get_settings), _: str = Depends(require_auth)):
+async def fix_companies(settings: Settings = Depends(get_settings), ident: dict = Depends(require_user)):
     """One-time migration: re-fetch company names for rows with 'Explore companies' or 'Unknown'."""
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
     pool = await init_pool(settings.database_url)
-    rows = await list_unknown_companies(pool)
+    user_id = await _resolve_user_id(ident, pool)
+    rows = await list_unknown_companies(pool, user_id=user_id)
     if not rows:
         return {"message": "No rows to fix", "updated": 0}
 
@@ -97,7 +118,7 @@ async def fix_companies(settings: Settings = Depends(get_settings), _: str = Dep
             continue
         company = await extract_company_from_url(url)
         if company:
-            ok = await update_company(pool, url, company)
+            ok = await update_company(pool, url, company, user_id=user_id)
             if ok:
                 updated += 1
                 logger.info("fix-companies: updated %s → %r", url, company)
@@ -112,17 +133,18 @@ async def fix_companies(settings: Settings = Depends(get_settings), _: str = Dep
 
 
 @router.get("/report")
-async def get_report(_: str = Depends(require_auth)):
-    if _latest_report is None:
+async def get_report(settings: Settings = Depends(get_settings), ident: dict = Depends(require_user)):
+    pool = await init_pool(settings.database_url) if settings.database_url else None
+    user_id = await _resolve_user_id(ident, pool) if pool else (ident.get("user_id") or "")
+    report = _latest_reports.get(user_id)
+    if report is None:
         raise HTTPException(
             404, "No completed run yet — call GET /api/jobs/run to start one."
         )
-    return {"report": format_report(_latest_report), "data": _latest_report}
+    return {"report": format_report(report), "data": report}
 
 
-async def _run_job_agent(settings: Settings, token: Optional[str] = None) -> None:
-    global _latest_report
-
+async def _run_job_agent(settings: Settings, user_id: str, token: Optional[str] = None) -> None:
     bedrock_client = boto3.client("bedrock-runtime", region_name=settings.aws_region)
     memory_client = None
     graph_client = None
@@ -162,8 +184,9 @@ async def _run_job_agent(settings: Settings, token: Optional[str] = None) -> Non
             notification_email=settings.notification_email,
             delay_seconds=settings.scraper_delay_seconds,
             max_per_query=settings.scraper_max_results_per_query,
+            user_id=user_id,
         )
-        _latest_report = report
+        _latest_reports[user_id] = report
     except Exception:
         logger.exception("Job hunt agent run failed")
 

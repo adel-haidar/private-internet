@@ -99,6 +99,7 @@ async def run_agent(
     notification_email: str,
     delay_seconds: float,
     max_per_query: int,
+    user_id: str,
 ) -> RunReport:
     timestamp = datetime.utcnow()
     pool = await init_pool(database_url)
@@ -201,7 +202,7 @@ async def run_agent(
 
         tier = result.match_tier
         if tier in ("STRONG_MATCH", "GOOD_MATCH"):
-            row_id, is_new = await upsert_match(pool, listing, result)
+            row_id, is_new = await upsert_match(pool, listing, result, user_id=user_id)
             scored = ScoredListing(listing=listing, result=result, db_id=row_id)
             if is_new:
                 db_saved += 1

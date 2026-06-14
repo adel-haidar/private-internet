@@ -394,15 +394,15 @@ async def latest_bank_analysis(settings: SettingsDep, ident: dict = Depends(requ
 # ── Investment recommendations ─────────────────────────────────────────────────
 
 @app.post("/api/investing/analyse")
-async def analyse_investments(settings: SettingsDep, _: str = Depends(require_auth)):
-    """Analyse Adel's investing position from his Trading 212 strategy in memory.
+async def analyse_investments(settings: SettingsDep, ident: dict = Depends(require_user)):
+    """Analyse the caller's investing position from their Trading 212 strategy in memory.
 
     Combines the uploaded strategy, the latest cached bank analysis (savings
     position / investment signal) and the previous investment analysis into a
     current status + allocation recommendation. The result is cached in MCP
     memory and returned as {saved_at, result}.
     """
-    memory_client = _make_memory_client(settings)
+    memory_client = _make_memory_client(settings, token=ident["token"])
 
     strategy_context = await memory_client.fetch_investing_strategy()
     bank = await memory_client.fetch_latest_analysis("bank-adviser")
@@ -443,8 +443,8 @@ async def analyse_investments(settings: SettingsDep, _: str = Depends(require_au
 
 
 @app.get("/api/investing/latest")
-async def latest_investing_analysis(settings: SettingsDep, _: str = Depends(require_auth)):
-    memory_client = _make_memory_client(settings)
+async def latest_investing_analysis(settings: SettingsDep, ident: dict = Depends(require_user)):
+    memory_client = _make_memory_client(settings, token=ident["token"])
     payload = await memory_client.fetch_latest_analysis("investing")
     if not payload:
         raise HTTPException(status_code=404, detail="No cached analysis available — run one first.")
@@ -454,7 +454,7 @@ async def latest_investing_analysis(settings: SettingsDep, _: str = Depends(requ
 # ── Day trading desk ───────────────────────────────────────────────────────────
 
 @app.post("/api/trading/analyse")
-async def analyse_day_trading(settings: SettingsDep, _: str = Depends(require_auth)):
+async def analyse_day_trading(settings: SettingsDep, ident: dict = Depends(require_user)):
     """Run the daily market analysis (US / Europe / Southeast Asia).
 
     Fetches a live market snapshot from the web (Yahoo Finance quotes,
@@ -462,7 +462,7 @@ async def analyse_day_trading(settings: SettingsDep, _: str = Depends(require_au
     analysis from MCP memory so the model builds on its own open calls, and
     caches the new result. Returns {saved_at, result, snapshot_meta}.
     """
-    memory_client = _make_memory_client(settings)
+    memory_client = _make_memory_client(settings, token=ident["token"])
 
     previous_payload = await memory_client.fetch_latest_analysis("day-trading")
     previous = previous_payload.get("result") if previous_payload else None
@@ -506,8 +506,8 @@ async def analyse_day_trading(settings: SettingsDep, _: str = Depends(require_au
 
 
 @app.get("/api/trading/latest")
-async def latest_day_trading_analysis(settings: SettingsDep, _: str = Depends(require_auth)):
-    memory_client = _make_memory_client(settings)
+async def latest_day_trading_analysis(settings: SettingsDep, ident: dict = Depends(require_user)):
+    memory_client = _make_memory_client(settings, token=ident["token"])
     payload = await memory_client.fetch_latest_analysis("day-trading")
     if not payload:
         raise HTTPException(status_code=404, detail="No cached analysis available — run one first.")
