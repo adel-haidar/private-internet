@@ -36,7 +36,10 @@ import EmptyState from '../components/ui/EmptyState.vue'
 import { requireAuth } from '../composables/useAuth'
 import { API_BASE } from '../config/env'
 import brainReflection from '../assets/brain-reflection.webp'
+import { useI18n } from '../i18n'
 import type { User } from '../types/user'
+
+const { t } = useI18n()
 import type { MemoryStats } from '../types/memory'
 
 // ---------------------------------------------------------------------------
@@ -343,7 +346,7 @@ onMounted(async () => {
           <div class="dash__brain-top">
             <BrainPulse :size="32" aria-hidden="true" />
             <div class="dash__brain-info">
-              <div class="dash__brain-title">Your Brain</div>
+              <div class="dash__brain-title">{{ t('dashboard.brainTitle') }}</div>
               <div class="dash__brain-sub t-secondary">
                 <span class="t-mono">{{ memStats.total }}</span>
                 {{ memStats.total === 1 ? ' memory' : ' memories' }}
@@ -351,13 +354,10 @@ onMounted(async () => {
               </div>
             </div>
             <PiButton variant="primary" icon="plus" @click="router.push('/memory')">
-              Add to your brain
+              {{ t('dashboard.addToBrain') }}
             </PiButton>
           </div>
-          <p class="dash__brain-concept t-serif">
-            One brain, every angle. Your feed, health and finances are all reflections of
-            the private memory you build — the more you add, the sharper every view becomes.
-          </p>
+          <p class="dash__brain-concept t-serif">{{ t('dashboard.brainConcept') }}</p>
           <ProgressBar
             :label="`Brain health: ${healthBand.label}`"
             :value="healthScore"

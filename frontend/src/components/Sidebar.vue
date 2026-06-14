@@ -8,6 +8,9 @@ import Avatar from './ui/Avatar.vue'
 import ModeToggle from './ui/ModeToggle.vue'
 import { useToast } from './ui/useToast'
 import { useBrainOrganiser } from '../composables/useBrainOrganiser'
+import { useI18n } from '../i18n'
+
+const { t } = useI18n()
 
 // Always-visible Brain Organiser signal: the sidebar is mounted for the whole
 // authenticated session, so it owns the single status poller and fires the
@@ -45,26 +48,26 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 interface NavItem {
-  label: string
+  key: string
   to: string
   icon: string
   brain?: boolean
 }
 
 const NAV_MAIN: NavItem[] = [
-  { label: 'Dashboard',    to: '/overview',  icon: 'dashboard' },
-  { label: 'Your Brain',   to: '/memory',    icon: 'brain',    brain: true },
-  { label: 'Signal',       to: '/signal',    icon: 'signal' },
-  { label: 'Pulse',        to: '/pulse',     icon: 'pulse' },
-  { label: 'Health',       to: '/health',    icon: 'health' },
-  { label: 'Finances',     to: '/finances',  icon: 'finances' },
+  { key: 'dashboard', to: '/overview',  icon: 'dashboard' },
+  { key: 'brain',     to: '/memory',    icon: 'brain',    brain: true },
+  { key: 'signal',    to: '/signal',    icon: 'signal' },
+  { key: 'pulse',     to: '/pulse',     icon: 'pulse' },
+  { key: 'health',    to: '/health',    icon: 'health' },
+  { key: 'finances',  to: '/finances',  icon: 'finances' },
   // Email assistant deactivated for the first release — re-add when EMAIL_ENABLED is on.
-  { label: 'Job hunt',     to: '/job',       icon: 'job' },
+  { key: 'jobs',      to: '/job',       icon: 'job' },
 ]
 
 const NAV_SYS: NavItem[] = [
-  { label: 'Settings',     to: '/settings',  icon: 'settings' },
-  { label: 'How it works', to: '/about',     icon: 'help' },
+  { key: 'settings',   to: '/settings',  icon: 'settings' },
+  { key: 'howItWorks', to: '/about',     icon: 'help' },
 ]
 </script>
 
@@ -93,8 +96,8 @@ const NAV_SYS: NavItem[] = [
                Brain Organiser is running ("your brain is sleeping"). -->
           <span
             v-if="item.brain && organiserRunning"
-            title="Your brain is being organised…"
-            aria-label="Your brain is being organised"
+            :title="t('sidebar.organising')"
+            :aria-label="t('sidebar.organising')"
             style="font-size: 16px; line-height: 1; width: 18px; text-align: center; flex: 0 0 auto;"
           >💤</span>
           <BrainPulse v-else-if="item.brain" :size="18" />
@@ -103,11 +106,11 @@ const NAV_SYS: NavItem[] = [
           <span class="pi-nav__label">
             <template v-if="item.brain && memoryCount === 0">
               <span style="color: var(--text-tertiary)">
-                Your Brain
-                <span class="pi-nav__hint">&nbsp;· Start here →</span>
+                {{ t('nav.brain') }}
+                <span class="pi-nav__hint">&nbsp;· {{ t('sidebar.startHere') }}</span>
               </span>
             </template>
-            <template v-else>{{ item.label }}</template>
+            <template v-else>{{ t('nav.' + item.key) }}</template>
           </span>
         </button>
       </RouterLink>
@@ -127,7 +130,7 @@ const NAV_SYS: NavItem[] = [
           @click="navigate"
         >
           <PIIcon :name="item.icon" :size="18" />
-          <span class="pi-nav__label">{{ item.label }}</span>
+          <span class="pi-nav__label">{{ t('nav.' + item.key) }}</span>
         </button>
       </RouterLink>
     </nav>
