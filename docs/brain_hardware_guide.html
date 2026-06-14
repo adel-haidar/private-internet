@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Private Internet — Brain Hardware Guide</title>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --panel2:#1e222e; --border:#2a2f3d;
+    --text:#e7e9ee; --muted:#9aa0ad; --accent:#7c83ff; --accent2:#a8acff;
+    --amber:#f5b14c; --green:#5fd08a; --red:#f0726b;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+    --sans:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);
+       line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:48px 24px 96px}
+  header{border-bottom:1px solid var(--border);padding-bottom:24px;margin-bottom:32px}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;
+          color:var(--accent2)}
+  h1{font-size:30px;margin:.3em 0 .15em;line-height:1.2}
+  h2{font-size:21px;margin:44px 0 14px;padding-top:8px}
+  h3{font-size:16px;margin:22px 0 6px;color:var(--accent2)}
+  p{margin:.5em 0}
+  .lead{color:var(--muted);font-size:16px}
+  .muted{color:var(--muted)}
+  .pill{display:inline-block;font-family:var(--mono);font-size:11px;border:1px solid var(--border);
+        border-radius:999px;padding:2px 10px;color:var(--muted)}
+  .rule{background:linear-gradient(90deg,rgba(124,131,255,.14),transparent);
+        border:1px solid var(--border);border-left:3px solid var(--accent);
+        border-radius:10px;padding:16px 18px;margin:18px 0}
+  .rule b{color:var(--accent2)}
+  .grid{display:grid;gap:14px}
+  @media(min-width:680px){.tiers{grid-template-columns:repeat(3,1fr)}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:18px}
+  .card h3{margin-top:0}
+  .tier .tag{font-family:var(--mono);font-size:11px;color:var(--amber)}
+  .tier ul{margin:10px 0 0;padding-left:0;list-style:none;font-size:14px}
+  .tier li{padding:5px 0;border-top:1px solid var(--border)}
+  .tier li:first-child{border-top:0}
+  .tier li b{color:var(--text)}
+  table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+  th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  td b{color:var(--accent2)}
+  code{font-family:var(--mono);font-size:.88em;background:var(--panel2);border:1px solid var(--border);
+       border-radius:5px;padding:1px 6px}
+  .measured{background:var(--panel2);border:1px solid var(--border);border-radius:12px;padding:18px;margin:18px 0}
+  .measured h3{margin-top:0;color:var(--amber)}
+  .measured table td{border-bottom:1px dashed var(--border)}
+  .good{color:var(--green)} .bad{color:var(--red)}
+  .check li{margin:6px 0}
+  .two{display:grid;gap:14px}
+  @media(min-width:680px){.two{grid-template-columns:1fr 1fr}}
+  footer{margin-top:56px;border-top:1px solid var(--border);padding-top:18px;color:var(--muted);font-size:13px}
+  a{color:var(--accent2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Private Internet · Hardware Guide</div>
+  <h1>Buying a box to host your Brain</h1>
+  <p class="lead">What to look for on the market if you want to run your own personal AI
+  “brain” at home instead of on the cloud. Figures below are <b>measured</b> on the current
+  system, not estimates.</p>
+  <span class="pill">Updated 2026-06-14</span>
+  <span class="pill">For: self-hosting the memory brain</span>
+</header>
+
+<p>Your “brain” is a small, always-on appliance that stores your memories and answers
+semantic searches over them. Four things run on it:</p>
+<table>
+  <tr><th>Component</th><th>Job</th><th>Appetite</th></tr>
+  <tr><td><b>PostgreSQL + pgvector</b></td><td>Stores memories and their 1024-dim vectors</td>
+      <td>Light. ~4 KB per memory; 50,000 memories ≈ 200 MB of vectors</td></tr>
+  <tr><td><b>Embedding model</b> (bge-m3 via Ollama)</td><td>Turns text into vectors for search</td>
+      <td><b>The main RAM user: ~1–2 GB resident.</b> CPU is fine — no GPU needed</td></tr>
+  <tr><td><b>Memory service</b> (Python)</td><td>The API the platform talks to</td>
+      <td>~200–400 MB</td></tr>
+  <tr><td><b>Tunnel agent</b> (e.g. Tailscale/WireGuard)</td><td>Lets the platform reach the box behind your router</td>
+      <td>Negligible. <b>No port-forwarding needed</b> — the box dials out</td></tr>
+</table>
+
+<div class="rule">
+  <p style="margin:0"><b>The one rule that decides everything:</b> RAM is king, and a
+  <b>GPU only matters if you want the box to also <i>generate</i> text locally</b> (run an LLM).
+  For memory + search, embeddings run fine on a plain CPU. Don’t pay for a graphics card
+  you won’t use.</p>
+</div>
+
+<div class="measured">
+  <h3>What we measured (so the numbers are honest)</h3>
+  <table>
+    <tr><td>Embedding model footprint</td><td><b>~1.2 GB</b> resident in RAM (bge-m3)</td></tr>
+    <tr><td>First request after idle (“cold”)</td><td><b>~12 s</b> — loads the model into RAM</td></tr>
+    <tr><td>Subsequent requests (“warm”)</td><td><b>~0.8 s</b> each on 2 modest CPU cores</td></tr>
+    <tr><td>Test box: 2 vCPU / <b>4 GB RAM</b></td><td class="bad">Too small — ran out of memory when the
+        model loaded alongside the apps. Needed swap to survive.</td></tr>
+  </table>
+  <p class="muted" style="margin:.4em 0 0;font-size:13px">Takeaway: 4 GB is the floor that <i>breaks</i>.
+  Plan for headroom — see tiers below.</p>
+</div>
+
+<h2>Pick a tier</h2>
+<div class="grid tiers">
+
+  <div class="card tier">
+    <div class="tag">TIER 1 · START HERE</div>
+    <h3>Essential Brain</h3>
+    <p class="muted" style="font-size:13.5px">Memory + search fully local. Text generation
+    (Claude-style answers) still uses a cloud API.</p>
+    <ul>
+      <li><b>RAM:</b> 8 GB min · <b>16 GB recommended</b></li>
+      <li><b>CPU:</b> any modern 4-core (x86-64 or Apple Silicon)</li>
+      <li><b>GPU:</b> none</li>
+      <li><b>Storage:</b> 256 GB NVMe SSD (512 GB comfy)</li>
+      <li><b>Power:</b> ~7–15 W idle</li>
+    </ul>
+  </div>
+
+  <div class="card tier">
+    <div class="tag">TIER 2 · PRIVATE GENERATION</div>
+    <h3>Sovereign Brain</h3>
+    <p class="muted" style="font-size:13.5px">Everything local, including a small (7–13B)
+    language model. Nothing leaves the box.</p>
+    <ul>
+      <li><b>RAM:</b> 16–32 GB (or 16–24 GB Apple unified)</li>
+      <li><b>CPU:</b> 6+ cores</li>
+      <li><b>GPU:</b> NVIDIA <b>8–12 GB VRAM</b>, <i>or</i> Apple Silicon unified memory</li>
+      <li><b>Storage:</b> 512 GB–1 TB NVMe</li>
+      <li><b>Power:</b> ~20–60 W</li>
+    </ul>
+  </div>
+
+  <div class="card tier">
+    <div class="tag">TIER 3 · POWER</div>
+    <h3>Power Brain</h3>
+    <p class="muted" style="font-size:13.5px">Bigger/faster local models, snappy responses,
+    room to grow into more features.</p>
+    <ul>
+      <li><b>RAM:</b> 32–64 GB</li>
+      <li><b>CPU:</b> 8+ cores</li>
+      <li><b>GPU:</b> NVIDIA <b>16–24 GB VRAM</b> (e.g. 3090/4090), or Apple 48–64 GB</li>
+      <li><b>Storage:</b> 1–2 TB NVMe</li>
+      <li><b>Power:</b> 60–150 W+</li>
+    </ul>
+  </div>
+</div>
+<p class="muted" style="font-size:13.5px">Most people want <b>Tier 1</b> to start. Step up only
+if “the AI must <i>generate</i> on my own hardware too” matters to you — that’s the expensive,
+GPU/RAM-hungry part. The brain’s core job (remember + search) is cheap.</p>
+
+<h2>Which form factor?</h2>
+<div class="two">
+  <div class="card">
+    <h3>Mini PC (x86)</h3>
+    <p class="muted" style="font-size:13.5px">Beelink, Minisforum, GMKtec, Intel NUC. Cheap,
+    tiny, low-power, RAM/SSD usually upgradeable. <b>Best value for Tier 1.</b> Limited for
+    local LLMs (no real GPU).</p>
+  </div>
+  <div class="card">
+    <h3>Mac mini (Apple Silicon)</h3>
+    <p class="muted" style="font-size:13.5px">Silent, very efficient, and its unified memory
+    doubles as “VRAM” — excellent for Tier 1 <i>and</i> Tier 2 local LLMs. <b>RAM is not
+    upgradeable</b>, so buy 16–24 GB+ up front.</p>
+  </div>
+  <div class="card">
+    <h3>Docker-capable NAS</h3>
+    <p class="muted" style="font-size:13.5px">Synology / UGREEN / TrueNAS. Convenient if you
+    already own one and it’s always on. Check it can run containers and has ≥ 16 GB RAM.</p>
+  </div>
+  <div class="card">
+    <h3>Small tower + NVIDIA GPU</h3>
+    <p class="muted" style="font-size:13.5px">The flexible, upgradeable route for Tier 2/3
+    local generation. Louder, more power. <b>VRAM is the spec that matters</b> — see below.</p>
+  </div>
+</div>
+
+<h2>What to actually check on the listing</h2>
+<ul class="check">
+  <li><b>RAM ≥ 16 GB.</b> This is the number that bit us at 4 GB. Upgradeable is a bonus on
+      x86; fixed on Apple — so buy up front there.</li>
+  <li><b>NVMe SSD ≥ 512 GB.</b> Databases want fast random I/O. <span class="bad">Avoid HDD and
+      eMMC</span> as the main drive.</li>
+  <li><b>If (and only if) you want local generation:</b> the gating spec is
+      <b>NVIDIA VRAM</b> (8 GB runs 7–8B, 12–16 GB runs ~13B, 24 GB runs much larger/faster)
+      <i>or</i> <b>Apple unified-memory size</b>. For embeddings only, ignore the GPU entirely.</li>
+  <li><b>Wired Gigabit Ethernet</b> and the ability to stay <b>always-on</b>.</li>
+  <li><b>Low idle power &amp; quiet</b> — it lives in your home and runs 24/7.</li>
+  <li><b>CPU:</b> x86-64 or Apple Silicon both work. 64-bit, supports containers/virtualization.</li>
+</ul>
+
+<h3 class="bad">Avoid</h3>
+<ul class="check">
+  <li>Raspberry Pi / low-end ARM SBCs — too little RAM/CPU for the embedding model to be
+      pleasant, and a non-starter for local LLMs.</li>
+  <li>Anything with <b>&lt; 8 GB RAM</b> (and treat 8 GB as the bare minimum, not the target).</li>
+  <li>eMMC-only or spinning-disk-only storage for the database.</li>
+  <li>A pricey GPU “to be safe” if you only want memory + search — you won’t use it.</li>
+</ul>
+
+<h2>Operating notes</h2>
+<div class="two">
+  <div class="card">
+    <h3>Networking</h3>
+    <p class="muted" style="font-size:13.5px">The box only needs <b>outbound</b> internet. It
+    dials out and joins a private mesh (e.g. Tailscale), so the platform can reach it without
+    you opening any ports on your router. Wired connection preferred.</p>
+  </div>
+  <div class="card">
+    <h3>Reliability</h3>
+    <p class="muted" style="font-size:13.5px">It’s an appliance: headless, always-on. A small
+    <b>UPS</b> is nice so a power blip doesn’t corrupt the database. Keep a backup of the
+    Postgres data — that <i>is</i> your brain.</p>
+  </div>
+</div>
+
+<div class="rule" style="margin-top:28px">
+  <p style="margin:0"><b>TL;DR shopping line:</b> a quiet mini-PC or Mac mini with
+  <b>16 GB RAM</b> and a <b>512 GB NVMe SSD</b>, wired ethernet, low idle power — <b>no GPU</b>.
+  Add a GPU (or buy Apple with more unified memory) only when you decide the AI’s
+  <i>writing</i>, not just its memory, must run on your own hardware too.</p>
+</div>
+
+<footer>
+  Private Internet — personal hardware reference. Embedding figures measured with
+  <code>bge-m3</code> on <code>Ollama</code>. Generation (Claude-class answers) currently runs
+  in the cloud; only the memory + embeddings need to live on this box today.
+</footer>
+
+</div>
+</body>
+</html>
