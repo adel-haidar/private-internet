@@ -10,6 +10,7 @@ export const de = {
     jobs: 'Jobsuche',
     settings: 'Einstellungen',
     howItWorks: 'So funktioniert’s',
+    signOut: 'Abmelden',
   },
   sidebar: {
     startHere: 'Hier starten →',

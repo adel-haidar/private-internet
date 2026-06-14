@@ -10,6 +10,7 @@ export const zh = {
     jobs: '求职',
     settings: '设置',
     howItWorks: '工作原理',
+    signOut: '退出登录',
   },
   sidebar: {
     startHere: '从这里开始 →',

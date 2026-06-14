@@ -10,6 +10,7 @@ export const ar = {
     jobs: 'البحث عن عمل',
     settings: 'الإعدادات',
     howItWorks: 'كيف يعمل',
+    signOut: 'تسجيل الخروج',
   },
   sidebar: {
     startHere: '← ابدأ من هنا',

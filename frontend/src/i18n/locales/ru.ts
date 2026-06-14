@@ -10,6 +10,7 @@ export const ru = {
     jobs: 'Поиск работы',
     settings: 'Настройки',
     howItWorks: 'Как это работает',
+    signOut: 'Выйти',
   },
   sidebar: {
     startHere: 'Начните здесь →',

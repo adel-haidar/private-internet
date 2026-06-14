@@ -6,11 +6,20 @@ import BrainPulse from './ui/BrainPulse.vue'
 import PIIcon from './ui/PIIcon.vue'
 import Avatar from './ui/Avatar.vue'
 import ModeToggle from './ui/ModeToggle.vue'
+import IconButton from './ui/IconButton.vue'
 import { useToast } from './ui/useToast'
 import { useBrainOrganiser } from '../composables/useBrainOrganiser'
+import { logout } from '../composables/useAuth'
 import { useI18n } from '../i18n'
 
 const { t } = useI18n()
+
+// Hard navigation so all in-memory state (billing/organiser caches, etc.) is
+// wiped — a clean slate for switching or creating a fresh account.
+function onSignOut() {
+  logout()
+  window.location.assign('/login')
+}
 
 // Always-visible Brain Organiser signal: the sidebar is mounted for the whole
 // authenticated session, so it owns the single status poller and fires the
@@ -142,8 +151,9 @@ const NAV_SYS: NavItem[] = [
         <div class="pi-sidebar__user-name">{{ userName }}</div>
         <div class="pi-sidebar__user-meta">{{ userPlan }}</div>
       </div>
-      <div style="margin-left: auto; flex: 0 0 auto">
+      <div style="margin-left: auto; flex: 0 0 auto; display: flex; align-items: center; gap: var(--space-1);">
         <ModeToggle :with-label="false" />
+        <IconButton icon="logout" :label="t('nav.signOut')" @click="onSignOut" />
       </div>
     </div>
   </aside>

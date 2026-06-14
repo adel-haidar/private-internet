@@ -10,6 +10,7 @@ export const en = {
     jobs: 'Job hunt',
     settings: 'Settings',
     howItWorks: 'How it works',
+    signOut: 'Sign out',
   },
   sidebar: {
     startHere: 'Start here →',

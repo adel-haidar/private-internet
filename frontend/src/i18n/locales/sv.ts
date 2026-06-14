@@ -10,6 +10,7 @@ export const sv = {
     jobs: 'Jobbsökning',
     settings: 'Inställningar',
     howItWorks: 'Så fungerar det',
+    signOut: 'Logga ut',
   },
   sidebar: {
     startHere: 'Börja här →',
