@@ -17,11 +17,19 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env"}
 
-    ms_client_id: str
-    """The client ID of your Microsoft Entra (Azure AD) app registration."""
+    email_enabled: bool = False
+    """Master switch for the email assistant. Disabled for the first product
+    release (friends/family). The code stays in place but the /auth/microsoft/*
+    and /api/email/* routes return 404 while this is False. Set EMAIL_ENABLED=true
+    to re-activate. When False, the MS_* credentials below are not required."""
 
-    ms_client_secret: str
-    """The client secret of your Microsoft Entra app registration."""
+    ms_client_id: str = ""
+    """The client ID of your Microsoft Entra (Azure AD) app registration.
+    Optional while email_enabled is False."""
+
+    ms_client_secret: str = ""
+    """The client secret of your Microsoft Entra app registration.
+    Optional while email_enabled is False."""
 
     ms_redirect_uri: str = "http://localhost:8000/auth/microsoft/callback"
     """The URL Microsoft redirects to after the user logs in. Must match what is

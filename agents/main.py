@@ -139,18 +139,26 @@ def health():
     return {"status": "ok"}
 
 
+# The email assistant is deactivated for the first release (see Settings.email_enabled).
+# The code below is kept intact; these routes simply 404 until EMAIL_ENABLED=true.
+def _require_email_enabled(settings: Settings) -> None:
+    if not settings.email_enabled:
+        raise HTTPException(status_code=404, detail="Email assistant is disabled in this deployment")
+
+
 @app.get("/auth/microsoft/login")
-def login(token_store: TokenStoreDep):
+def login(token_store: TokenStoreDep, settings: SettingsDep):
     """Redirect the user to Microsoft's login page to begin the OAuth flow.
 
     After the user signs in and grants permission, Microsoft sends them back
     to `/auth/microsoft/callback` with a one-time code in the URL.
     """
+    _require_email_enabled(settings)
     return RedirectResponse(token_store.get_authorize_url())
 
 
 @app.get("/auth/microsoft/callback")
-def get_token(code: str, token_store: TokenStoreDep):
+def get_token(code: str, token_store: TokenStoreDep, settings: SettingsDep):
     """Complete the OAuth flow by exchanging the login code for a refresh token.
 
     Microsoft calls this endpoint automatically after the user logs in. The
@@ -162,6 +170,7 @@ def get_token(code: str, token_store: TokenStoreDep):
         code: The short-lived authorization code from Microsoft (comes from the
             URL query string automatically via FastAPI).
     """
+    _require_email_enabled(settings)
     token_store.handle_callback(code)
     return {"message": "connected"}
 
@@ -191,6 +200,7 @@ def sync_email(token_store: TokenStoreDep, settings: SettingsDep, _: str = Depen
     Raises:
         HTTPException (401): If the user hasn't completed the Microsoft login flow yet.
     """
+    _require_email_enabled(settings)
     if not token_store.is_connected:
         raise HTTPException(status_code=401, detail="Microsoft account not connected")
 
