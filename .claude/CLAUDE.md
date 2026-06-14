@@ -87,8 +87,10 @@ personal-intelligence/                  (repo dir; product = "Private Internet")
   public product). No shadows on cards (depth = bg steps + borders); shadows only on
   menus/toasts. The signature element is the amber **Brain Pulse** (4 orbiting dots).
 - Ports are fixed: API **8000**, agents **8001**. (The old 8002 auth/file service is retired.)
-- After any change, follow the root `CLAUDE.md` commit/deploy rules. The product work lives
-  on branch `product/private-internet` — do not push to `main` (it auto-deploys) unless asked.
+- After any change, follow the root `CLAUDE.md` commit/deploy rules. Work happens **directly on
+  `main` in small increments** — the `product/private-internet` branch has been merged and retired.
+  Pushing to `main` auto-deploys, so keep each change small, verified (build + tests), and
+  self-contained.
 
 ## Coordination
 - `/sprint <goal>` decomposes work into per-domain subagents (see `.claude/commands/sprint.md`).
