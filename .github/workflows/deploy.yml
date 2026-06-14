@@ -3,6 +3,11 @@ name: Deploy private-internet
 on:
   push:
     branches: [main]
+    # The Flutter app and design-reference material have no deploy pipeline, so a
+    # push touching only these paths must not run backend/dashboard deploys.
+    paths-ignore:
+      - 'mobile/**'
+      - 'design_handoffs/**'
 
 # Required for OIDC token request
 permissions:

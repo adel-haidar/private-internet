@@ -4,6 +4,8 @@ export const en = {
     dashboard: 'Dashboard',
     brain: 'Your Brain',
     signal: 'Signal',
+    stories: 'Stories',
+    aria: 'Aria',
     pulse: 'Pulse',
     health: 'Health',
     finances: 'Finances',

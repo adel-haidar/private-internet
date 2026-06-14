@@ -1,0 +1,41 @@
+/**
+ * Localized onboarding / intro video resolution.
+ *
+ * The intro video is produced in 5 languages (see scripts/produce_intro_video.py).
+ * The UI picks the version matching the active locale; locales we have NOT produced
+ * a video for (es, zh, sv, tlh, …) fall back to English.
+ *
+ * The video URL is derived from the active i18n `locale`, so:
+ *   - On the onboarding page (before the user has chosen a language) it follows the
+ *     browser language, because i18n's detect() seeds `locale` from navigator.language.
+ *   - When the user changes the language in Settings, setLocale() updates `locale`
+ *     reactively and any computed using introVideoUrl(locale.value) re-resolves.
+ *
+ * PLACEHOLDER: the 5 mp4s are not uploaded yet. Set VITE_INTRO_VIDEO_BASE at build
+ * time once they live on S3/CloudFront, e.g.
+ *   VITE_INTRO_VIDEO_BASE="https://dxxxx.cloudfront.net/intro"
+ * Files are named: private_internet_intro_{en,de,fr,ru,ar}.mp4
+ * Until it is set, introVideoUrl() returns '' and <IntroVideo> shows a placeholder.
+ */
+
+// Languages we have an intro video for.
+export const INTRO_VIDEO_LANGS = ['en', 'de', 'fr', 'ru', 'ar'] as const
+export type IntroVideoLang = (typeof INTRO_VIDEO_LANGS)[number]
+
+// Base URL of the uploaded videos (no trailing slash). Empty until configured.
+export const INTRO_VIDEO_BASE: string = (
+  import.meta.env.VITE_INTRO_VIDEO_BASE ?? ''
+).replace(/\/$/, '')
+
+/** Map any i18n locale to the closest produced video language (English fallback). */
+export function introVideoLang(locale: string): IntroVideoLang {
+  return (INTRO_VIDEO_LANGS as readonly string[]).includes(locale)
+    ? (locale as IntroVideoLang)
+    : 'en'
+}
+
+/** Full URL of the intro video for a locale, or '' if the base isn't configured yet. */
+export function introVideoUrl(locale: string): string {
+  if (!INTRO_VIDEO_BASE) return ''
+  return `${INTRO_VIDEO_BASE}/private_internet_intro_${introVideoLang(locale)}.mp4`
+}

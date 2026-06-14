@@ -55,6 +55,8 @@ const router = createRouter({
     { path: '/job', name: 'jobs', component: () => import('../views/JobsView.vue'), meta: { title: 'Job Hunt' } },
     { path: '/pulse',      component: () => import('../views/PulseFeed.vue'), meta: { title: 'Pulse' } },
     { path: '/signal',     component: () => import('../views/SignalPlayer.vue'), meta: { title: 'Signal' } },
+    { path: '/stories',    component: () => import('../views/StoriesView.vue'), meta: { title: 'Stories' } },
+    { path: '/aria',       component: () => import('../views/AriaView.vue'), meta: { title: 'Aria' } },
     { path: '/settings',   component: () => import('../views/SettingsView.vue') },
     // Finances — Calm-Intelligence redesign. Tabbed: Overview (plain-language
     // summary) + Spending & budget + Investments + Day trading, all wired to the

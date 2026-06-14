@@ -15,13 +15,11 @@ import { en } from './locales/en'
 import { de } from './locales/de'
 import { es } from './locales/es'
 import { fr } from './locales/fr'
-import { sv } from './locales/sv'
 import { ru } from './locales/ru'
 import { zh } from './locales/zh'
 import { ar } from './locales/ar'
-import { tlh } from './locales/tlh'
 
-export type LocaleCode = 'en' | 'de' | 'es' | 'fr' | 'sv' | 'ru' | 'zh' | 'ar' | 'tlh'
+export type LocaleCode = 'en' | 'de' | 'es' | 'fr' | 'ru' | 'zh' | 'ar'
 
 export interface LocaleMeta { code: LocaleCode; label: string; rtl?: boolean }
 
@@ -31,14 +29,12 @@ export const LOCALES: LocaleMeta[] = [
   { code: 'de', label: 'Deutsch' },
   { code: 'es', label: 'Español' },
   { code: 'fr', label: 'Français' },
-  { code: 'sv', label: 'Svenska' },
   { code: 'ru', label: 'Русский' },
   { code: 'zh', label: '中文' },
   { code: 'ar', label: 'العربية', rtl: true },
-  { code: 'tlh', label: 'tlhIngan Hol' },
 ]
 
-const MESSAGES: Record<LocaleCode, Record<string, unknown>> = { en, de, es, fr, sv, ru, zh, ar, tlh }
+const MESSAGES: Record<LocaleCode, Record<string, unknown>> = { en, de, es, fr, ru, zh, ar }
 const RTL = new Set<LocaleCode>(['ar'])
 const STORAGE_KEY = 'pi-locale'
 

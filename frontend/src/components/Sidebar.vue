@@ -86,6 +86,8 @@ const NAV_MAIN: NavItem[] = [
   { key: 'dashboard', to: '/overview',  icon: 'dashboard' },
   { key: 'brain',     to: '/memory',    icon: 'brain',    brain: true },
   { key: 'signal',    to: '/signal',    icon: 'signal' },
+  { key: 'stories',   to: '/stories',   icon: 'stories' },
+  { key: 'aria',      to: '/aria',      icon: 'aria' },
   { key: 'pulse',     to: '/pulse',     icon: 'pulse' },
   { key: 'health',    to: '/health',    icon: 'health' },
   { key: 'finances',  to: '/finances',  icon: 'finances' },
