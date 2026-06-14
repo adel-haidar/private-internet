@@ -14,7 +14,7 @@ const emit = defineEmits<{ 'update:modelValue': [v: string] }>()
     <span v-if="label" class="pi-select__label">{{ label }}</span>
     <select
       :value="modelValue"
-      style="background: transparent; border: 0; color: var(--text-primary); font: inherit; cursor: pointer"
+      style="flex: 1; min-width: 0; background: transparent; border: 0; outline: none; color: var(--text-primary); font: inherit; cursor: pointer"
       @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
     >
       <option v-for="o in options" :key="o" :value="o">{{ o }}</option>
