@@ -37,6 +37,14 @@ def _mock_conn(rowcount: int = 1) -> MagicMock:
     return conn
 
 
+def _mock_embedder(vector=None) -> MagicMock:
+    """Mock the Embedder abstraction (replaces the old module-level _get_embedding)."""
+    emb = MagicMock()
+    emb.embed.return_value = vector if vector is not None else [0.1] * 1024
+    emb.model_id = "test-model"
+    return emb
+
+
 # ── update_memory ──────────────────────────────────────────────
 
 class TestUpdateMemory:
@@ -49,7 +57,8 @@ class TestUpdateMemory:
         existing = _make_memory()
         with (
             patch("private_internet.memory.service.fetch_memory", return_value=existing),
-            patch("private_internet.memory.service._get_embedding", return_value=[0.1] * 1024),
+            patch("private_internet.memory.service.get_embedder", return_value=_mock_embedder()),
+            patch("private_internet.memory.service.detect_language", return_value=None),
             patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", title="New Title", user_id="u1")
@@ -62,14 +71,15 @@ class TestUpdateMemory:
 
     def test_partial_update_tags_only_skips_reembed(self):
         existing = _make_memory()
+        embedder = _mock_embedder()
         with (
             patch("private_internet.memory.service.fetch_memory", return_value=existing),
-            patch("private_internet.memory.service._get_embedding") as mock_embed,
+            patch("private_internet.memory.service.get_embedder", return_value=embedder),
             patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", tags=["new-tag"], user_id="u1")
 
-        mock_embed.assert_not_called()
+        embedder.embed.assert_not_called()
         assert result is not None
         assert result.tags == ["new-tag"]
 
@@ -77,7 +87,8 @@ class TestUpdateMemory:
         existing = _make_memory()
         with (
             patch("private_internet.memory.service.fetch_memory", return_value=existing),
-            patch("private_internet.memory.service._get_embedding", return_value=[0.1] * 1024),
+            patch("private_internet.memory.service.get_embedder", return_value=_mock_embedder()),
+            patch("private_internet.memory.service.detect_language", return_value=None),
             patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", content="Replaced content", user_id="u1")
@@ -89,7 +100,8 @@ class TestUpdateMemory:
         existing = _make_memory()
         with (
             patch("private_internet.memory.service.fetch_memory", return_value=existing),
-            patch("private_internet.memory.service._get_embedding", return_value=[0.1] * 1024),
+            patch("private_internet.memory.service.get_embedder", return_value=_mock_embedder()),
+            patch("private_internet.memory.service.detect_language", return_value=None),
             patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", content="Appended text", append_content=True, user_id="u1")
@@ -102,14 +114,15 @@ class TestUpdateMemory:
 
     def test_append_without_content_is_noop_on_content(self):
         existing = _make_memory()
+        embedder = _mock_embedder()
         with (
             patch("private_internet.memory.service.fetch_memory", return_value=existing),
-            patch("private_internet.memory.service._get_embedding") as mock_embed,
+            patch("private_internet.memory.service.get_embedder", return_value=embedder),
             patch("private_internet.memory.service._connect", return_value=_mock_conn()),
         ):
             result = update_memory("test-id", append_content=True, user_id="u1")
 
-        mock_embed.assert_not_called()
+        embedder.embed.assert_not_called()
         assert result is not None
         assert result.content == "Original content"
 
@@ -155,7 +168,7 @@ class TestSearchMemories:
         cursor.fetchall.return_value = [self._row()]
         conn.cursor.return_value = cursor
         with (
-            patch("private_internet.memory.service._get_embedding", return_value=[0.1] * 1024),
+            patch("private_internet.memory.service.get_embedder", return_value=_mock_embedder()),
             patch("private_internet.memory.service._connect", return_value=conn),
         ):
             results = search_memories("lab results", user_id="u1", limit=12)

@@ -6,6 +6,7 @@ from psycopg2.extras import RealDictCursor
 
 from private_internet.database import _connect
 from private_internet.memory.embeddings import get_embedder
+from private_internet.memory.language_detect import detect_language
 
 # Every function in this module is tenant-scoped. # MUST SCOPE BY USER
 # user_id is required; callers resolve it from RequestContext (API) or the
@@ -40,6 +41,9 @@ def init_db() -> None:
     # Records which embedding model produced each vector, so a backend switch or
     # model upgrade can detect stale vectors and re-embed (see embeddings.py).
     cur.execute("ALTER TABLE memories ADD COLUMN IF NOT EXISTS embedding_model TEXT")
+    # BCP-47 language detected at save time (see language_detect.py); NULL = unknown.
+    # Mirrors migrations/0007_memory_language.sql.
+    cur.execute("ALTER TABLE memories ADD COLUMN IF NOT EXISTS language VARCHAR(10)")
     # user_id column + backfill is handled by core/tenancy.py at startup.
     conn.commit()
     cur.close()
@@ -61,15 +65,16 @@ def save_memory(
     embedder = get_embedder()
     embedding = embedder.embed(text)
     embedded_str = str(embedding).replace(" ", "")
+    language = detect_language(text)
 
     conn = _connect()
     cur = conn.cursor()
     cur.execute(
         """INSERT INTO memories
-               (memory_id, title, content, tags, created_at, embedding, embedding_model, user_id)
-           VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+               (memory_id, title, content, tags, created_at, embedding, embedding_model, language, user_id)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         (memory_id, title, content, ",".join(tags), created_at, embedded_str,
-         embedder.model_id, user_id),
+         embedder.model_id, language, user_id),
     )
     conn.commit()
     cur.close()
@@ -238,15 +243,17 @@ def update_memory(
     cur = conn.cursor()
     if new_title != existing.title or new_content != existing.content:
         embedder = get_embedder()
-        embedding = embedder.embed(f"{new_title}\n{new_content}")
+        new_text = f"{new_title}\n{new_content}"
+        embedding = embedder.embed(new_text)
         embedded_str = str(embedding).replace(" ", "")
+        language = detect_language(new_text)
         cur.execute(
             """UPDATE memories
                SET title = %s, content = %s, tags = %s, updated_at = %s,
-                   embedding = %s, embedding_model = %s
+                   embedding = %s, embedding_model = %s, language = %s
                WHERE memory_id = %s AND user_id = %s""",
             (new_title, new_content, ",".join(new_tags), updated_at, embedded_str,
-             embedder.model_id, memory_id, user_id),
+             embedder.model_id, language, memory_id, user_id),
         )
     else:
         cur.execute(
