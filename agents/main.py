@@ -310,8 +310,13 @@ async def analyse_bank_statement(req: AnalyseRequest, settings: SettingsDep, ide
             missing_months.append(month)
 
     if not all_statements:
+        # NOT 404: CloudFront is configured SPA-style to rewrite 403/404 origin
+        # responses into index.html, which reaches the browser as HTML and breaks
+        # the dashboard's JSON parsing (see assistant/shared/auth.py). A new user
+        # with no uploaded statements is an expected empty-state, not an error —
+        # use 422 so the friendly detail passes through CloudFront as JSON.
         raise HTTPException(
-            status_code=404,
+            status_code=422,
             detail=(
                 f"No bank statements found in MCP memory for "
                 f"period {months[0]} – {months[-1]}. "
