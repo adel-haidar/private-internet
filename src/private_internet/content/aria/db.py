@@ -19,7 +19,7 @@ def init_aria_db() -> None:
     import os
     sql_path = os.path.join(
         os.path.dirname(__file__),
-        "../../../../..",
+        "../../../..",
         "migrations",
         "0010_aria.sql",
     )

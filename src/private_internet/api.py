@@ -12,9 +12,13 @@ from private_internet.billing.routes import router as billing_router
 from private_internet.brain.db import init_brain_db
 from private_internet.brain.routes import router as brain_router
 from private_internet.config import get_settings
+from private_internet.content.aria.db import init_aria_db
+from private_internet.content.aria.router import router as aria_router
 from private_internet.content.creators import seed_default_creators
 from private_internet.content.db import init_content_db
 from private_internet.content.router import router as content_router
+from private_internet.content.stories.db import init_stories_db
+from private_internet.content.stories.router import router as stories_router
 from private_internet.core.saas_migration import migrate_saas
 from private_internet.core.tenancy import migrate_multi_tenancy
 from private_internet.memory.mcp_server import mcp
@@ -93,6 +97,8 @@ async def lifespan(app: FastAPI):
     _bootstrap_step("create_oauth_tables", create_oauth_tables)
     _bootstrap_step("init_db", init_db)
     _bootstrap_step("init_content_db", init_content_db)
+    _bootstrap_step("init_aria_db", init_aria_db)
+    _bootstrap_step("init_stories_db", init_stories_db)
     _bootstrap_step("seed_default_creators", seed_default_creators)
     _bootstrap_step("migrate_multi_tenancy", migrate_multi_tenancy)
     # SaaS columns/tables depend on users + content_creators already existing.
@@ -137,6 +143,8 @@ app.include_router(users_router)
 app.include_router(user_status_router)
 app.include_router(memory_router)
 app.include_router(content_router)
+app.include_router(aria_router)
+app.include_router(stories_router)
 app.include_router(billing_router)
 app.include_router(brain_router)
 
