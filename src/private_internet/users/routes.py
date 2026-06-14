@@ -159,8 +159,12 @@ class ResetPasswordRequest(BaseModel):
 async def register(body: RegisterRequest, request: Request, background: BackgroundTasks):
     settings = get_settings()
 
-    # Per-IP abuse throttle: 5 registrations / hour.
-    retry_after = _rate_limited(f"register:{_client_ip(request)}", limit=5, window_seconds=3600)
+    # Per-IP abuse throttle (configurable; generous default for admin/test use).
+    retry_after = _rate_limited(
+        f"register:{_client_ip(request)}",
+        limit=settings.register_rate_limit_per_hour,
+        window_seconds=3600,
+    )
     if retry_after is not None:
         return _error(
             429,

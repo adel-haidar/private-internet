@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     require_email_verification: bool = False
     verification_token_ttl_hours: int = 24
     reset_token_ttl_hours: int = 1
+    # Per-IP registration throttle (abuse mitigation). Generous by default so an
+    # admin creating several test/family accounts from one IP isn't blocked.
+    register_rate_limit_per_hour: int = 20
 
     db_host: str = "localhost"
     db_name: str = "postgres"

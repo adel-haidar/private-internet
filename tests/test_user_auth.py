@@ -25,12 +25,13 @@ _GOOD_PW = "correct-horse-battery"  # ≥ 12 chars
 
 class _Settings:
     def __init__(self, registration_open=True, max_users=0,
-                 require_email_verification=False):
+                 require_email_verification=False, register_rate_limit_per_hour=5):
         self.registration_open = registration_open
         self.max_users = max_users
         self.require_email_verification = require_email_verification
         self.verification_token_ttl_hours = 24
         self.reset_token_ttl_hours = 1
+        self.register_rate_limit_per_hour = register_rate_limit_per_hour
         self.app_domain = "test.example.com"
 
     @property
