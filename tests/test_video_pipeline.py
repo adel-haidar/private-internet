@@ -2,7 +2,12 @@ import json
 import uuid
 import subprocess
 import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, AsyncMock, call
+
+# Image gen dispatches by IMAGE_BACKEND (default fal.ai); these tests exercise the
+# Bedrock/Nova-Canvas path, so force that backend.
+_BEDROCK = SimpleNamespace(image_backend="bedrock", aws_region="eu-central-1")
 
 from private_internet.content.video_generator import (
     VideoScriptGenerator,
@@ -124,7 +129,9 @@ class TestVideoImageGenerator:
     async def test_section_image_uses_video_sizing(self):
         generator = VideoImageGenerator()
         section = ScriptSection(id="SECTION_1", text="x", image_prompt="A rusting factory")
-        with patch.object(
+        with patch(
+            "private_internet.content.image_generator.get_settings", return_value=_BEDROCK
+        ), patch.object(
             generator, "_invoke_nova_canvas", new=AsyncMock(return_value=b"png")
         ) as mock_canvas:
             result = await generator.generate_for_section(section, _creator())
@@ -140,7 +147,9 @@ class TestVideoImageGenerator:
     @pytest.mark.anyio
     async def test_thumbnail_uses_intro_prompt(self):
         generator = VideoImageGenerator()
-        with patch.object(
+        with patch(
+            "private_internet.content.image_generator.get_settings", return_value=_BEDROCK
+        ), patch.object(
             generator, "_invoke_nova_canvas", new=AsyncMock(return_value=b"thumb")
         ) as mock_canvas:
             result = await generator.generate_thumbnail(_script(), _creator())

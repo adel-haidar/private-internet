@@ -2,7 +2,12 @@ import base64
 import json
 import uuid
 import pytest
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, AsyncMock
+
+# Image gen now dispatches by IMAGE_BACKEND (default fal.ai); these tests exercise
+# the Bedrock/Nova-Canvas path, so force that backend.
+_BEDROCK = SimpleNamespace(image_backend="bedrock", aws_region="eu-central-1")
 
 from private_internet.content.creator_selector import CreatorSelector, ALL_TONES, _TONE_MAP
 from private_internet.content.post_generator import PostTextGenerator, GeneratedPost
@@ -143,7 +148,9 @@ class TestPostImageGenerator:
         with patch(
             "private_internet.content.image_generator.converse_text",
             new=AsyncMock(return_value=("A dark editorial photo of the Alps.", {})),
-        ), patch("private_internet.content.image_generator.boto3") as mock_boto3:
+        ), patch("private_internet.content.image_generator.boto3") as mock_boto3, patch(
+            "private_internet.content.image_generator.get_settings", return_value=_BEDROCK
+        ):
             mock_boto3.client.return_value = mock_client
             generator = PostImageGenerator()
             image_bytes, image_prompt = await generator.generate_for_post(
@@ -166,7 +173,9 @@ class TestPostImageGenerator:
         with patch(
             "private_internet.content.image_generator.converse_text",
             new=AsyncMock(return_value=("prompt", {})),
-        ), patch("private_internet.content.image_generator.boto3") as mock_boto3:
+        ), patch("private_internet.content.image_generator.boto3") as mock_boto3, patch(
+            "private_internet.content.image_generator.get_settings", return_value=_BEDROCK
+        ):
             mock_boto3.client.return_value = mock_client
             generator = PostImageGenerator()
             with pytest.raises(RuntimeError):
