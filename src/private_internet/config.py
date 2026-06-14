@@ -76,6 +76,18 @@ class Settings(BaseSettings):
 
     upload_dir: str = "/uploads"
 
+    # ── ARIA music (ElevenLabs music generation) ────────────────
+    # aria_music_enabled: master switch. When False, the generator is a no-op
+    # (returns immediately) so the module can be deployed before billing/keys land.
+    # elevenlabs_api_key is shared with SIGNAL narration above.
+    aria_music_enabled: bool = True
+    # "elevenlabs" uses /v1/music; future backends (suno, udio) can be plugged in.
+    aria_music_backend: str = "elevenlabs"
+    # Maximum seconds of music to request per track (ElevenLabs caps at 30s on free plans).
+    aria_music_duration_seconds: int = 30
+    # Number of waveform bars to compute per track.
+    aria_waveform_bars: int = 200
+
     # ── Billing (Stripe) ────────────────────────────────────────
     # Master switch. While False the app is NOT gated on a subscription, so the
     # current deployment and existing users are unaffected until keys are set.
