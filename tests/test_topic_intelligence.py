@@ -246,9 +246,8 @@ class TestJobOrchestration:
         mock_research = [ResearchResult("https://aws.amazon.com", "AWS", "AWS Info")]
         
         mock_reader = MagicMock()
-        mock_reader.fetch_recent_memories = AsyncMock(return_value=mock_memories)
-        mock_reader.extract_topic_candidates = AsyncMock(return_value=mock_candidates)
-        
+        mock_reader.extract_topic_candidates_clustered = AsyncMock(return_value=mock_candidates)
+
         mock_research_service = MagicMock()
         mock_research_service.research_topic = AsyncMock(return_value=mock_research)
         mock_research_service.assess_topic_relevance = AsyncMock(return_value=0.8)
@@ -265,8 +264,7 @@ class TestJobOrchestration:
         ):
             await run_topic_intelligence_job(user_id="u1")
             
-        mock_reader.fetch_recent_memories.assert_called_once()
-        mock_reader.extract_topic_candidates.assert_called_once()
+        mock_reader.extract_topic_candidates_clustered.assert_called_once()
         mock_research_service.research_topic.assert_called_once()
         mock_research_service.assess_topic_relevance.assert_called_once()
         mock_storage.save_topic.assert_called_once()

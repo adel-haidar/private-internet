@@ -11,8 +11,44 @@ from psycopg2.extras import RealDictCursor
 import boto3
 from private_internet.config import get_settings
 from private_internet.memory.service import list_memories
+from private_internet.content.topic_clustering import build_keyword_candidates
 
 logger = logging.getLogger(__name__)
+
+
+def _clean_json(text: str) -> str:
+    """Strip markdown fences an LLM may wrap JSON in."""
+    t = text.strip()
+    if t.startswith("```"):
+        t = t[7:] if t.startswith("```json") else t[3:]
+        if t.endswith("```"):
+            t = t[:-3]
+        t = t.strip()
+    return t
+
+
+def _invoke_bedrock_text(system_prompt: str, user_prompt: str) -> str:
+    """Single Bedrock text call with a configured model + Nova fallback."""
+    from private_internet.content.llm import bedrock_text_region
+
+    client = boto3.client("bedrock-runtime", region_name=bedrock_text_region())
+
+    def _converse(model_id: str) -> str:
+        response = client.converse(
+            modelId=model_id,
+            messages=[{"role": "user", "content": [{"text": user_prompt}]}],
+            system=[{"text": system_prompt}],
+            inferenceConfig={"temperature": 0.0},
+        )
+        return response["output"]["message"]["content"][0]["text"]
+
+    model_id = os.getenv("BEDROCK_TEXT_MODEL_ID", "mistral.mistral-small-2402-v1:0")
+    try:
+        return _converse(model_id)
+    except Exception as e:
+        fallback = os.getenv("BEDROCK_MODEL_ID", "eu.amazon.nova-2-lite-v1:0")
+        logger.warning(f"Bedrock text model {model_id} failed: {e}. Trying fallback {fallback}.")
+        return _converse(fallback)
 
 
 @dataclass
@@ -88,50 +124,16 @@ class MCPMemoryReader:
 
         user_prompt = f"Here are the memories:\n\n{memories_text}"
 
-        settings = get_settings()
-        # Default model for AWS Bedrock Haiku. Fallback to Nova or other configured model if needed.
-        model_id = os.getenv("BEDROCK_TEXT_MODEL_ID", "mistral.mistral-small-2402-v1:0")
-        
         loop = asyncio.get_event_loop()
-        
-        def invoke_bedrock():
-            from private_internet.content.llm import bedrock_text_region
-            client = boto3.client("bedrock-runtime", region_name=bedrock_text_region())
-            try:
-                response = client.converse(
-                    modelId=model_id,
-                    messages=[{"role": "user", "content": [{"text": user_prompt}]}],
-                    system=[{"text": system_prompt}],
-                    inferenceConfig={"temperature": 0.0}
-                )
-                return response["output"]["message"]["content"][0]["text"]
-            except Exception as e:
-                logger.warning(f"Failed to invoke Bedrock with Claude 3 Haiku: {e}. Trying fallback model.")
-                fallback_model = os.getenv("BEDROCK_MODEL_ID", "eu.amazon.nova-2-lite-v1:0")
-                response = client.converse(
-                    modelId=fallback_model,
-                    messages=[{"role": "user", "content": [{"text": user_prompt}]}],
-                    system=[{"text": system_prompt}],
-                    inferenceConfig={"temperature": 0.0}
-                )
-                return response["output"]["message"]["content"][0]["text"]
-
         try:
-            response_text = await loop.run_in_executor(None, invoke_bedrock)
+            response_text = await loop.run_in_executor(
+                None, lambda: _invoke_bedrock_text(system_prompt, user_prompt)
+            )
         except Exception as e:
             logger.error(f"Bedrock invocation failed completely: {e}", exc_info=True)
             return []
 
-        # Clean JSON markdown blocks if any
-        clean_text = response_text.strip()
-        if clean_text.startswith("```"):
-            if clean_text.startswith("```json"):
-                clean_text = clean_text[7:]
-            else:
-                clean_text = clean_text[3:]
-            if clean_text.endswith("```"):
-                clean_text = clean_text[:-3]
-            clean_text = clean_text.strip()
+        clean_text = _clean_json(response_text)
 
         try:
             candidates_data = json.loads(clean_text)
@@ -148,6 +150,62 @@ class MCPMemoryReader:
         except Exception as e:
             logger.error(f"Failed to parse JSON response from Bedrock: {response_text}. Error: {e}", exc_info=True)
             return []
+
+    async def extract_topic_candidates_clustered(self, *, user_id: str) -> List[TopicCandidate]:
+        """Privacy-first topic discovery: cluster the user's memory embeddings
+        locally, then send ONLY keyword sets (never memory text) to Bedrock for
+        naming. Surfaces emergent cross-topics (e.g. cars + Japan -> Japanese
+        cars) and prevents any single upload batch from dominating.
+        # MUST SCOPE BY USER
+        """
+        assert user_id is not None, "user_id must be set before any content operation"
+        loop = asyncio.get_event_loop()
+        candidate_sets = await loop.run_in_executor(None, lambda: build_keyword_candidates(user_id))
+        if not candidate_sets:
+            logger.info(f"[user:{user_id[:8]}] clustering produced no topic candidates.")
+            return []
+
+        results = await asyncio.gather(
+            *(loop.run_in_executor(None, lambda c=c: self._label_keyword_set(c)) for c in candidate_sets)
+        )
+        return [r for r in results if r is not None]
+
+    def _label_keyword_set(self, candidate: dict) -> Optional[TopicCandidate]:
+        """Turn a keyword set into a named TopicCandidate via Bedrock. The model
+        receives ONLY keywords — no memory content ever leaves the host."""
+        keywords = candidate.get("keywords") or []
+        if not keywords:
+            return None
+        kind = candidate.get("kind", "cluster")
+        source_ids = candidate.get("source_ids") or []
+
+        system_prompt = (
+            "You name a content topic from a set of keywords extracted from a "
+            "person's private knowledge base. The keywords are either a single "
+            "theme or the INTERSECTION of two themes — when it's an intersection, "
+            "name the specific combined topic (e.g. keywords [toyota, engine, "
+            "japan, tokyo, import] -> 'Japanese performance cars'). Produce one "
+            "concrete, engaging topic. Output ONLY JSON: "
+            '{ "name": str, "slug": str, "keywords": list[str] }. '
+            "No preamble, no explanation, no markdown fences."
+        )
+        descriptor = "intersection of two themes" if kind == "intersection" else "single theme"
+        user_prompt = f"Type: {descriptor}\nKeywords: {', '.join(keywords)}"
+
+        try:
+            text = _invoke_bedrock_text(system_prompt, user_prompt)
+            item = json.loads(_clean_json(text))
+            merged = list(dict.fromkeys([*item.get("keywords", []), *keywords]))
+            return TopicCandidate(
+                name=item["name"],
+                slug=item["slug"],
+                keywords=merged,
+                source="mcp_memory",
+                source_ref=",".join(source_ids),
+            )
+        except Exception as e:
+            logger.error(f"Failed to label keyword set {keywords}: {e}", exc_info=True)
+            return None
 
 
 class TopicStorageService:
