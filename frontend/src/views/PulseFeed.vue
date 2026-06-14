@@ -1,236 +1,183 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import PostCard from '../components/PostCard.vue'
-import PageHead from '../components/ui/PageHead.vue'
-import { usePulseFeed, type PostSort } from '../composables/useContent'
-import { requireAuth } from '../composables/useAuth'
+/**
+ * PULSE — editorial feed: masthead → tone chips → featured hero → variable
+ * format cards (A/B/C, with paired text-only duos) → reading mode. A curated
+ * personal magazine, not an RSS list.
+ */
+import { computed, onMounted, reactive, ref } from 'vue'
+import { usePulseFeed, logInteraction, type Post, type Tone } from '../composables/useContent'
+import { useToast } from '../components/ui/useToast'
+import FeedChip from '../components/feed/FeedChip.vue'
+import FeaturedCard from '../components/feed/FeaturedCard.vue'
+import TonePill from '../components/feed/TonePill.vue'
+import ScoreText from '../components/feed/ScoreText.vue'
+import FeedVoteButton from '../components/feed/FeedVoteButton.vue'
+import PulsePostCard from '../components/feed/PulsePostCard.vue'
+import PulseReader from '../components/feed/PulseReader.vue'
+import PulseFilterPanel from '../components/feed/PulseFilterPanel.vue'
+import { headline, readMinutes, postFormat } from '../components/feed/post-format'
 
-const { posts, total, sort, loading, error, hasMore, loadMore, setSort } = usePulseFeed()
+const { posts, loading, error, hasMore, loadMore, sort, setSort } = usePulseFeed()
+const toast = useToast()
 
-const SORTS: Array<{ id: PostSort; label: string }> = [
-  { id: 'latest', label: 'LATEST' },
-  { id: 'top', label: 'TOP' },
-  { id: 'unrated', label: 'UNRATED' },
-]
-
-// topic_id → name map for the TOPIC line on each card
-const topicNames = ref<Record<string, string>>({})
-
-async function loadTopics() {
-  try {
-    const token = await requireAuth()
-    const base = import.meta.env.DEV ? '' : 'https://adel-intelligence.com'
-    const res = await fetch(`${base}/api/content/topics?page=1&page_size=200`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-    if (!res.ok) return
-    const data = await res.json()
-    const map: Record<string, string> = {}
-    for (const t of data.items ?? []) map[t.id] = t.name
-    topicNames.value = map
-  } catch {
-    /* topic line is optional decoration — never block the feed */
-  }
+const TONES: (Tone | 'all')[] = ['all', 'informative', 'satirical', 'critical', 'supportive']
+const TONE_COLOR: Record<string, string> = {
+  all: 'var(--accent-primary)',
+  informative: 'var(--accent-primary)',
+  satirical: 'var(--brain-amber)',
+  critical: 'var(--danger)',
+  supportive: 'var(--success)',
 }
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 
-// bottom-right toast, 1.5s
-const toast = ref<string | null>(null)
-let toastTimer: ReturnType<typeof setTimeout> | undefined
-function showToast(message: string) {
-  toast.value = message
-  clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => (toast.value = null), 1500)
-}
+const tone = ref<Tone | 'all'>('all')
+const creator = ref<string | null>(null)
+const panelOpen = ref(false)
+const reading = ref<Post | null>(null)
+const votes = reactive<Record<string, 'up' | 'down'>>({})
 
-onMounted(() => {
-  loadMore()
-  loadTopics()
+onMounted(() => loadMore())
+
+const creators = computed(() => {
+  const seen = new Map<string, string>()
+  for (const p of posts.value) if (!seen.has(p.creator_id)) seen.set(p.creator_id, p.creator_name)
+  return [...seen].map(([id, name]) => ({ id, name }))
 })
+
+const filtered = computed(() =>
+  posts.value.filter(
+    (p) => (tone.value === 'all' || p.tone === tone.value) && (creator.value === null || p.creator_id === creator.value),
+  ),
+)
+
+const featured = computed<Post | null>(() =>
+  filtered.value.length ? filtered.value.reduce((a, b) => (a.score >= b.score ? a : b)) : null,
+)
+
+// Remaining posts, with consecutive Format-B posts paired into 2-up rows.
+const rows = computed<Post[][]>(() => {
+  const rest = filtered.value.filter((p) => p.id !== featured.value?.id)
+  const out: Post[][] = []
+  for (let i = 0; i < rest.length; i++) {
+    if (postFormat(rest[i]) === 'B' && rest[i + 1] && postFormat(rest[i + 1]) === 'B') {
+      out.push([rest[i], rest[i + 1]])
+      i++
+    } else {
+      out.push([rest[i]])
+    }
+  }
+  return out
+})
+
+async function vote(post: Post, like: boolean) {
+  votes[post.id] = like ? 'up' : 'down'
+  try {
+    await logInteraction(post.id, 'post', like ? 'like' : 'dislike')
+    toast('Feedback saved')
+  } catch { /* best-effort */ }
+}
 </script>
 
 <template>
   <div class="pulse">
-    <div class="pulse-head">
-      <div class="title-row">
-        <PageHead title="Pulse" :desc="total ? `${total} dispatches` : 'AI content feed'" />
-      </div>
-      <div class="sort-row">
-        <span class="sort-label">Sort:</span>
-        <button
-          v-for="s in SORTS"
-          :key="s.id"
-          class="sort-tab"
-          :class="{ active: sort === s.id }"
-          @click="setSort(s.id)"
-        >{{ s.label.charAt(0) + s.label.slice(1).toLowerCase() }}</button>
-      </div>
+    <!-- masthead -->
+    <div class="pulse__masthead">
+      <span class="pulse__title">PULSE</span>
+      <button class="pulse__filter" aria-label="Filters" @click="panelOpen = true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+          <path d="M4 6h11M19 6h1M4 12h4M12 12h8M4 18h9M17 18h3" /><circle cx="17" cy="6" r="2" /><circle cx="10" cy="12" r="2" /><circle cx="15" cy="18" r="2" />
+        </svg>
+      </button>
     </div>
 
-    <div v-if="error" class="error">{{ error }}</div>
+    <!-- tone chips -->
+    <div class="pulse__chips">
+      <FeedChip v-for="t in TONES" :key="t" :label="cap(t)" :color="TONE_COLOR[t]" :active="tone === t" @click="tone = t" />
+    </div>
 
-    <div class="feed">
-      <PostCard
-        v-for="post in posts"
-        :key="post.id"
-        :post="post"
-        :topic-name="topicNames[post.topic_id]"
-        @feedback="showToast"
-      />
+    <!-- loading / error -->
+    <div v-if="loading && posts.length === 0" class="pulse__skeleton">
+      <div v-for="n in 4" :key="n" class="pulse__sk" />
+    </div>
+    <div v-else-if="error" class="pulse__error">
+      <p>Couldn't load your feed.</p>
+      <button class="pulse__retry" @click="loadMore">Try again</button>
+    </div>
 
-      <template v-if="loading">
-        <div v-for="i in 3" :key="'skeleton-' + i" class="skeleton">
-          <div class="skeleton-line mono">████████ ███████ ████</div>
-          <div class="skeleton-line mono">██████████████ ██████████ ████████</div>
-          <div class="skeleton-line mono">███████ █████</div>
+    <template v-else>
+      <div class="pulse__feed">
+        <!-- featured -->
+        <div v-if="featured">
+          <FeaturedCard
+            :seed="featured.creator_name"
+            :image="featured.image_url"
+            :title="headline(featured.body)"
+            :meta-name="featured.creator_name"
+            :meta-trailing="`· ${readMinutes(featured.body)} min read`"
+            @click="reading = featured"
+          >
+            <template #topLeft><TonePill v-if="featured.tone" :tone="featured.tone" /></template>
+            <template #topRight><ScoreText :score="featured.score" on-dark /></template>
+          </FeaturedCard>
+          <div class="pulse__featactions">
+            <FeedVoteButton :label="`${featured.score.toFixed(2)} Like`" color="var(--success)" icon="up" :active="votes[featured.id] === 'up'" @click="vote(featured, true)" />
+            <FeedVoteButton label="Dislike" color="var(--danger)" icon="down" :active="votes[featured.id] === 'down'" @click="vote(featured, false)" />
+            <FeedVoteButton label="Open" color="var(--accent-primary)" icon="open" @click="reading = featured" />
+          </div>
         </div>
-      </template>
 
-      <div v-if="!loading && posts.length === 0 && !error" class="empty">
-        No posts yet — run the post generation job.
+        <!-- rows -->
+        <template v-for="(row, i) in rows" :key="i">
+          <div v-if="row.length === 2" class="pulse__duo">
+            <PulsePostCard v-for="p in row" :key="p.id" :post="p" compact :vote="votes[p.id] ?? null" @vote="(l) => vote(p, l)" @open="reading = p" />
+          </div>
+          <PulsePostCard v-else :post="row[0]" :vote="votes[row[0].id] ?? null" @vote="(l) => vote(row[0], l)" @open="reading = row[0]" />
+        </template>
+
+        <div v-if="filtered.length === 0" class="pulse__empty">
+          Nothing here yet. Add to your brain and your feed will fill with stories.
+        </div>
+
+        <button v-if="hasMore() && filtered.length" class="pulse__more" :disabled="loading" @click="loadMore">
+          {{ loading ? 'Loading…' : 'Load more' }}
+        </button>
       </div>
-    </div>
+    </template>
 
-    <button
-      v-if="hasMore() && posts.length > 0"
-      class="load-more"
-      :disabled="loading"
-      @click="loadMore"
-    >{{ loading ? 'Loading…' : 'Load more' }}</button>
-
-    <Transition name="toast">
-      <div v-if="toast" class="toast mono">{{ toast }}</div>
-    </Transition>
+    <PulseReader
+      v-if="reading"
+      :post="reading"
+      :vote="votes[reading.id] ?? null"
+      @vote="(l) => vote(reading!, l)"
+      @close="reading = null"
+    />
+    <PulseFilterPanel
+      v-if="panelOpen"
+      :sort="sort"
+      :tone="tone"
+      :creator="creator"
+      :creators="creators"
+      @update:sort="setSort"
+      @update:tone="(t) => (tone = t)"
+      @update:creator="(c) => (creator = c)"
+      @close="panelOpen = false"
+    />
   </div>
 </template>
 
 <style scoped>
-.pulse {
-  max-width: 680px;
-  margin: 0 auto;
-  padding: var(--gutter, 24px);
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.pulse-head {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md, 12px);
-  background: var(--background-surface);
-  overflow: hidden;
-}
-.title-row {
-  padding: 0;
-}
-.sort-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 8px 16px;
-  font-size: 13px;
-  border-top: 1px solid var(--border-subtle);
-}
-.sort-label { color: var(--text-tertiary); margin-right: 6px; }
-.sort-tab {
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-pill, 999px);
-  color: var(--text-secondary);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  padding: 3px 10px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-.sort-tab:hover { color: var(--text-primary); border-color: var(--border-subtle); }
-.sort-tab.active { color: var(--accent-primary); border-color: var(--accent-primary); background: var(--accent-surface); }
-
-.feed {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.error {
-  border: 1px solid var(--danger);
-  border-radius: var(--radius-sm, 8px);
-  color: var(--danger);
-  background: var(--danger-surface);
-  padding: 10px 14px;
-  font-size: 13px;
-}
-.empty {
-  border: 1px dashed var(--border-subtle);
-  border-radius: var(--radius-md, 12px);
-  color: var(--text-tertiary);
-  padding: 32px 16px;
-  text-align: center;
-  font-size: 13px;
-}
-
-/* Skeleton — uses theme tokens */
-.skeleton {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md, 12px);
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  background: var(--background-surface);
-  overflow: hidden;
-  position: relative;
-}
-.skeleton::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent 0%, var(--background-raised) 50%, transparent 100%);
-  background-size: 200% 100%;
-  animation: shimmer 1.4s infinite linear;
-}
-.skeleton-line {
-  height: 12px;
-  border-radius: var(--radius-sm, 8px);
-  background: var(--background-raised);
-}
-.skeleton-line:nth-child(1) { width: 55%; }
-.skeleton-line:nth-child(2) { width: 80%; }
-.skeleton-line:nth-child(3) { width: 40%; }
-@keyframes shimmer {
-  from { background-position: -200% 0; }
-  to   { background-position:  200% 0; }
-}
-
-.load-more {
-  align-self: center;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill, 999px);
-  color: var(--text-secondary);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  padding: 8px 28px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-.load-more:hover { color: var(--text-primary); border-color: var(--border-medium); }
-.load-more:disabled { opacity: 0.5; cursor: default; }
-
-.toast {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 100;
-  background: var(--background-raised);
-  border: 1px solid var(--brain-amber);
-  border-radius: var(--radius-sm, 8px);
-  color: var(--brain-amber);
-  font-size: 13px;
-  padding: 8px 16px;
-}
-.toast-enter-active, .toast-leave-active { transition: opacity 0.15s; }
-.toast-enter-from, .toast-leave-to { opacity: 0; }
-
-@media (max-width: 640px) {
-  .pulse { padding: 12px; }
-}
+.pulse { max-width: 720px; margin: 0 auto; padding: 8px 0 48px; }
+.pulse__masthead { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 12px; }
+.pulse__title { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: 0.1em; color: var(--text-primary); }
+.pulse__filter { background: none; border: 0; color: var(--text-primary); cursor: pointer; display: flex; padding: 6px; }
+.pulse__chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 4px 18px; }
+.pulse__feed { display: flex; flex-direction: column; gap: 14px; }
+.pulse__featactions { display: flex; gap: 6px; margin-top: 10px; }
+.pulse__duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pulse__skeleton { display: flex; flex-direction: column; gap: 14px; }
+.pulse__sk { height: 160px; border-radius: var(--radius-md); background: var(--background-raised); animation: pulse-sk 1.4s ease-in-out infinite; }
+@keyframes pulse-sk { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
+.pulse__error, .pulse__empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); font-family: var(--font-serif); }
+.pulse__retry { margin-top: 12px; height: 36px; padding: 0 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); cursor: pointer; }
+.pulse__more { align-self: center; margin-top: 8px; height: 40px; padding: 0 24px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); cursor: pointer; font-size: var(--text-sm); }
 </style>

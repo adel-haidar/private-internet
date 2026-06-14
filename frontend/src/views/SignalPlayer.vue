@@ -1,361 +1,144 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, computed } from 'vue'
-import PageHead from '../components/ui/PageHead.vue'
-import { useSignalLibrary, logInteraction, type Video } from '../composables/useContent'
-import VideoCard from '../components/VideoCard.vue'
-import CreatorBadge from '../components/CreatorBadge.vue'
+/**
+ * SIGNAL — editorial, discovery-first channel: masthead → category chips →
+ * featured hero → Recent → by-category sections, with inline search and a
+ * full-bleed player overlay. Replaces the old library-column + side player.
+ */
+import { computed, onMounted, ref } from 'vue'
+import { useSignalLibrary, type Video } from '../composables/useContent'
+import FeedChip from '../components/feed/FeedChip.vue'
+import FeaturedCard from '../components/feed/FeaturedCard.vue'
+import SignalSection from '../components/feed/SignalSection.vue'
+import SignalVideoCard from '../components/feed/SignalVideoCard.vue'
+import SignalSearch from '../components/feed/SignalSearch.vue'
+import SignalPlayerOverlay from '../components/feed/SignalPlayerOverlay.vue'
+import { fmtSecs, isPlayable, isProcessing } from '../components/feed/video-util'
 
-const {
-  videos, selected, total, loading, error,
-  topicNames, creators, hasMore, loadMore, select,
-} = useSignalLibrary()
+const { videos, loading, error, topicNames, loadMore } = useSignalLibrary()
 
-// ── Player + watch tracking (core RL signal) ────────────────────────────────
+const cat = ref('All')
+const searching = ref(false)
+const playing = ref<Video | null>(null)
 
-const videoEl = ref<HTMLVideoElement | null>(null)
-const currentTime = ref(0)
-const duration = ref(0)
-let endedLogged = false
+onMounted(() => loadMore())
 
-const watchPct = computed(() =>
-  duration.value > 0 ? currentTime.value / duration.value : 0)
+const catOf = (v: Video) => topicNames.value[v.topic_id] ?? ''
+const cats = computed(() => [...new Set(videos.value.map(catOf).filter(Boolean))].sort())
+const inCat = (v: Video) => cat.value === 'All' || catOf(v) === cat.value
+const filtered = computed(() => videos.value.filter(inCat))
 
-function onTimeUpdate(): void {
-  if (!videoEl.value) return
-  currentTime.value = videoEl.value.currentTime
-  duration.value = videoEl.value.duration || 0
+const featured = computed<Video | null>(() => {
+  const ready = filtered.value.filter(isPlayable)
+  const pool = ready.length ? ready : filtered.value
+  return pool.length ? pool.reduce((a, b) => (a.score >= b.score ? a : b)) : null
+})
+const recent = computed(() => filtered.value.filter((v) => v.id !== featured.value?.id))
+
+const byCategory = computed(() =>
+  cats.value
+    .map((c) => ({ cat: c, vids: videos.value.filter((v) => catOf(v) === c && v.id !== featured.value?.id) }))
+    .filter((s) => s.vids.length > 0),
+)
+
+const relatedFor = (v: Video) =>
+  videos.value.filter((x) => x.id !== v.id && isPlayable(x) && catOf(x) === catOf(v)).slice(0, 8)
+
+function play(v: Video) {
+  if (!isProcessing(v)) playing.value = v
 }
-
-async function onVideoEnded(): Promise<void> {
-  if (!selected.value || endedLogged) return
-  endedLogged = true
-  await logInteraction(selected.value.id, 'video', 'watch_complete', 1.0).catch(() => {})
-}
-
-/** Flush the watch signal for the video being left (switch or unmount). */
-function flushWatch(v: Video | null): void {
-  if (!v) return
-  const pct = watchPct.value
-  if (!endedLogged) {
-    if (pct > 0.1 && pct < 1.0) {
-      void logInteraction(v.id, 'video', 'watch_partial', pct).catch(() => {})
-    } else if (pct <= 0.1) {
-      void logInteraction(v.id, 'video', 'skip').catch(() => {})
-    }
-  }
-  currentTime.value = 0
-  duration.value = 0
-  endedLogged = false
-}
-
-function selectVideo(v: Video): void {
-  if (selected.value?.id === v.id) return
-  flushWatch(selected.value)
-  select(v)
-}
-
-onBeforeUnmount(() => flushWatch(selected.value))
-
-// ── Like / dislike + toast ───────────────────────────────────────────────────
-
-const toastVisible = ref(false)
-const rated = ref<Record<string, 'like' | 'dislike'>>({})
-let toastTimer: ReturnType<typeof setTimeout> | null = null
-
-async function rate(action: 'like' | 'dislike'): Promise<void> {
-  if (!selected.value) return
-  const id = selected.value.id
-  rated.value = { ...rated.value, [id]: action }  // optimistic
-  toastVisible.value = true
-  if (toastTimer) clearTimeout(toastTimer)
-  toastTimer = setTimeout(() => { toastVisible.value = false }, 1500)
-  await logInteraction(id, 'video', action).catch(() => {})
-}
-
-// ── Display helpers ──────────────────────────────────────────────────────────
-
-const selectedCreator = computed(() =>
-  selected.value ? creators.value[selected.value.creator_id] : undefined)
-
-const selectedTopic = computed(() =>
-  selected.value ? topicNames.value[selected.value.topic_id] : undefined)
-
-onMounted(() => { void loadMore() })
 </script>
 
 <template>
-  <div class="page">
+  <div v-if="searching" class="signal">
+    <SignalSearch :videos="videos" :topic-names="topicNames" @play="(v) => { searching = false; play(v) }" @cancel="searching = false" />
+  </div>
 
-    <!-- ── Header ──────────────────────────────────────────────────────── -->
-    <PageHead title="Signal" :desc="total ? `${total} video${total === 1 ? '' : 's'} in the library` : 'AI-generated video channel'" />
-
-    <div class="body">
-      <div v-if="error" class="state-card state-card--error">{{ error }}</div>
-
-      <div class="signal-layout">
-
-        <!-- ── Library (left) ────────────────────────────────────────── -->
-        <aside class="library">
-          <div class="section-label">Video library</div>
-
-          <div v-if="loading && videos.length === 0" class="library-skeleton">
-            <div v-for="i in 4" :key="i" class="skeleton-card" />
-          </div>
-
-          <div v-else-if="videos.length === 0" class="library-empty">
-            <p class="empty-text">No videos yet</p>
-            <p class="empty-hint">Videos appear here once the Signal pipeline generates them.</p>
-          </div>
-
-          <div v-else class="library-list">
-            <VideoCard
-              v-for="v in videos"
-              :key="v.id"
-              :video="v"
-              :active="selected?.id === v.id"
-              @select="selectVideo"
-            />
-          </div>
-
-          <button
-            v-if="hasMore()"
-            class="btn btn--ghost load-more"
-            :disabled="loading"
-            @click="loadMore"
-          >{{ loading ? 'Loading…' : 'Load more' }}</button>
-        </aside>
-
-        <!-- ── Player (right) ────────────────────────────────────────── -->
-        <section class="player-panel">
-          <template v-if="selected">
-            <div class="player-frame">
-              <video
-                ref="videoEl"
-                :key="selected.id"
-                :src="selected.video_url ?? undefined"
-                :poster="selected.thumbnail_url ?? undefined"
-                controls
-                preload="metadata"
-                class="player-video"
-                @timeupdate="onTimeUpdate"
-                @ended="onVideoEnded"
-              />
-            </div>
-
-            <h2 class="player-title">{{ selected.title }}</h2>
-
-            <div class="player-meta">
-              <CreatorBadge
-                :name="selected.creator_name"
-                :slug="selectedCreator?.slug"
-                :avatar-url="selectedCreator?.avatar_url ?? selected.creator_avatar"
-                :score="selectedCreator?.score ?? selected.score"
-                :bio="selectedCreator?.bio ?? undefined"
-              />
-              <span v-if="selectedTopic" class="topic-tag">{{ selectedTopic }}</span>
-            </div>
-
-            <p v-if="selected.description" class="player-description">{{ selected.description }}</p>
-
-            <div class="player-divider" />
-
-            <div class="rating-row">
-              <button
-                class="btn btn--ghost rate-btn"
-                :class="{ 'rate-btn--active': rated[selected.id] === 'like' }"
-                @click="rate('like')"
-              >▲ Like</button>
-              <button
-                class="btn btn--ghost rate-btn rate-btn--down"
-                :class="{ 'rate-btn--active-down': rated[selected.id] === 'dislike' }"
-                @click="rate('dislike')"
-              >▼ Dislike</button>
-              <span class="watch-readout">Watched: {{ (watchPct * 100).toFixed(0) }}%</span>
-            </div>
-          </template>
-
-          <div v-else class="player-empty">
-            <p class="empty-text">No video selected</p>
-            <p class="empty-hint">Select a ready video from the library.</p>
-          </div>
-        </section>
-      </div>
+  <div v-else class="signal">
+    <!-- masthead -->
+    <div class="signal__masthead">
+      <span class="signal__title">SIGNAL</span>
+      <button class="signal__search" aria-label="Search" @click="searching = true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+      </button>
     </div>
 
-    <!-- ── Toast ─────────────────────────────────────────────────────── -->
-    <Transition name="toast">
-      <div v-if="toastVisible" class="toast">Feedback logged</div>
-    </Transition>
+    <!-- category chips -->
+    <div v-if="cats.length" class="signal__chips">
+      <FeedChip label="All" :active="cat === 'All'" @click="cat = 'All'" />
+      <FeedChip v-for="c in cats" :key="c" :label="c" :active="cat === c" @click="cat = c" />
+    </div>
+
+    <!-- loading / error -->
+    <div v-if="loading && videos.length === 0" class="signal__skeleton">
+      <div class="signal__skhero" />
+      <div class="signal__skrow"><div v-for="n in 4" :key="n" class="signal__skcard" /></div>
+    </div>
+    <div v-else-if="error" class="signal__error">
+      <p>Couldn't load your videos.</p>
+      <button class="signal__retry" @click="loadMore">Try again</button>
+    </div>
+
+    <template v-else-if="filtered.length === 0">
+      <div class="signal__empty">No videos yet. Add to your brain and your channel will fill up.</div>
+    </template>
+
+    <template v-else>
+      <!-- featured hero -->
+      <FeaturedCard
+        v-if="featured"
+        :seed="featured.creator_name"
+        :image="featured.thumbnail_url"
+        :title="featured.title"
+        :meta-name="featured.creator_name"
+        :meta-trailing="`· ${featured.score.toFixed(2)}`"
+        @click="play(featured)"
+      >
+        <template #topLeft><FeedChip :label="catOf(featured) || 'Signal'" :active="true" /></template>
+        <template #topRight><span class="t-mono signal__herodur">{{ fmtSecs(featured.duration_seconds) }}</span></template>
+        <template #center>
+          <span class="signal__playbtn" :class="{ 'signal__playbtn--off': isProcessing(featured) }">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+          </span>
+        </template>
+      </FeaturedCard>
+
+      <!-- recent / filtered -->
+      <SignalSection :title="cat === 'All' ? 'Recent' : cat" :see-all="false">
+        <SignalVideoCard v-for="v in recent" :key="v.id" :video="v" @play="play(v)" />
+      </SignalSection>
+
+      <!-- by category (only on All) -->
+      <template v-if="cat === 'All'">
+        <SignalSection v-for="s in byCategory" :key="s.cat" :title="s.cat" accent see-all @all="cat = s.cat">
+          <SignalVideoCard v-for="v in s.vids" :key="v.id" :video="v" @play="play(v)" />
+        </SignalSection>
+      </template>
+    </template>
+
+    <SignalPlayerOverlay
+      v-if="playing"
+      :video="playing"
+      :category="catOf(playing)"
+      :related="relatedFor(playing)"
+      @close="playing = null"
+      @play="(v) => (playing = v)"
+    />
   </div>
 </template>
 
 <style scoped>
-/* ── Shell ──────────────────────────────────────────────────────────────── */
-.page { min-height: 100%; display: flex; flex-direction: column; }
-
-.body { padding: 28px 32px 48px; display: flex; flex-direction: column; gap: 20px; flex: 1; }
-
-/* ── Two-panel layout ───────────────────────────────────────────────────── */
-.signal-layout {
-  display: grid;
-  grid-template-columns: 320px 1fr;
-  gap: 24px;
-  align-items: start;
-}
-@media (max-width: 1000px) { .signal-layout { grid-template-columns: 1fr; } }
-
-/* ── Library ────────────────────────────────────────────────────────────── */
-.library { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-
-.section-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.library-list {
-  display: flex; flex-direction: column; gap: 12px;
-  max-height: calc(100vh - 240px);
-  overflow-y: auto;
-  padding-right: 2px;
-}
-@media (max-width: 1000px) { .library-list { max-height: none; } }
-
-.library-skeleton { display: flex; flex-direction: column; gap: 12px; }
-.skeleton-card {
-  height: 120px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm, 8px);
-  background: var(--background-raised);
-  position: relative;
-  overflow: hidden;
-}
-.skeleton-card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent 0%, var(--background-surface) 50%, transparent 100%);
-  background-size: 200% 100%;
-  animation: shimmer 1.4s infinite linear;
-}
-@keyframes shimmer { from { background-position: -200% 0; } to { background-position: 200% 0; } }
-
-.library-empty, .player-empty {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md, 12px);
-  background: var(--background-surface);
-  padding: 28px 20px; display: flex; flex-direction: column; gap: 8px;
-  align-items: center; text-align: center;
-}
-.empty-text { font-size: 15px; font-weight: 500; color: var(--text-secondary); }
-.empty-hint { font-size: 13px; color: var(--text-tertiary); }
-
-.load-more { width: 100%; }
-
-/* ── Player panel ───────────────────────────────────────────────────────── */
-.player-panel {
-  display: flex; flex-direction: column; gap: 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md, 12px);
-  background: var(--background-surface);
-  padding: 20px;
-  min-width: 0;
-}
-
-.player-frame {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  background: #000;
-  border-radius: var(--radius-sm, 8px);
-  overflow: hidden;
-}
-.player-video { width: 100%; height: 100%; display: block; }
-
-.player-title {
-  font-size: 16px; font-weight: 600;
-  color: var(--text-primary); line-height: 1.4;
-}
-
-.player-meta {
-  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-}
-
-.topic-tag {
-  font-size: 12px;
-  color: var(--brain-amber);
-  border: 1px solid var(--brain-amber);
-  border-radius: var(--radius-pill, 999px);
-  padding: 2px 10px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
-}
-
-.player-description {
-  font-size: 14px; line-height: 1.65;
-  color: var(--text-secondary);
-}
-
-.player-divider { height: 1px; background: var(--border-subtle); }
-
-/* ── Rating ─────────────────────────────────────────────────────────────── */
-.rating-row { display: flex; align-items: center; gap: 10px; }
-
-.btn {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 500;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill, 999px);
-  padding: 6px 16px;
-  cursor: pointer;
-  background: transparent;
-  color: var(--text-secondary);
-  transition: border-color 0.15s, color 0.15s;
-}
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn--ghost:hover:not(:disabled) { border-color: var(--border-medium); color: var(--text-primary); }
-
-.rate-btn--active {
-  border-color: var(--success); color: var(--success); background: var(--success-surface);
-}
-.rate-btn--active-down {
-  border-color: var(--danger); color: var(--danger); background: var(--danger-surface);
-}
-
-.watch-readout {
-  margin-left: auto;
-  font-family: var(--font-mono); font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-/* ── Error card ─────────────────────────────────────────────────────────── */
-.state-card {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm, 8px);
-  padding: 16px 20px;
-  background: var(--background-surface);
-}
-.state-card--error {
-  border-color: var(--danger); color: var(--danger);
-  background: var(--danger-surface);
-  font-size: 13px;
-}
-
-/* ── Toast ──────────────────────────────────────────────────────────────── */
-.toast {
-  position: fixed;
-  right: 24px; bottom: 24px;
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--background-raised);
-  border: 1px solid var(--accent-primary);
-  border-radius: var(--radius-sm, 8px);
-  padding: 10px 16px;
-  z-index: 100;
-}
-.toast-enter-active, .toast-leave-active { transition: opacity 0.18s ease; }
-.toast-enter-from, .toast-leave-to { opacity: 0; }
-
-@media (prefers-reduced-motion: reduce) { .skeleton-card::after { animation: none; } }
+.signal { max-width: 920px; margin: 0 auto; padding: 8px 0 48px; }
+.signal__masthead { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 12px; }
+.signal__title { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: 0.1em; color: var(--text-primary); }
+.signal__search { background: none; border: 0; color: var(--text-primary); cursor: pointer; display: flex; padding: 6px; }
+.signal__chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 4px 18px; }
+.signal__herodur { color: #fff; font-family: var(--font-mono); font-size: var(--text-xs); }
+.signal__playbtn { width: 52px; height: 52px; border-radius: 50%; background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.3); backdrop-filter: blur(4px); display: grid; place-items: center; color: #fff; }
+.signal__playbtn--off { opacity: 0.4; }
+.signal__skeleton { display: flex; flex-direction: column; gap: 20px; }
+.signal__skhero { height: 260px; border-radius: var(--radius-md); background: var(--background-raised); }
+.signal__skrow { display: flex; gap: 16px; }
+.signal__skcard { width: 220px; height: 150px; border-radius: var(--radius-sm); background: var(--background-raised); }
+.signal__error, .signal__empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); font-family: var(--font-serif); }
+.signal__retry { margin-top: 12px; height: 36px; padding: 0 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); cursor: pointer; }
 </style>
