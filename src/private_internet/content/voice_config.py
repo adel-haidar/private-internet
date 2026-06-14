@@ -5,14 +5,16 @@ RTL + human-name helpers so the API can tell the Vue frontend how to render
 captions/subtitles without the frontend ever hardcoding a language set.
 """
 
-# TODO: Replace with real ElevenLabs voice IDs after auditioning in the playground.
-# (The account's premade voices are reachable; pick per-language and paste here.)
+# Real ElevenLabs premade voice IDs (validated against the account). With the
+# eleven_multilingual_v2 model a single voice speaks any language, so these are
+# distinct voices per language for variety, not native-accent voices.
+# TODO: swap in native ar/ru voices after auditioning if pronunciation matters.
 VOICE_MAP: dict[str, str] = {
-    "en": "VOICE_ID_ENGLISH",
-    "de": "VOICE_ID_GERMAN",
-    "ar": "VOICE_ID_ARABIC",
-    "ru": "VOICE_ID_RUSSIAN",
-    "fr": "VOICE_ID_FRENCH",
+    "en": "SAz9YHcvj6GT2YYXdXww",  # River — relaxed, neutral, informative
+    "de": "JBFqnCBsd6RMkjVDRZzb",  # George — warm storyteller
+    "ar": "EXAVITQu4vr4xnSDxMaL",  # Sarah — mature, reassuring
+    "ru": "CwhRBWXzGAHq8TQ4Fs17",  # Roger — laid-back, resonant
+    "fr": "IKne3meq5aSn9XLyUdCD",  # Charlie — confident
 }
 DEFAULT_VOICE_ID = VOICE_MAP["en"]
 

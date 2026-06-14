@@ -9,14 +9,40 @@ from datetime import datetime, timezone
 
 from psycopg2.extras import RealDictCursor
 
+from private_internet.config import get_settings
 from private_internet.database import _connect
 from private_internet.content.creator_selector import CreatorSelector
 from private_internet.content.video_generator import VideoScriptGenerator, VideoImageGenerator
-from private_internet.content.polly_engine import PollyEngine
+from private_internet.content.elevenlabs_engine import ElevenLabsEngine, get_tts_engine
+from private_internet.content.fal_video import generate_video_clip
+from private_internet.content.voice_config import get_voice_id
 from private_internet.content.ffmpeg_assembler import VideoAssembler
 from private_internet.content.asset_store import AssetStore
 
 logger = logging.getLogger(__name__)
+
+
+async def _section_visual(image_generator, section, creator, idx, title, work_dir) -> str:
+    """Per-section visual path: a generated fal video clip (.mp4) when
+    VIDEO_BACKEND=fal, else a still image (.png). Any fal failure (incl. unfunded
+    balance) falls back to a slide image, so the video always assembles."""
+    if (get_settings().video_backend or "slides").lower() == "fal":
+        try:
+            prompt = section.image_prompt + " cinematic, slow camera motion, dark editorial, no text"
+            clip = await generate_video_clip(prompt, duration="5", aspect_ratio="16:9")
+            path = os.path.join(work_dir, f"vis_{idx}.mp4")
+            with open(path, "wb") as f:
+                f.write(clip)
+            return path
+        except Exception as exc:
+            logger.warning(
+                "fal video failed for section %s (%s); slide fallback", idx, exc
+            )
+    img = await image_generator.generate_for_section(section, creator, title=title, index=idx)
+    path = os.path.join(work_dir, f"vis_{idx}.png")
+    with open(path, "wb") as f:
+        f.write(img)
+    return path
 
 
 def _select_topic(conn, topic_id: str | None, *, user_id: str) -> dict:
@@ -78,7 +104,7 @@ async def generate_video(topic_id: str | None = None, *, user_id: str) -> str:
     assert user_id is not None, "user_id must be set before any content operation"
     script_generator = VideoScriptGenerator()
     image_generator = VideoImageGenerator()
-    polly = PollyEngine()
+    tts = get_tts_engine()
     assembler = VideoAssembler()
     asset_store = AssetStore()
 
@@ -108,36 +134,34 @@ async def generate_video(topic_id: str | None = None, *, user_id: str) -> str:
 
         # 4. Script
         script = await script_generator.generate(topic, creator, research)
+        os.makedirs(work_dir, exist_ok=True)
 
-        # 5/6. Slide images (parallel) + thumbnail
-        image_results = await asyncio.gather(
+        # 5/6. Per-section visuals (fal video clip, or slide fallback) + thumbnail.
+        visual_results = await asyncio.gather(
             *(
-                image_generator.generate_for_section(s, creator, title=script.title, index=i)
+                _section_visual(image_generator, s, creator, i, script.title, work_dir)
                 for i, s in enumerate(script.sections)
             ),
             image_generator.generate_thumbnail(script, creator),
         )
-        section_images, thumbnail_bytes = image_results[:-1], image_results[-1]
+        visual_paths, thumbnail_bytes = list(visual_results[:-1]), visual_results[-1]
 
-        # 7. Save images to the work dir (Nova Canvas outputs PNG)
-        os.makedirs(work_dir, exist_ok=True)
-        image_paths = []
-        for i, image_bytes in enumerate(section_images):
-            path = os.path.join(work_dir, f"img_{i}.png")
-            with open(path, "wb") as f:
-                f.write(image_bytes)
-            image_paths.append(path)
-
-        # 8/9. Narration — sequential, Polly rate limits. Polly + ffprobe are
-        # blocking, so run off the event loop.
+        # 8/9. Narration via the configured TTS engine (sequential — TTS + ffprobe
+        # are blocking, so run off the event loop). Script is English today, so
+        # ElevenLabs uses the English voice; per-language routing arrives with the
+        # multilingual pipeline. Polly falls back to the creator's voice.
         loop = asyncio.get_event_loop()
+        if isinstance(tts, ElevenLabsEngine):
+            voice_id, lang_code = get_voice_id("en"), "en"
+        else:
+            voice_id, lang_code = creator["polly_voice_id"], creator["polly_language_code"]
         audio_paths = []
         for i, section in enumerate(script.sections):
             path = os.path.join(work_dir, f"audio_{i}.mp3")
             await loop.run_in_executor(
                 None,
-                lambda text=section.text, p=path: polly.synthesize_section(
-                    text, creator["polly_voice_id"], creator["polly_language_code"], p
+                lambda text=section.text, p=path: tts.synthesize_section(
+                    text, voice_id, lang_code, p
                 ),
             )
             audio_paths.append(path)
@@ -146,7 +170,7 @@ async def generate_video(topic_id: str | None = None, *, user_id: str) -> str:
         video_path = os.path.join(work_dir, "video.mp4")
         duration_seconds = await loop.run_in_executor(
             None,
-            lambda: assembler.assemble(script.sections, image_paths, audio_paths, video_path),
+            lambda: assembler.assemble(script.sections, visual_paths, audio_paths, video_path),
         )
 
         # 11/12. Upload to S3 → CloudFront URLs

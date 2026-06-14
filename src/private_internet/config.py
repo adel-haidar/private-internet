@@ -60,6 +60,20 @@ class Settings(BaseSettings):
     fal_api_key: str = ""
     fal_image_model: str = "fal-ai/flux/schnell"   # cheap/fast distilled FLUX
 
+    # ── SIGNAL narration (ElevenLabs TTS) ───────────────────────
+    # "elevenlabs" uses ElevenLabs (multilingual, natural); falls back to Polly
+    # when the engine is "polly" OR no ELEVENLABS_API_KEY is set, so deploys are safe.
+    tts_engine: str = "elevenlabs"                 # "elevenlabs" | "polly"
+    elevenlabs_api_key: str = ""
+    elevenlabs_model_id: str = "eleven_multilingual_v2"
+
+    # ── SIGNAL video (fal.ai, Kling) ────────────────────────────
+    # "fal" generates a real video clip per section; "slides" keeps the legacy
+    # still-image + Ken Burns. Any fal failure (incl. unfunded balance) falls back
+    # to a slide per section, so the video always assembles.
+    video_backend: str = "fal"                     # "fal" | "slides"
+    fal_video_model: str = "fal-ai/kling-video/v1/standard/text-to-video"
+
     upload_dir: str = "/uploads"
 
     # ── Billing (Stripe) ────────────────────────────────────────

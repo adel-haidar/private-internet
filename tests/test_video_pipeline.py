@@ -327,7 +327,9 @@ def _patched_pipeline(conn, script=None, fail_script=False):
         patch(f"{base}.CreatorSelector", return_value=selector),
         patch(f"{base}.VideoScriptGenerator", return_value=script_gen),
         patch(f"{base}.VideoImageGenerator", return_value=image_gen),
-        patch(f"{base}.PollyEngine", return_value=polly),
+        # TTS via the engine factory; force the slide path so no fal video is called.
+        patch(f"{base}.get_tts_engine", return_value=polly),
+        patch(f"{base}.get_settings", return_value=SimpleNamespace(video_backend="slides")),
         patch(f"{base}.VideoAssembler", return_value=assembler),
         patch(f"{base}.AssetStore", return_value=asset_store),
     ], polly, assembler, asset_store
