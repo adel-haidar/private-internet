@@ -101,20 +101,41 @@ function pickFile() { fileInput.value?.click() }
 
 async function onPickFile(e: Event) {
   const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
+  const files = Array.from(input.files ?? [])
   input.value = ''
-  if (!file) return
+  if (files.length === 0) return
   uploading.value = true
+  let successCount = 0
+  let failCount = 0
   try {
     const token = await requireAuth()
-    const fd = new FormData()
-    fd.append('files', file)
-    const res = await fetch(`${API_BASE}/api/file`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
-    toast(res.ok ? 'File added — run analysis to see your summary' : 'Upload failed', res.ok ? 'success' : 'error')
+    for (const file of files) {
+      try {
+        const fd = new FormData()
+        fd.append('files', file)
+        const res = await fetch(`${API_BASE}/api/file`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+        if (res.ok) { successCount++ } else { failCount++ }
+      } catch {
+        failCount++
+      }
+    }
   } catch {
     toast('Upload failed', 'error')
+    return
   } finally {
     uploading.value = false
+  }
+  if (successCount > 0 && failCount === 0) {
+    toast(
+      successCount === 1
+        ? 'File added — run analysis to see your summary'
+        : `${successCount} files added — run analysis to see your summary`,
+      'success',
+    )
+  } else if (successCount > 0 && failCount > 0) {
+    toast(`${successCount} file${successCount > 1 ? 's' : ''} uploaded, ${failCount} failed`, 'warning')
+  } else {
+    toast('Upload failed', 'error')
   }
 }
 
@@ -146,7 +167,7 @@ async function deleteAll() {
       desc="Upload your financial documents and your brain gives you a clear picture of your money — without the jargon."
     />
 
-    <input ref="fileInput" type="file" accept=".pdf,.csv,.xlsx,.xls" hidden @change="onPickFile" />
+    <input ref="fileInput" type="file" accept=".pdf,.csv,.xlsx,.xls" multiple hidden @change="onPickFile" />
 
     <!-- Tabs -->
     <div style="margin-bottom: var(--space-6);">

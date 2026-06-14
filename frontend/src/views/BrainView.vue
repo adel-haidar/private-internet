@@ -40,7 +40,7 @@ import { requireAuth } from '../composables/useAuth'
 import { deleteMemory } from '../composables/useMemories'
 import { useBrainOrganiser } from '../composables/useBrainOrganiser'
 import { API_BASE } from '../config/env'
-import type { Memory, MemoryListResponse, MemoryStats, CreateMemoryPayload } from '../types/memory'
+import type { Memory, MemoryStats, CreateMemoryPayload } from '../types/memory'
 
 // ---------------------------------------------------------------------------
 // Toast
@@ -141,14 +141,17 @@ async function fetchMemories(reset = false): Promise<void> {
       headers: { Authorization: `Bearer ${token}` },
     })
     if (!res.ok) throw new Error(`Memories failed: ${res.status}`)
-    const data = await res.json() as MemoryListResponse
+    // The list API returns "id" for each item; remap to "memory_id" so the
+    // rest of this view (delete filter, card key, hover tracking) works correctly.
+    const raw = await res.json() as { items: (Omit<Memory, 'memory_id'> & { id: string })[]; total: number; page: number; pages: number }
+    const items: Memory[] = raw.items.map(item => ({ ...item, memory_id: item.id }))
 
     if (reset) {
-      memories.value = data.items
+      memories.value = items
     } else {
-      memories.value.push(...data.items)
+      memories.value.push(...items)
     }
-    pages.value = data.pages
+    pages.value = raw.pages
   } finally {
     loadingMore.value = false
   }
