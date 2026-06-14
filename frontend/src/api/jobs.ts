@@ -1,4 +1,4 @@
-import { requireAuth, refreshTokens } from '../composables/useAuth'
+import { requireAuth, refreshTokens, hasRefreshToken } from '../composables/useAuth'
 import type { MatchesResponse, RunResponse, RunReport, JobStatus } from '../types/jobs'
 import { API_BASE } from '../config/env'
 
@@ -19,7 +19,10 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
 
   let res = await makeRequest(token)
 
-  if (res.status === 401) {
+  // Only refresh when a refresh token exists (OAuth sessions). Password-login
+  // sessions have none — refreshing there clears the session and logs the user
+  // out on any 401 (e.g. the agents service rejecting a non-admin JWT).
+  if (res.status === 401 && hasRefreshToken()) {
     await refreshTokens()
     token = await requireAuth()
     res = await makeRequest(token)

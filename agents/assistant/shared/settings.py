@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     user_name: str = "Adel"
     """The name of the user the assistant is working for. Used in LLM prompts."""
 
+    # Shared HS256 secret with Service A (same .env) — lets the agents verify
+    # platform JWTs issued by the dashboard login.
+    secret_key: str = ""
+
     mcp_memory_url: str | None = None
     """The SSE endpoint of the MCP memory server, e.g. 'http://ec2-ip:3000/sse'.
     When set, the agent queries this server for personal context before each

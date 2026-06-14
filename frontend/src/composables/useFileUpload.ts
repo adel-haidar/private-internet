@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { requireAuth, refreshTokens } from './useAuth'
+import { requireAuth, refreshTokens, hasRefreshToken } from './useAuth'
 import { API_BASE } from '../config/env'
 
 export interface UploadFile {
@@ -80,8 +80,8 @@ export function useFileUpload() {
     try {
       await doXhr(record, token)
     } catch (err) {
-      if (httpStatusOf(err) === 401) {
-        // One retry after a forced token refresh
+      if (httpStatusOf(err) === 401 && hasRefreshToken()) {
+        // One retry after a forced token refresh (OAuth sessions only)
         try {
           await refreshTokens()
           token = await requireAuth()
