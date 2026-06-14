@@ -137,7 +137,7 @@ class WebResearchService:
             "You are a relevance assessment model. Review the following topic candidate and associated research results.\n"
             "Determine the overall relevance weight (from 0.0 to 1.0) for the user based on:\n"
             "- Is the topic currently trending or highly relevant?\n"
-            "- Does it connect to the user's known interests (such as job relocation to Switzerland, AWS certification, weight loss, history, etc.)?\n"
+            "- Does it appear to connect to a real person's daily interests (career, health, finance, learning, travel, culture, technology, etc.)?\n"
             "- Is there enough material for a good video script?\n\n"
             f"Topic: {topic.name}\n"
             f"Keywords: {', '.join(topic.keywords)}\n"
