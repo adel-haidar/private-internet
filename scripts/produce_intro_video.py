@@ -211,22 +211,44 @@ def _log(msg: str) -> None:
     print(msg, flush=True)
 
 
-def generate_scenes(scenes_dir: Path, force: bool) -> list[Path]:
-    """Generate the 12 fal.ai clips once. Cached on disk; returns the 12 clip paths."""
+SCENE_CONCURRENCY = 6  # parallel fal jobs in flight; tune to your fal concurrency limit
+
+
+def generate_scenes(scenes_dir: Path, force: bool, concurrency: int = SCENE_CONCURRENCY) -> list[Path]:
+    """Generate the 12 fal.ai clips *concurrently* (submit all, poll together), so
+    wall-clock is ~the slowest clip rather than the sum. Cached on disk; returns the
+    12 clip paths in scene order. Each clip is written as soon as it finishes, so a
+    crash leaves completed clips cached for an idempotent resume."""
     scenes_dir.mkdir(parents=True, exist_ok=True)
-    paths: list[Path] = []
-    for i, prompt in enumerate(SCENE_PROMPTS, start=1):
-        clip = scenes_dir / f"scene_{i:02d}.mp4"
-        if clip.exists() and not force:
-            _log(f"  scene {i:02d}: cached ({clip.name})")
-        else:
-            _log(f"  scene {i:02d}: generating via fal.ai Kling…")
-            data = asyncio.run(
-                fal_video.generate_video_clip(prompt, duration="5", aspect_ratio="16:9")
-            )
-            clip.write_bytes(data)
-            _log(f"  scene {i:02d}: wrote {len(data):,} bytes")
-        paths.append(clip)
+    paths = [scenes_dir / f"scene_{i:02d}.mp4" for i in range(1, len(SCENE_PROMPTS) + 1)]
+
+    todo = [i for i, p in enumerate(paths) if force or not p.exists()]
+    for i, p in enumerate(paths):
+        if i not in todo:
+            _log(f"  scene {i + 1:02d}: cached ({p.name})")
+    if not todo:
+        return paths
+
+    async def _run_all() -> None:
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _one(idx: int) -> None:
+            async with sem:
+                _log(f"  scene {idx + 1:02d}: generating via fal.ai Kling…")
+                data = await fal_video.generate_video_clip(
+                    SCENE_PROMPTS[idx], duration="5", aspect_ratio="16:9"
+                )
+            paths[idx].write_bytes(data)
+            _log(f"  scene {idx + 1:02d}: wrote {len(data):,} bytes")
+
+        results = await asyncio.gather(*(_one(i) for i in todo), return_exceptions=True)
+        errs = [e for e in results if isinstance(e, Exception)]
+        if errs:
+            _log(f"  scenes: {len(errs)}/{len(todo)} failed; completed clips are cached for resume")
+            raise errs[0]
+
+    _log(f"  generating {len(todo)} clip(s) concurrently (max {concurrency} in flight)…")
+    asyncio.run(_run_all())
     return paths
 
 
@@ -328,6 +350,8 @@ def main() -> int:
                     help="comma-separated subset of: " + ",".join(SUPPORTED_LANGS))
     ap.add_argument("--out", default="out", help="output directory (default: out/)")
     ap.add_argument("--work", default="out/work", help="intermediate artifacts dir")
+    ap.add_argument("--concurrency", type=int, default=SCENE_CONCURRENCY,
+                    help=f"parallel fal clip jobs in flight (default {SCENE_CONCURRENCY})")
     ap.add_argument("--scenes-only", action="store_true", help="only generate the 12 clips, then stop")
     ap.add_argument("--skip-music", action="store_true", help="do not generate/mix ARIA background music")
     ap.add_argument("--force", action="store_true", help="regenerate everything, ignoring cached files")
@@ -350,7 +374,7 @@ def main() -> int:
         return 3
 
     _log("== Phase 1: video clips (language-independent) ==")
-    scene_clips = generate_scenes(work_dir / "scenes", args.force)
+    scene_clips = generate_scenes(work_dir / "scenes", args.force, concurrency=args.concurrency)
     if args.scenes_only:
         _log("scenes-only: stopping after clip generation.")
         return 0
