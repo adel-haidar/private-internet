@@ -35,6 +35,7 @@ import ProgressBar from '../components/ui/ProgressBar.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import { requireAuth } from '../composables/useAuth'
 import { API_BASE } from '../config/env'
+import brainReflection from '../assets/brain-reflection.webp'
 import type { User } from '../types/user'
 import type { MemoryStats } from '../types/memory'
 
@@ -337,25 +338,39 @@ onMounted(async () => {
     <!-- Your Brain card                                                        -->
     <!-- -------------------------------------------------------------------- -->
     <PiCard class="dash__brain">
-      <div class="dash__brain-top">
-        <BrainPulse :size="32" aria-hidden="true" />
-        <div class="dash__brain-info">
-          <div class="dash__brain-title">Your Brain</div>
-          <div class="dash__brain-sub t-secondary">
-            <span class="t-mono">{{ memStats.total }}</span>
-            {{ memStats.total === 1 ? ' memory' : ' memories' }}
-            · {{ brainSubline }}
+      <div class="dash__brain-grid">
+        <div class="dash__brain-main">
+          <div class="dash__brain-top">
+            <BrainPulse :size="32" aria-hidden="true" />
+            <div class="dash__brain-info">
+              <div class="dash__brain-title">Your Brain</div>
+              <div class="dash__brain-sub t-secondary">
+                <span class="t-mono">{{ memStats.total }}</span>
+                {{ memStats.total === 1 ? ' memory' : ' memories' }}
+                · {{ brainSubline }}
+              </div>
+            </div>
+            <PiButton variant="primary" icon="plus" @click="router.push('/memory')">
+              Add to your brain
+            </PiButton>
           </div>
+          <p class="dash__brain-concept t-serif">
+            One brain, every angle. Your feed, health and finances are all reflections of
+            the private memory you build — the more you add, the sharper every view becomes.
+          </p>
+          <ProgressBar
+            :label="`Brain health: ${healthBand.label}`"
+            :value="healthScore"
+            :variant="healthBand.variant"
+          />
         </div>
-        <PiButton variant="primary" icon="plus" @click="router.push('/memory')">
-          Add to your brain
-        </PiButton>
+        <figure class="dash__brain-art">
+          <img
+            :src="brainReflection"
+            alt="A single brain reflected in seven mirrors, each catching a different angle — every module is a reflection of your private memory."
+          />
+        </figure>
       </div>
-      <ProgressBar
-        :label="`Brain health: ${healthBand.label}`"
-        :value="healthScore"
-        :variant="healthBand.variant"
-      />
     </PiCard>
 
     <!-- -------------------------------------------------------------------- -->
@@ -555,6 +570,48 @@ onMounted(async () => {
 /* ── Brain card ──────────────────────────────────────────── */
 .dash__brain {
   margin-bottom: var(--space-6);
+}
+
+.dash__brain-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: var(--space-6);
+  align-items: center;
+}
+
+.dash__brain-main {
+  min-width: 0;
+}
+
+.dash__brain-concept {
+  font-size: var(--text-base);
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-4);
+  max-width: 56ch;
+}
+
+.dash__brain-art {
+  margin: 0;
+}
+
+.dash__brain-art img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 3 / 2;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: #0c0c10; /* matches the render's backdrop in both themes */
+}
+
+@media (max-width: 768px) {
+  .dash__brain-grid {
+    grid-template-columns: 1fr;
+  }
+  .dash__brain-art img {
+    max-height: 200px;
+  }
 }
 
 .dash__brain-top {
