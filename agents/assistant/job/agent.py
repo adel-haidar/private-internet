@@ -103,7 +103,21 @@ async def run_agent(
 ) -> RunReport:
     timestamp = datetime.utcnow()
     pool = await init_pool(database_url)
-    scorer = JobScorer(bedrock_client=bedrock_client, model_id=model_id)
+
+    # Per-user job profile from the CALLER's brain. Score against it; if the user
+    # has no profile (no résumé/skills/preferences in their brain), skip the scrape
+    # entirely so they never receive the owner's matches. (Per-user search queries
+    # are a follow-up — _QUERIES is still the shared default below.)
+    candidate_profile = ""
+    if memory_client is not None:
+        try:
+            candidate_profile = await memory_client.fetch_job_profile()
+        except Exception:
+            logger.warning("Could not fetch caller's job profile from brain", exc_info=True)
+    scorer = JobScorer(
+        bedrock_client=bedrock_client, model_id=model_id,
+        candidate_profile=candidate_profile,
+    )
 
     # LinkedIn and Indeed block AWS EC2 IPs at the network level — standalone scrapers
     # for those platforms will never succeed from this host. JSearch (RAPIDAPI_KEY)
@@ -122,6 +136,13 @@ async def run_agent(
         JobsChScraper(delay_seconds, max_per_query),
         StepStoneScraper(delay_seconds, max_per_query),
     ]
+
+    if not candidate_profile.strip():
+        # No profile in the caller's brain → no scraping. Returns a zeroed report
+        # rather than the owner's jobs. The user should add their résumé/job
+        # preferences to their Brain, then re-run.
+        logger.info("No job profile in brain for user %s — skipping scrape", user_id)
+        scrapers = []
 
     all_raw: list[JobListing] = []
     platforms_used: set[str] = set()

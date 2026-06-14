@@ -105,14 +105,14 @@ _JSON_SCHEMA = """\
 }"""
 
 
-def _build_prompt(listing: JobListing) -> str:
+def _build_prompt(listing: JobListing, candidate_profile: str) -> str:
     return "\n".join([
         "You are a strict job matching agent. Evaluate the listing against the candidate profile.",
         "Apply hard disqualifiers first. If not disqualified, score on the 0-100 scale.",
         "Return ONLY valid JSON — no prose, no markdown fences, nothing outside the JSON.",
         "",
         "=== CANDIDATE PROFILE ===",
-        _CANDIDATE_PROFILE,
+        candidate_profile,
         "",
         "=== FILTER RULES ===",
         _FILTER_RULES,
@@ -136,10 +136,16 @@ def _build_prompt(listing: JobListing) -> str:
 
 
 class JobScorer(BaseLLMService):
+    def __init__(self, bedrock_client, model_id, candidate_profile: Optional[str] = None):
+        super().__init__(bedrock_client=bedrock_client, model_id=model_id)
+        # Score against the CALLER's profile (from their brain). Fall back to the
+        # owner profile only if none was supplied (back-compat).
+        self._candidate_profile = candidate_profile or _CANDIDATE_PROFILE
+
     def score(self, listing: JobListing) -> Optional[MatchResult]:
         try:
             raw = self._strip_markdown(
-                self._invoke(_build_prompt(listing), max_tokens=2048)
+                self._invoke(_build_prompt(listing, self._candidate_profile), max_tokens=2048)
             )
             data = json.loads(raw)
             return MatchResult(**data)

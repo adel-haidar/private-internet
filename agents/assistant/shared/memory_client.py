@@ -372,6 +372,31 @@ class MemoryClient(BaseLLMService):
                 )
         return "\n".join(parts)
 
+    _JOB_PROFILE_QUERIES = [
+        "resume CV curriculum vitae",
+        "work experience skills technologies",
+        "job preferences target role desired position salary location",
+    ]
+
+    async def fetch_job_profile(self) -> str:
+        """Search the CALLER's brain for their résumé / skills / job preferences.
+
+        Returns the concatenated profile text, or '' if the user has no job-relevant
+        memories. The job-hunt agent uses this to score against the caller's own
+        profile and to gate the scrape — a user with no profile is not scraped
+        (so they never receive the owner's matches)."""
+        seen: set[str] = set()
+        parts: list[str] = []
+        for query in self._JOB_PROFILE_QUERIES:
+            try:
+                result = await self._search(query)
+                if result and result not in seen:
+                    seen.add(result)
+                    parts.append(result)
+            except Exception:
+                logger.warning("Job-profile search failed for query %r", query, exc_info=True)
+        return "\n".join(parts).strip()
+
     # ── Agent analysis persistence ────────────────────────────────────────────
     #
     # Analyses (bank adviser, investing, day trading) are cached in MCP memory
