@@ -7,13 +7,18 @@ dependency:
   - accepts the INTERNAL_SECRET (cron timers, sibling services)         -> allow
   - accepts a platform JWT whose `is_admin` claim is true (the owner)   -> allow
   - accepts a legacy OAuth access token (claude.ai / old dashboard)     -> allow
-  - accepts a platform JWT for a NON-admin user                         -> 403
+  - accepts a platform JWT for a NON-admin user                         -> 401
   - anything else                                                       -> 401
 
-The 403 (instead of 401) for ordinary accounts is deliberate: it tells the
+The NON-admin case returns 401 (not 403) with a friendly detail so it tells the
 dashboard "not available for your account yet" WITHOUT clearing the session, and
-without exposing the owner's financial/health data to another tenant. Making
-these modules truly multi-tenant is a separate project.
+without exposing the owner's financial/health data to another tenant. We must use
+401 (and NOT 403) because CloudFront is configured SPA-style to rewrite 403/404
+responses into index.html — a 403 would reach the browser as HTML and break the
+dashboard's JSON parsing, whereas 401 passes through as JSON untouched. The
+frontend only refreshes/logs-out on 401 when a refresh token exists, so this
+friendly 401 does not cause a logout. Making these modules truly multi-tenant is
+a separate project.
 """
 
 import base64
@@ -88,13 +93,15 @@ async def require_auth(request: Request) -> str:
         return "internal-service"
 
     # 2. Platform JWT (dashboard login). Only the owner (is_admin) may use the
-    #    owner-scoped agent modules; other tenants get a clean 403.
+    #    owner-scoped agent modules; other tenants get a clean 401 (NOT 403 —
+    #    CloudFront rewrites 403/404 into the SPA index.html, which would reach
+    #    the browser as HTML and break JSON parsing; 401 passes through as JSON).
     secret = getattr(settings, "secret_key", "") or os.getenv("SECRET_KEY", "")
     claims = _verify_jwt(token, secret)
     if claims is not None:
         if claims.get("is_admin"):
             return str(claims.get("sub") or "admin")
-        raise HTTPException(status_code=403, detail=_NOT_FOR_YOU)
+        raise HTTPException(status_code=401, detail=_NOT_FOR_YOU)
 
     # 3. Legacy OAuth access token -> seed admin (back-compat).
     pool = await _get_pool()
