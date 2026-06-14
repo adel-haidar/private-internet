@@ -51,8 +51,10 @@ const router = createRouter({
     { path: '/pulse',      component: () => import('../views/PulseFeed.vue'), meta: { title: 'Pulse' } },
     { path: '/signal',     component: () => import('../views/SignalPlayer.vue'), meta: { title: 'Signal' } },
     { path: '/settings',   component: () => import('../views/SettingsView.vue') },
-    // Finances IS the bank adviser (statements, investing, day-trading analysis).
-    { path: '/finances',   component: () => import('../views/BankAdviser.vue'), meta: { title: 'Finances' } },
+    // Finances — Calm-Intelligence redesign wired to the bank adviser analysis.
+    // The full BankAdviser tool (investing + day-trading) remains in views/BankAdviser.vue
+    // and can be reinstated behind an "Advanced analysis" route/collapse if desired.
+    { path: '/finances',   component: () => import('../views/FinancesView.vue'), meta: { title: 'Finances' } },
     { path: '/about',      component: () => import('../views/AboutView.vue'), meta: { public: true } },
   ],
 })

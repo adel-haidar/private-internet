@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import {
   Chart,
   LineElement, PointElement, LineController,
@@ -11,9 +11,18 @@ import {
 import PageHead from '../components/ui/PageHead.vue'
 import PiCard from '../components/ui/PiCard.vue'
 import PIIcon from '../components/ui/PIIcon.vue'
+import PiButton from '../components/ui/PiButton.vue'
+import UploadBanner from '../components/ui/UploadBanner.vue'
+import StatusPill from '../components/ui/StatusPill.vue'
+import InsightCard from '../components/ui/InsightCard.vue'
+import InsightLine from '../components/ui/InsightLine.vue'
+import DeviceCard from '../components/ui/DeviceCard.vue'
+import ConfirmModal from '../components/ui/ConfirmModal.vue'
 import HealthExportTeaser from '../components/health/HealthExportTeaser.vue'
 import HealthExportGuide from '../components/health/HealthExportGuide.vue'
 import { useHealthDaily, useHealthTrends, useAppleHealthImport } from '../composables/useHealth'
+import { requireAuth } from '../composables/useAuth'
+import { API_BASE } from '../config/env'
 import { useToast } from '../components/ui/useToast'
 
 Chart.register(
@@ -24,52 +33,40 @@ Chart.register(
 )
 
 // ── Composables ─────────────────────────────────────────────────────────────
-
-const { status: dailyStatus, result: daily, error: dailyError, fetchDaily, runDaily } = useHealthDaily()
+const { status: dailyStatus, result: daily, error: dailyError, fetchDaily } = useHealthDaily()
 const { status: trendStatus, trends, error: trendError, fetchTrends } = useHealthTrends()
 const { status: importStatus, error: importError, uploadFile } = useAppleHealthImport()
 const toast = useToast()
 
-// ── Export guide state ───────────────────────────────────────────────────────
+const today = new Date().toISOString().slice(0, 10)
+const trendDays = ref(30)
 
+// Whether the user has any analysed data yet.
+const populated = computed(() => !!(daily.value && daily.value.status !== 'not_run'))
+
+// ── Export guide ──────────────────────────────────────────────────────────────
 const guideOpen     = ref(false)
 const guidePlatform = ref<'ios' | 'android'>('ios')
-
 function openGuide(platform: 'ios' | 'android') {
   guidePlatform.value = platform
   guideOpen.value     = true
 }
 
-// ── Apple Health upload ──────────────────────────────────────────────────────
+// ── Apple Health upload ────────────────────────────────────────────────────────
+const ahInput = ref<HTMLInputElement | null>(null)
+function pickFile() { ahInput.value?.click() }
 
-const isDragging = ref(false)
-
-async function handleFileInput(e: Event) {
+async function onPickFile(e: Event) {
   const input = e.target as HTMLInputElement
   const file  = input.files?.[0]
-  if (!file) return
-  input.value = '' // reset so re-selecting the same file fires again
-  await doUpload(file)
-}
-
-function onDragOver(e: DragEvent) {
-  e.preventDefault()
-  isDragging.value = true
-}
-function onDragLeave() { isDragging.value = false }
-async function onDrop(e: DragEvent) {
-  e.preventDefault()
-  isDragging.value = false
-  const file = e.dataTransfer?.files?.[0]
-  if (!file) return
-  await doUpload(file)
+  input.value = ''
+  if (file) await doUpload(file)
 }
 
 async function doUpload(file: File) {
   try {
     const r = await uploadFile(file)
     toast(`Imported ${r.inserted} health records (${r.date_range[0]} → ${r.date_range[1]})`, 'success')
-    // Refresh charts + daily
     fetchDaily(today)
     fetchTrends(trendDays.value)
   } catch {
@@ -77,18 +74,152 @@ async function doUpload(file: File) {
   }
 }
 
-// ── Date + range controls ────────────────────────────────────────────────────
+// ── Devices ─────────────────────────────────────────────────────────────────
+const appleConnected = computed(() =>
+  (daily.value?.data_availability ?? []).some(a => a.source === 'apple_watch' && (a.available || a.last_data_date)),
+)
+const appleLastSync = computed(() =>
+  (daily.value?.data_availability ?? []).find(a => a.source === 'apple_watch')?.last_data_date ?? undefined,
+)
 
-const today = new Date().toISOString().slice(0, 10)
-const trendDays = ref(30)
+const devices = computed(() => [
+  {
+    icon: 'watch', name: 'Apple Watch', connected: appleConnected.value, lastSync: appleLastSync.value,
+    acceptHint: 'Accepts .zip export from Health app',
+    instructions: ['Open the Health app on iPhone', 'Tap your profile photo, then Export All Health Data', 'Upload the generated export.zip here'],
+    appleHealth: true,
+  },
+  {
+    icon: 'watch', name: 'Samsung Health', connected: false, acceptHint: 'Accepts .json / .zip',
+    instructions: ['Open Samsung Health', 'Settings → Download personal data', 'Upload the archive here'],
+    appleHealth: false,
+  },
+  {
+    icon: 'device', name: 'Garmin', connected: false, acceptHint: 'Accepts .fit / .zip',
+    instructions: ['Sign in to Garmin Connect on the web', 'Account → Export Your Data', 'Upload the archive here'],
+    appleHealth: false,
+  },
+  {
+    icon: 'scale', name: 'Smart Scale', connected: false, acceptHint: 'Accepts .csv',
+    instructions: ['Open your scale’s companion app', 'Export weight history as CSV', 'Upload the file here'],
+    appleHealth: false,
+  },
+])
 
-// ── Chart refs ───────────────────────────────────────────────────────────────
+async function onDeviceFiles(device: { appleHealth: boolean }, files: File[]) {
+  const file = files[0]
+  if (!file) return
+  if (device.appleHealth) {
+    await doUpload(file)
+    return
+  }
+  // Other devices: index the raw export into the brain.
+  try {
+    const token = await requireAuth()
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`${API_BASE}/api/file`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd })
+    toast(res.ok ? 'File added to your brain' : 'Upload failed', res.ok ? 'success' : 'error')
+  } catch {
+    toast('Upload failed', 'error')
+  }
+}
 
-const chartWeightRef  = ref<HTMLCanvasElement | null>(null)
-const chartHrRef      = ref<HTMLCanvasElement | null>(null)
-const chartHrvRef     = ref<HTMLCanvasElement | null>(null)
-const chartSleepRef   = ref<HTMLCanvasElement | null>(null)
-const chartStepsRef   = ref<HTMLCanvasElement | null>(null)
+// ── Formatting ────────────────────────────────────────────────────────────────
+function fmtKg(v: number | null | undefined): string { return v != null ? `${v.toFixed(1)} kg` : '—' }
+function fmtBpm(v: number | null | undefined): string { return v != null ? `${v.toFixed(0)} bpm` : '—' }
+function fmtSteps(v: number | null | undefined): string { return v != null ? v.toLocaleString() : '—' }
+function fmtSleep(v: number | null | undefined): string {
+  if (v == null) return '—'
+  const h = Math.floor(v / 60)
+  const m = Math.round(v % 60)
+  return m > 0 ? `${h}h ${m}m` : `${h}h`
+}
+
+const statRow = computed(() => {
+  const s = daily.value?.summary
+  return [
+    { label: 'Steps today',         value: fmtSteps(s?.steps) },
+    { label: 'Resting heart rate',  value: fmtBpm(s?.resting_hr) },
+    { label: 'Sleep',               value: fmtSleep(s?.sleep_duration_min) },
+    { label: 'Weight',              value: fmtKg(s?.weight_kg) },
+  ]
+})
+
+// ── "Your body at a glance" ─────────────────────────────────────────────────
+const trend = computed(() => daily.value?.summary.weight_trend_kg_per_week ?? null)
+const flags = computed(() => daily.value?.flags ?? [])
+
+const glanceStatus = computed<{ kind: 'good' | 'watch' | 'attention'; text: string }>(() => {
+  if (flags.value.includes('goal_reached')) return { kind: 'good', text: 'Goal reached' }
+  if (flags.value.includes('weight_loss_too_fast')) return { kind: 'attention', text: 'Losing too fast' }
+  if (trend.value != null && trend.value < 0) return { kind: 'good', text: 'On track' }
+  return { kind: 'watch', text: 'Steady' }
+})
+
+function fmtTrend(v: number | null): string {
+  if (v == null) return '—'
+  const sign = v > 0 ? '+' : ''
+  return `${sign}${v.toFixed(1)} kg/wk`
+}
+const trendIcon  = computed(() => (trend.value != null && trend.value < 0 ? 'down' : 'arrowRight'))
+const trendColor = computed(() => {
+  if (trend.value == null) return 'var(--text-secondary)'
+  if (trend.value < 0) return 'var(--success)'
+  if (trend.value > 0) return 'var(--warning)'
+  return 'var(--text-secondary)'
+})
+
+// ── "What your numbers mean" — derived from flags ────────────────────────────
+const showNumbers = ref(false)
+
+interface Line { kind: 'good' | 'watch' | 'attention' | 'info'; label: string; text: string; raw?: string }
+const numberLines = computed<Line[]>(() => {
+  const s = daily.value?.summary
+  const out: Line[] = []
+  for (const f of flags.value) {
+    switch (f) {
+      case 'low_hrv_3_days':
+        out.push({ kind: 'watch', label: 'Watch', text: 'Your heart-rate variability has been low for several days, which can signal fatigue or stress. Lighter training and earlier nights help.', raw: s?.hrv_ms != null ? `HRV ${s.hrv_ms} ms` : undefined })
+        break
+      case 'sleep_below_target':
+        out.push({ kind: 'watch', label: 'Watch', text: "You've been sleeping below your target. Recovery happens during sleep — aim for an earlier, more consistent bedtime.", raw: s?.sleep_duration_min != null ? `Sleep ${fmtSleep(s.sleep_duration_min)}` : undefined })
+        break
+      case 'resting_hr_elevated':
+        out.push({ kind: 'watch', label: 'Watch', text: 'Your resting heart rate is higher than usual, which often follows poor sleep or added stress.', raw: s?.resting_hr != null ? `Resting HR ${s.resting_hr.toFixed(0)} bpm` : undefined })
+        break
+      case 'weight_loss_too_fast':
+        out.push({ kind: 'attention', label: 'Attention', text: "You're losing weight quite fast. Rapid loss is hard to sustain and can cost muscle — consider easing the deficit.", raw: `Trend ${fmtTrend(trend.value)}` })
+        break
+      case 'weight_plateau':
+        out.push({ kind: 'info', label: 'Steady', text: "Your weight has been steady recently. If you're aiming to change it, small consistent adjustments work best.", raw: s?.weight_kg != null ? `Weight ${fmtKg(s.weight_kg)}` : undefined })
+        break
+      case 'goal_reached':
+        out.push({ kind: 'good', label: 'Healthy', text: "You've reached your weight goal. The focus now shifts to maintaining it.", raw: s?.weight_kg != null ? `Weight ${fmtKg(s.weight_kg)}` : undefined })
+        break
+      default:
+        out.push({ kind: 'info', label: 'Note', text: f.replace(/_/g, ' ') })
+    }
+  }
+  if (out.length === 0) {
+    out.push({ kind: 'good', label: 'Healthy', text: 'Your recent metrics are within a healthy range. Keep up your current habits.' })
+  }
+  return out
+})
+
+// ── "What your data suggests" ────────────────────────────────────────────────
+const dataSuggests = computed(() =>
+  daily.value?.analysis || daily.value?.coach_insight || daily.value?.reasoning || '',
+)
+
+// ── Detailed charts (collapsed) ──────────────────────────────────────────────
+const chartsOpen = ref(false)
+
+const chartWeightRef = ref<HTMLCanvasElement | null>(null)
+const chartHrRef     = ref<HTMLCanvasElement | null>(null)
+const chartHrvRef    = ref<HTMLCanvasElement | null>(null)
+const chartSleepRef  = ref<HTMLCanvasElement | null>(null)
+const chartStepsRef  = ref<HTMLCanvasElement | null>(null)
 
 let chartWeight: Chart | null = null
 let chartHr:     Chart | null = null
@@ -96,12 +227,9 @@ let chartHrv:    Chart | null = null
 let chartSleep:  Chart | null = null
 let chartSteps:  Chart | null = null
 
-// ── Theme helpers ─────────────────────────────────────────────────────────────
-
 function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
-
 function tooltipDefaults() {
   return {
     backgroundColor: cssVar('--background-raised'),
@@ -113,7 +241,6 @@ function tooltipDefaults() {
     bodyFont:        { family: cssVar('--font-mono'), size: 11 },
   }
 }
-
 function makeScales(yLabel?: string) {
   const border = cssVar('--border-subtle')
   const text2  = cssVar('--text-secondary')
@@ -131,14 +258,7 @@ function makeScales(yLabel?: string) {
     },
   }
 }
-
-const BASE_OPTS = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: { legend: { display: false } },
-}
-
-// ── Chart build/destroy ──────────────────────────────────────────────────────
+const BASE_OPTS = { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
 
 function destroyCharts() {
   chartWeight?.destroy(); chartWeight = null
@@ -152,929 +272,311 @@ function buildCharts() {
   destroyCharts()
   if (!trends.value) return
 
-  const series = trends.value.series
-  const accent  = '#4A7FA5'
-  const gold    = '#C4A455'
-  const success = '#3A7A5A'
-
-  // ── Weight chart ───────────────────────────────────────────────────────────
+  const series  = trends.value.series
+  const accent  = cssVar('--accent-primary') || '#5B5BD6'
+  const amber   = cssVar('--brain-amber') || '#E8A444'
+  const success = cssVar('--success') || '#2D7A4F'
+  const danger  = cssVar('--danger') || '#C0392B'
 
   if (chartWeightRef.value) {
     const wData = series['weight_kg'] ?? []
-    const labels = wData.map(p => p.date.slice(5))  // MM-DD
+    const labels = wData.map(p => p.date.slice(5))
     const weights = wData.map(p => p.value)
-
-    // Compute 7-day rolling average
     const avg7: (number | null)[] = weights.map((_, i) => {
       if (i < 6) return null
       const slice = weights.slice(i - 6, i + 1)
       return slice.reduce((s, v) => s + v, 0) / slice.length
     })
-
     const goalLine = labels.map(() => 73)
-
     const cfg: ChartConfiguration<'line'> = {
       type: 'line',
       data: {
         labels,
         datasets: [
-          {
-            label: 'Weight',
-            data: weights,
-            borderColor: accent,
-            borderWidth: 1.5,
-            pointRadius: 2,
-            pointBackgroundColor: accent,
-            fill: false,
-            tension: 0.3,
-            spanGaps: true,
-          },
-          {
-            label: '7-day avg',
-            data: avg7,
-            borderColor: gold,
-            borderWidth: 2,
-            pointRadius: 0,
-            fill: false,
-            tension: 0.4,
-            spanGaps: true,
-          },
-          {
-            label: 'Goal 73kg',
-            data: goalLine,
-            borderColor: success,
-            borderDash: [4, 4],
-            borderWidth: 1.5,
-            pointRadius: 0,
-            fill: false,
-          },
+          { label: 'Weight', data: weights, borderColor: accent, borderWidth: 1.5, pointRadius: 2, pointBackgroundColor: accent, fill: false, tension: 0.3, spanGaps: true },
+          { label: '7-day avg', data: avg7, borderColor: amber, borderWidth: 2, pointRadius: 0, fill: false, tension: 0.4, spanGaps: true },
+          { label: 'Goal 73kg', data: goalLine, borderColor: success, borderDash: [4, 4], borderWidth: 1.5, pointRadius: 0, fill: false },
         ],
       },
       options: {
         ...BASE_OPTS,
         scales: makeScales('kg'),
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            ...tooltipDefaults(),
-            callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${typeof ctx.parsed.y === 'number' ? ctx.parsed.y.toFixed(1) : '—'} kg` },
-          },
-        },
+        plugins: { legend: { display: false }, tooltip: { ...tooltipDefaults(), callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${typeof ctx.parsed.y === 'number' ? ctx.parsed.y.toFixed(1) : '—'} kg` } } },
       },
     }
     chartWeight = new Chart(chartWeightRef.value, cfg)
   }
 
-  // ── Resting HR chart ──────────────────────────────────────────────────────
-
   if (chartHrRef.value) {
     const hrData = (series['resting_hr'] ?? []).slice(-14)
-    const labels  = hrData.map(p => p.date.slice(5))
-    const values  = hrData.map(p => p.value)
     const cfg: ChartConfiguration<'line'> = {
       type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          data: values,
-          borderColor: '#C4A455',
-          borderWidth: 2,
-          pointRadius: 2,
-          pointBackgroundColor: '#C4A455',
-          fill: { target: 'origin', above: 'rgba(196,164,85,0.07)' },
-          tension: 0.35,
-          spanGaps: true,
-        }],
-      },
-      options: {
-        ...BASE_OPTS,
-        scales: makeScales('bpm'),
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            ...tooltipDefaults(),
-            callbacks: { label: (ctx) => ` ${ctx.parsed.y} bpm` },
-          },
-        },
-      },
+      data: { labels: hrData.map(p => p.date.slice(5)), datasets: [{ data: hrData.map(p => p.value), borderColor: amber, borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.35, spanGaps: true }] },
+      options: { ...BASE_OPTS, scales: makeScales('bpm'), plugins: { legend: { display: false }, tooltip: { ...tooltipDefaults(), callbacks: { label: (ctx) => ` ${ctx.parsed.y} bpm` } } } },
     }
     chartHr = new Chart(chartHrRef.value, cfg)
   }
 
-  // ── HRV chart ─────────────────────────────────────────────────────────────
-
   if (chartHrvRef.value) {
     const hrvData = (series['hrv_ms'] ?? []).slice(-14)
-    const labels  = hrvData.map(p => p.date.slice(5))
-    const values  = hrvData.map(p => p.value)
     const cfg: ChartConfiguration<'line'> = {
       type: 'line',
-      data: {
-        labels,
-        datasets: [{
-          data: values,
-          borderColor: '#3A7A5A',
-          borderWidth: 2,
-          pointRadius: 2,
-          pointBackgroundColor: '#3A7A5A',
-          fill: { target: 'origin', above: 'rgba(58,122,90,0.08)' },
-          tension: 0.35,
-          spanGaps: true,
-        }],
-      },
-      options: {
-        ...BASE_OPTS,
-        scales: makeScales('ms'),
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            ...tooltipDefaults(),
-            callbacks: { label: (ctx) => ` ${ctx.parsed.y} ms` },
-          },
-        },
-      },
+      data: { labels: hrvData.map(p => p.date.slice(5)), datasets: [{ data: hrvData.map(p => p.value), borderColor: success, borderWidth: 1.5, pointRadius: 0, fill: false, tension: 0.35, spanGaps: true }] },
+      options: { ...BASE_OPTS, scales: makeScales('ms'), plugins: { legend: { display: false }, tooltip: { ...tooltipDefaults(), callbacks: { label: (ctx) => ` ${ctx.parsed.y} ms` } } } },
     }
     chartHrv = new Chart(chartHrvRef.value, cfg)
   }
 
-  // ── Sleep chart (bar vs 8h target) ────────────────────────────────────────
-
   if (chartSleepRef.value) {
     const sleepData = (series['sleep_duration_min'] ?? []).slice(-7)
-    const labels    = sleepData.map(p => p.date.slice(5))
     const values    = sleepData.map(p => +(p.value / 60).toFixed(2))
-    const colors    = values.map(v => v >= 7 ? 'rgba(58,122,90,0.75)' : 'rgba(122,58,58,0.75)')
-    const target    = labels.map(() => 8)
-
+    const colors    = values.map(v => v >= 7 ? success : danger)
     const cfg: ChartConfiguration = {
       type: 'bar',
       data: {
-        labels,
+        labels: sleepData.map(p => p.date.slice(5)),
         datasets: [
-          {
-            label: 'Sleep (h)',
-            data: values,
-            backgroundColor: colors,
-            borderWidth: 0,
-          } as any,
-          {
-            label: 'Target',
-            data: target,
-            type: 'line',
-            borderColor: gold,
-            borderDash: [4, 4],
-            borderWidth: 1.5,
-            pointRadius: 0,
-            fill: false,
-          } as any,
+          { label: 'Sleep (h)', data: values, backgroundColor: colors, borderWidth: 0 } as any,
+          { label: 'Target', data: values.map(() => 8), type: 'line', borderColor: amber, borderDash: [4, 4], borderWidth: 1.5, pointRadius: 0, fill: false } as any,
         ],
       },
-      options: {
-        ...BASE_OPTS,
-        scales: { ...makeScales('h'), y: { ...makeScales('h').y, min: 0, max: 10 } },
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            ...tooltipDefaults(),
-            callbacks: { label: (ctx: any) => ` ${ctx.parsed.y} h` },
-          },
-        },
-      },
+      options: { ...BASE_OPTS, scales: { ...makeScales('h'), y: { ...makeScales('h').y, min: 0, max: 10 } }, plugins: { legend: { display: false }, tooltip: { ...tooltipDefaults(), callbacks: { label: (ctx: any) => ` ${ctx.parsed.y} h` } } } },
     }
     chartSleep = new Chart(chartSleepRef.value, cfg)
   }
 
-  // ── Steps chart ───────────────────────────────────────────────────────────
-
   if (chartStepsRef.value) {
     const stepsData = (series['steps'] ?? []).slice(-7)
-    const labels    = stepsData.map(p => p.date.slice(5))
-    const values    = stepsData.map(p => p.value)
     const cfg: ChartConfiguration<'bar'> = {
       type: 'bar',
-      data: {
-        labels,
-        datasets: [{
-          label: 'Steps',
-          data: values,
-          backgroundColor: 'rgba(74,127,165,0.65)',
-          borderWidth: 0,
-        }],
-      },
-      options: {
-        ...BASE_OPTS,
-        scales: makeScales('steps'),
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            ...tooltipDefaults(),
-            callbacks: { label: (ctx) => ` ${ctx.parsed.y?.toLocaleString() ?? 0} steps` },
-          },
-        },
-      },
+      data: { labels: stepsData.map(p => p.date.slice(5)), datasets: [{ label: 'Steps', data: stepsData.map(p => p.value), backgroundColor: accent, borderWidth: 0 }] },
+      options: { ...BASE_OPTS, scales: makeScales('steps'), plugins: { legend: { display: false }, tooltip: { ...tooltipDefaults(), callbacks: { label: (ctx) => ` ${ctx.parsed.y?.toLocaleString() ?? 0} steps` } } } },
     }
     chartSteps = new Chart(chartStepsRef.value, cfg)
   }
 }
 
-watch(trends, () => nextTick(() => buildCharts()))
-
+function refreshChartsIfOpen() {
+  if (chartsOpen.value) nextTick(() => buildCharts())
+}
+watch(chartsOpen, (open) => { if (open) nextTick(() => buildCharts()); else destroyCharts() })
+watch(trends, refreshChartsIfOpen)
+watch(trendDays, (d) => fetchTrends(d))
 onBeforeUnmount(destroyCharts)
 
-// ── Flag display ─────────────────────────────────────────────────────────────
-
-const FLAG_LABELS: Record<string, { label: string; cls: string }> = {
-  low_hrv_3_days:        { label: 'LOW HRV — 3 DAYS',       cls: 'flag--warning' },
-  sleep_below_target:    { label: 'SLEEP DEFICIT',           cls: 'flag--warning' },
-  weight_plateau:        { label: 'WEIGHT PLATEAU',          cls: 'flag--info' },
-  weight_loss_too_fast:  { label: 'LOSS TOO FAST',           cls: 'flag--danger' },
-  resting_hr_elevated:   { label: 'HR ELEVATED',             cls: 'flag--warning' },
-  goal_reached:          { label: 'GOAL REACHED',            cls: 'flag--success' },
+// ── Delete all health data ───────────────────────────────────────────────────
+const confirmDel = ref(false)
+async function deleteAll() {
+  confirmDel.value = false
+  // NOTE: backend DELETE endpoint for health data is not implemented yet.
+  try {
+    const token = await requireAuth()
+    const res = await fetch(`${API_BASE}/api/health/data`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    if (res.ok) {
+      toast('Health data deleted', 'warning')
+      fetchDaily(today)
+      fetchTrends(trendDays.value)
+    } else {
+      toast('Deleting health data isn’t available yet.', 'error')
+    }
+  } catch {
+    toast('Deleting health data isn’t available yet.', 'error')
+  }
 }
 
-function flagMeta(f: string) {
-  return FLAG_LABELS[f] ?? { label: f.toUpperCase().replace(/_/g, ' '), cls: 'flag--info' }
-}
-
-// ── Data availability display ────────────────────────────────────────────────
-
-const SOURCE_LABELS: Record<string, string> = {
-  beurer_scale: 'SCALE',
-  apple_watch:  'APPLE WATCH',
-}
-
-function sourceLabel(s: string): string {
-  return SOURCE_LABELS[s] ?? s.toUpperCase().replace(/_/g, ' ')
-}
-
-// ── Formatting ────────────────────────────────────────────────────────────────
-
-function fmtKg(v: number | null): string {
-  return v !== null ? `${v.toFixed(1)} kg` : '—'
-}
-function fmtBpm(v: number | null): string {
-  return v !== null ? `${v.toFixed(0)} bpm` : '—'
-}
-function fmtHours(v: number | null): string {
-  if (v === null) return '—'
-  const h = Math.floor(v / 60)
-  const m = Math.round(v % 60)
-  return m > 0 ? `${h}h ${m}m` : `${h}h`
-}
-function fmtSteps(v: number | null): string {
-  return v !== null ? v.toLocaleString() : '—'
-}
-function fmtTrend(v: number | null): string {
-  if (v === null) return '—'
-  const sign = v > 0 ? '+' : ''
-  return `${sign}${v.toFixed(2)} kg/wk`
-}
-function trendClass(v: number | null): string {
-  if (v === null) return 'kpi-value--neutral'
-  if (v < -1.2) return 'kpi-value--negative'
-  if (v < 0)    return 'kpi-value--positive'
-  return 'kpi-value--negative'
-}
-
-// ── Load on mount ─────────────────────────────────────────────────────────────
-
+// ── Load ─────────────────────────────────────────────────────────────────────
 onMounted(() => {
   fetchDaily(today)
   fetchTrends(trendDays.value)
 })
-
-watch(trendDays, (d) => fetchTrends(d))
 </script>
 
 <template>
-  <div class="page">
+  <div style="max-width: var(--content-dashboard); margin: 0 auto;">
+    <PageHead
+      title="Health"
+      desc="Upload your health data and your brain turns it into a plain-language summary. Everything stays on your server."
+    />
 
-    <!-- ── Header ──────────────────────────────────────────────────────── -->
-    <div class="page-top-row">
-      <PageHead title="Health" :desc="`Daily coaching, biometrics, and trend analysis — ${today}`" />
-      <div class="header-actions">
-        <button
-          class="btn btn--ghost"
-          :disabled="dailyStatus === 'loading'"
-          @click="fetchDaily(today)"
-        >Fetch</button>
-        <button
-          class="btn btn--primary"
-          :disabled="dailyStatus === 'loading'"
-          @click="runDaily(today)"
-        >Run today</button>
-      </div>
+    <input ref="ahInput" type="file" accept=".zip,.xml" hidden @change="onPickFile" />
+
+    <!-- Loading / error -->
+    <PiCard v-if="dailyStatus === 'loading'" style="margin-bottom: var(--space-6);">
+      <div class="pi-progress pi-progress--thin"><div class="pi-progress__track"><div class="pi-progress__fill" style="width: 40%;" /></div></div>
+      <p class="t-secondary" style="font-size: var(--text-sm); margin-top: var(--space-3);">Running health workflow… fetching metrics, computing trends, generating insight.</p>
+    </PiCard>
+    <PiCard v-if="dailyStatus === 'error' && dailyError" style="border-color: var(--danger); margin-bottom: var(--space-6);">
+      <span style="color: var(--danger); font-size: var(--text-sm);">{{ dailyError }}</span>
+    </PiCard>
+
+    <!-- Empty / first-run upload banner -->
+    <div v-if="!populated && dailyStatus !== 'loading'" style="margin-bottom: var(--space-6);">
+      <UploadBanner
+        tone="amber"
+        icon="health"
+        title="Get your health analysis"
+        intro="Upload any of the following and your brain will generate a plain-language summary of your health — no medical background needed to understand it."
+        :items="[
+          'Blood test results (PDF or image)',
+          'Doctor reports or prescriptions',
+          'Apple Health / Samsung Health exports (.zip or .xml)',
+          'Wearable data from Garmin, Fitbit, or similar',
+          'Scale exports or manual weight logs',
+        ]"
+        note="Your data stays on your server. You can delete everything from Brain → Manage data at any time."
+      >
+        <template #actions>
+          <PiButton variant="cta" icon="upload" :loading="importStatus === 'uploading'" @click="pickFile">Upload health files</PiButton>
+          <PiButton variant="secondary" @click="openGuide('ios')">Connect a device</PiButton>
+        </template>
+      </UploadBanner>
     </div>
 
-    <div class="body">
+    <!-- Devices -->
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-4);">
+      <div style="font-family: var(--font-display); font-weight: 600; font-size: var(--text-md);">Devices</div>
+      <PiButton variant="ghost" size="compact" @click="openGuide('ios')">How to export from Apple Health</PiButton>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-8);">
+      <DeviceCard
+        v-for="d in devices"
+        :key="d.name"
+        :icon="d.icon"
+        :name="d.name"
+        :connected="d.connected"
+        :lastSync="d.lastSync"
+        :instructions="d.instructions"
+        :acceptHint="d.acceptHint"
+        @files="onDeviceFiles(d, $event)"
+      />
+    </div>
 
-      <!-- ── Loading / error ─────────────────────────────────────────── -->
-      <div v-if="dailyStatus === 'loading'" class="state-card state-card--loading">
-        <div class="progress-track"><div class="progress-fill" /></div>
-        <p class="state-hint">Running health workflow… fetching metrics, computing trends, generating insight.</p>
+    <!-- Populated -->
+    <template v-if="populated">
+      <!-- Metric stat row -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-6);">
+        <PiCard v-for="stat in statRow" :key="stat.label">
+          <div style="font-family: var(--font-display); font-weight: 600; font-size: 24px; letter-spacing: -0.01em;">{{ stat.value }}</div>
+          <div class="t-secondary" style="font-size: 12px;">{{ stat.label }}</div>
+        </PiCard>
       </div>
 
-      <div v-if="dailyStatus === 'error' && dailyError" class="state-card state-card--error">
-        {{ dailyError }}
-      </div>
-
-      <!-- ── 0. No run stored for this date ───────────────────────────── -->
-      <div v-if="daily && daily.status === 'not_run'" class="state-card state-card--notice">
-        <div class="insight-label">// NO ANALYSIS STORED — {{ daily.date }}</div>
-        <p class="notice-text">{{ daily.reasoning }}</p>
-        <p class="state-hint">Press RUN TODAY to generate one.</p>
-      </div>
-
-      <!-- ── 1. Coach insight card ────────────────────────────────────── -->
-      <template v-if="daily && daily.status !== 'not_run'">
-        <div class="insight-card">
-          <div class="insight-label">// DAILY COACHING NOTE — {{ daily.date }}</div>
-          <p class="insight-text">{{ daily.coach_insight }}</p>
-        </div>
-
-        <!-- ── 1b. Device data availability ──────────────────────────── -->
-        <div
-          v-if="(daily.data_availability ?? []).some(a => !a.available)"
-          class="availability-row"
-        >
-          <div
-            v-for="a in (daily.data_availability ?? []).filter(a => !a.available)"
-            :key="a.source"
-            class="availability-card"
-          >
-            <span class="availability-source">{{ sourceLabel(a.source) }}</span>
-            <span class="availability-text">
-              no data for {{ daily.date }}
-              <template v-if="a.last_data_date"> · last: {{ a.last_data_date }}</template>
-              <template v-if="a.next_expected_date"> · expected: <strong>{{ a.next_expected_date }}</strong></template>
-              <template v-if="!a.last_data_date"> · no data ingested yet</template>
-            </span>
-          </div>
-        </div>
-
-        <!-- ── 2. Active flags ───────────────────────────────────────── -->
-        <div v-if="daily.flags.length > 0" class="flags-row">
-          <span
-            v-for="f in daily.flags"
-            :key="f"
-            class="flag-badge"
-            :class="flagMeta(f).cls"
-          >{{ flagMeta(f).label }}</span>
-        </div>
-
-        <!-- ── 3. KPI row ────────────────────────────────────────────── -->
-        <div class="kpi-row">
-          <div class="kpi-card">
-            <div class="kpi-label">CURRENT WEIGHT</div>
-            <div class="kpi-value kpi-value--neutral">{{ fmtKg(daily.summary.weight_kg) }}</div>
-            <div class="kpi-sublabel">7-day avg: {{ fmtKg(daily.summary.weight_7day_avg) }}</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">TO GOAL (73 KG)</div>
-            <div
-              class="kpi-value"
-              :class="(daily.summary.progress_to_goal_kg ?? 1) <= 0 ? 'kpi-value--positive' : 'kpi-value--neutral'"
-            >{{ fmtKg(daily.summary.progress_to_goal_kg) }}</div>
-            <div v-if="daily.summary.weeks_to_goal_at_current_rate" class="kpi-sublabel">
-              ~{{ daily.summary.weeks_to_goal_at_current_rate }} weeks at current rate
+      <!-- Plain-language insight cards -->
+      <div class="pi-insight-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin-bottom: var(--space-4);">
+        <InsightCard title="Your body at a glance">
+          <template #status><StatusPill :kind="glanceStatus.kind">{{ glanceStatus.text }}</StatusPill></template>
+          <p class="pi-insight__lead" style="margin-bottom: var(--space-4);">
+            {{ daily?.coach_insight }}
+          </p>
+          <div style="display: flex; gap: var(--space-8); flex-wrap: wrap;">
+            <div>
+              <div class="t-secondary" style="font-size: var(--text-sm); margin-bottom: 4px;">Weight trend</div>
+              <div :style="{ display: 'flex', alignItems: 'center', gap: '6px', color: trendColor, fontFamily: 'var(--font-display)', fontWeight: 600, fontSize: 'var(--text-md)' }">
+                <PIIcon :name="trendIcon" :size="16" /><span class="t-mono">{{ fmtTrend(trend) }}</span>
+              </div>
+            </div>
+            <div v-if="daily?.summary.progress_to_goal_kg != null">
+              <div class="t-secondary" style="font-size: var(--text-sm); margin-bottom: 4px;">To goal (73 kg)</div>
+              <StatusPill :kind="(daily?.summary.progress_to_goal_kg ?? 1) <= 0 ? 'good' : 'watch'">{{ fmtKg(daily?.summary.progress_to_goal_kg) }}</StatusPill>
             </div>
           </div>
-          <div class="kpi-card">
-            <div class="kpi-label">WEEKLY TREND</div>
-            <div class="kpi-value" :class="trendClass(daily.summary.weight_trend_kg_per_week)">
-              {{ fmtTrend(daily.summary.weight_trend_kg_per_week) }}
-            </div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">RESTING HR</div>
-            <div class="kpi-value kpi-value--neutral">{{ fmtBpm(daily.summary.resting_hr) }}</div>
-            <div class="kpi-sublabel">7-day avg: {{ fmtBpm(daily.summary.resting_hr_7day_avg) }}</div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">HRV</div>
-            <div class="kpi-value kpi-value--neutral">
-              {{ daily.summary.hrv_ms !== null ? `${daily.summary.hrv_ms} ms` : '—' }}
-            </div>
-          </div>
-          <div class="kpi-card">
-            <div class="kpi-label">SLEEP LAST NIGHT</div>
-            <div
-              class="kpi-value"
-              :class="(daily.summary.sleep_duration_min ?? 999) >= 420 ? 'kpi-value--positive' : 'kpi-value--negative'"
-            >{{ fmtHours(daily.summary.sleep_duration_min) }}</div>
-            <div class="kpi-sublabel">Steps: {{ fmtSteps(daily.summary.steps) }}</div>
-          </div>
-        </div>
+        </InsightCard>
 
-        <!-- ── 4. Analysis (from medical records + metrics) ──────────── -->
-        <div v-if="daily.analysis" class="analysis-card">
-          <div class="insight-label">// ANALYSIS — BASED ON MEDICAL RECORDS + DEVICE DATA</div>
-          <p class="insight-text">{{ daily.analysis }}</p>
-        </div>
-
-        <!-- ── 5. Reasoning ──────────────────────────────────────────── -->
-        <div v-if="daily.reasoning" class="reasoning-block">
-          <div class="insight-label">// REASONING — WHY THIS ANALYSIS</div>
-          <p class="reasoning-text">{{ daily.reasoning }}</p>
-        </div>
-
-        <!-- ── 6. Documents consulted ────────────────────────────────── -->
-        <div v-if="(daily.documents ?? []).length > 0" class="documents-block">
-          <div class="insight-label">// DOCUMENTS FETCHED FROM MEMORY ({{ (daily.documents ?? []).length }})</div>
-          <ul class="documents-list">
-            <li v-for="d in daily.documents" :key="d" class="document-item">{{ d }}</li>
-          </ul>
-        </div>
-        <div v-else class="documents-block">
-          <div class="insight-label">// DOCUMENTS FETCHED FROM MEMORY (0)</div>
-          <p class="reasoning-text">No medical records found in the memory server.</p>
-        </div>
-      </template>
-
-      <!-- ── Chart range selector ──────────────────────────────────────── -->
-      <div class="section-block">
-        <div class="section-label">
-          TREND CHARTS
-          <span class="range-pills">
-            <button
-              v-for="d in [30, 90]"
-              :key="d"
-              class="pill"
-              :class="{ 'pill--active': trendDays === d }"
-              @click="trendDays = d"
-            >{{ d }}D</button>
-          </span>
-        </div>
-
-        <div v-if="trendStatus === 'error'" class="state-card state-card--error">{{ trendError }}</div>
-
-        <!-- ── 3. Weight chart ──────────────────────────────────────── -->
-        <div class="chart-block">
-          <div class="chart-title">WEIGHT — LAST {{ trendDays }} DAYS
-            <span class="chart-legend">
-              <span class="legend-dot" style="background:#4A7FA5"></span> daily
-              <span class="legend-dot" style="background:#C4A455"></span> 7-day avg
-              <span class="legend-dot" style="background:#3A7A5A"></span> goal 73 kg
-            </span>
-          </div>
-          <div class="chart-wrap chart-wrap--tall">
-            <canvas ref="chartWeightRef"></canvas>
-          </div>
-        </div>
-
-        <!-- ── 4. Recovery metrics ─────────────────────────────────── -->
-        <div class="chart-grid">
-          <div class="chart-block">
-            <div class="chart-title">RESTING HR — LAST 14 DAYS</div>
-            <div class="chart-wrap">
-              <canvas ref="chartHrRef"></canvas>
-            </div>
-          </div>
-          <div class="chart-block">
-            <div class="chart-title">HRV — LAST 14 DAYS</div>
-            <div class="chart-wrap">
-              <canvas ref="chartHrvRef"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <!-- ── 5. Sleep & activity ─────────────────────────────────── -->
-        <div class="chart-grid">
-          <div class="chart-block">
-            <div class="chart-title">SLEEP — LAST 7 DAYS
-              <span class="chart-legend">
-                <span class="legend-dot" style="background:#C4A455"></span> 8h target
-              </span>
-            </div>
-            <div class="chart-wrap">
-              <canvas ref="chartSleepRef"></canvas>
-            </div>
-          </div>
-          <div class="chart-block">
-            <div class="chart-title">STEPS — LAST 7 DAYS</div>
-            <div class="chart-wrap">
-              <canvas ref="chartStepsRef"></canvas>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      <!-- ── Upload control ──────────────────────────────────────────────── -->
-      <PiCard>
-        <div style="font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; color: var(--text-muted); margin-bottom: 16px;">
-          IMPORT APPLE HEALTH EXPORT
-        </div>
-        <div
-          class="pi-upload-zone"
-          :class="{
-            'pi-upload-zone--drag': isDragging,
-            'pi-upload-zone--busy': importStatus === 'uploading',
-          }"
-          @dragover="onDragOver"
-          @dragleave="onDragLeave"
-          @drop="onDrop"
-        >
-          <input
-            v-if="importStatus !== 'uploading'"
-            type="file"
-            accept=".zip,.xml"
-            @change="handleFileInput"
+        <InsightCard title="What your numbers mean">
+          <template #footer>
+            <button class="pi-show-numbers" @click="showNumbers = !showNumbers">{{ showNumbers ? 'Hide numbers' : 'Show numbers' }}</button>
+          </template>
+          <InsightLine
+            v-for="(line, i) in numberLines"
+            :key="i"
+            :kind="line.kind"
+            :label="line.label"
+            :text="line.text"
+            :raw="line.raw"
+            :showRaw="showNumbers"
           />
-          <div class="pi-upload-zone__icon">
-            <PIIcon name="upload" :size="24" />
-          </div>
-          <template v-if="importStatus === 'uploading'">
-            <div class="pi-upload-zone__busy-row">
-              <span class="pi-btn__spinner" aria-hidden="true" />
-              Uploading and processing — this may take a minute for large exports…
+        </InsightCard>
+      </div>
+
+      <!-- What your data suggests -->
+      <div v-if="dataSuggests" style="margin-bottom: var(--space-6);">
+        <InsightCard title="What your data suggests">
+          <p class="pi-insight__lead">{{ dataSuggests }}</p>
+        </InsightCard>
+      </div>
+
+      <!-- Detailed charts — collapsed -->
+      <PiCard style="margin-bottom: var(--space-6);">
+        <div :class="['pi-collapse', chartsOpen ? 'pi-collapse--open' : '']">
+          <button type="button" class="pi-collapse__toggle" :aria-expanded="chartsOpen" @click="chartsOpen = !chartsOpen">
+            <PIIcon name="chevronRight" :size="14" />Show detailed charts
+          </button>
+          <div v-if="chartsOpen" class="pi-collapse__body">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-4);">
+              <div style="font-family: var(--font-display); font-weight: 500;">Trends</div>
+              <div class="pi-pills">
+                <button v-for="d in [30, 90]" :key="d" :class="['pi-pill', trendDays === d ? 'pi-pill--active' : '']" @click="trendDays = d">{{ d }}D</button>
+              </div>
             </div>
-          </template>
-          <template v-else>
-            <div class="pi-upload-zone__label">Drop your export here, or click to browse</div>
-            <div class="pi-upload-zone__hint">Accepts .zip (Apple Health export) or export.xml — no need to unzip</div>
-          </template>
+            <div v-if="trendStatus === 'error'" style="color: var(--danger); font-size: var(--text-sm); margin-bottom: var(--space-4);">{{ trendError }}</div>
+
+            <div style="font-family: var(--font-display); font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-2);">Weight · last {{ trendDays }} days</div>
+            <div style="height: 240px; position: relative; margin-bottom: var(--space-6);"><canvas ref="chartWeightRef" /></div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); margin-bottom: var(--space-6);">
+              <div>
+                <div style="font-family: var(--font-display); font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-2);">Resting heart rate · last 14 days</div>
+                <div style="height: 160px; position: relative;"><canvas ref="chartHrRef" /></div>
+              </div>
+              <div>
+                <div style="font-family: var(--font-display); font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-2);">HRV · last 14 days</div>
+                <div style="height: 160px; position: relative;"><canvas ref="chartHrvRef" /></div>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5);">
+              <div>
+                <div style="font-family: var(--font-display); font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-2);">Sleep · last 7 days</div>
+                <div style="height: 160px; position: relative;"><canvas ref="chartSleepRef" /></div>
+              </div>
+              <div>
+                <div style="font-family: var(--font-display); font-weight: 500; font-size: var(--text-sm); margin-bottom: var(--space-2);">Steps · last 7 days</div>
+                <div style="height: 160px; position: relative;"><canvas ref="chartStepsRef" /></div>
+              </div>
+            </div>
+          </div>
         </div>
       </PiCard>
 
-      <!-- ── Export guide teaser ──────────────────────────────────────────── -->
-      <HealthExportTeaser @open="openGuide" />
+      <!-- Actions -->
+      <div style="display: flex; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap;">
+        <PiButton variant="ghost" icon="plus" :loading="importStatus === 'uploading'" @click="pickFile">Upload more data</PiButton>
+        <PiButton variant="danger" icon="trash" @click="confirmDel = true">Delete all health data</PiButton>
+      </div>
+    </template>
 
+    <!-- Export guide teaser (shown in empty state to guide first upload) -->
+    <div v-if="!populated && dailyStatus !== 'loading'" style="margin-top: var(--space-8);">
+      <HealthExportTeaser @open="openGuide" />
     </div>
   </div>
 
-  <!-- ── Export guide modal (teleports to body) ──────────────────────────── -->
+  <!-- Export guide modal -->
   <HealthExportGuide
     :open="guideOpen"
     :platform="guidePlatform"
     @close="guideOpen = false"
     @update:platform="guidePlatform = $event"
   />
+
+  <!-- Delete confirmation -->
+  <ConfirmModal
+    :open="confirmDel"
+    danger
+    confirmLabel="Delete all health data"
+    title="Delete all health data?"
+    body="This permanently removes every health file and the insights drawn from them. Your brain keeps everything else. This cannot be undone."
+    @close="confirmDel = false"
+    @confirm="deleteAll"
+  />
 </template>
-
-<style scoped>
-/* ── Shell ──────────────────────────────────────────────────────────────── */
-.page {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-/* ── Header ─────────────────────────────────────────────────────────────── */
-.page-top-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding-top: 4px;
-  flex-shrink: 0;
-}
-
-/* ── Body ───────────────────────────────────────────────────────────────── */
-.body {
-  padding: 28px 32px 48px;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-}
-
-/* ── Buttons ─────────────────────────────────────────────────────────────── */
-.btn {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 500;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm, 8px);
-  padding: 6px 14px;
-  cursor: pointer;
-  background: transparent;
-  color: var(--text-secondary);
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn--ghost:hover:not(:disabled) { border-color: var(--accent-primary); color: var(--text-primary); }
-.btn--primary {
-  border-color: var(--accent-primary);
-  background: var(--accent-primary);
-  color: #fff;
-}
-.btn--primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
-}
-
-/* ── State cards ─────────────────────────────────────────────────────────── */
-.state-card {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md, 12px);
-  padding: 16px 20px;
-  background: var(--background-surface);
-}
-.state-card--loading { display: flex; flex-direction: column; gap: 10px; }
-.state-card--error   { border-color: var(--danger); color: var(--danger); font-family: var(--font-mono); font-size: 11px; }
-
-.progress-track {
-  height: 2px;
-  background: var(--border-subtle);
-  overflow: hidden;
-}
-.progress-fill {
-  height: 100%;
-  width: 40%;
-  background: var(--accent-primary);
-  animation: progressSweep 1.8s ease-in-out infinite;
-}
-@keyframes progressSweep {
-  0%   { transform: translateX(-100%) scaleX(0.6); }
-  50%  { transform: translateX(100px)  scaleX(1.2); }
-  100% { transform: translateX(360%)   scaleX(0.6); }
-}
-.state-hint {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--text-muted);
-  letter-spacing: 0.08em;
-}
-
-/* ── Insight card ────────────────────────────────────────────────────────── */
-.insight-card {
-  border: 1px solid var(--accent-primary);
-  border-radius: var(--radius-md, 12px);
-  background: var(--background-surface);
-  padding: 20px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.insight-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  color: var(--text-muted);
-}
-
-.insight-text {
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.65;
-  color: var(--text-1);
-}
-
-.state-card--notice {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.notice-text {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--text-2);
-}
-
-/* ── Data availability ───────────────────────────────────────────────────── */
-.availability-row {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.availability-card {
-  border: 1px solid var(--warning);
-  border-radius: var(--radius-sm, 8px);
-  background: var(--warning-surface);
-  padding: 10px 14px;
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-
-.availability-source {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--warning);
-  border: 1px solid var(--warning);
-  border-radius: var(--radius-sm, 8px);
-  padding: 2px 6px;
-  flex: 0 0 auto;
-}
-
-.availability-text {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-2);
-  letter-spacing: 0.03em;
-}
-
-.availability-text strong { color: var(--text-1); font-weight: 500; }
-
-/* ── Analysis / reasoning / documents ────────────────────────────────────── */
-.analysis-card {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md, 12px);
-  background: var(--background-surface);
-  padding: 20px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.reasoning-block,
-.documents-block {
-  border: 1px solid var(--border-subtle);
-  border-left: 3px solid var(--accent-primary);
-  border-radius: var(--radius-sm, 8px);
-  background: var(--background-surface);
-  padding: 14px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.reasoning-text {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text-2);
-}
-
-.documents-list {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.document-item {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-2);
-  letter-spacing: 0.03em;
-}
-
-.document-item::before {
-  content: '▸ ';
-  color: var(--accent);
-}
-
-/* ── Flags ───────────────────────────────────────────────────────────────── */
-.flags-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.flag-badge {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  padding: 3px 8px;
-  border: 1px solid;
-}
-
-.flag--success { color: var(--success); border-color: var(--success); }
-.flag--warning { color: var(--warning); border-color: var(--warning); }
-.flag--danger  { color: var(--danger);  border-color: var(--danger);  }
-.flag--info    { color: var(--text-secondary); border-color: var(--border-subtle); }
-
-/* ── KPI row ─────────────────────────────────────────────────────────────── */
-.kpi-row {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
-}
-
-@media (max-width: 1100px) { .kpi-row { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 700px)  { .kpi-row { grid-template-columns: 1fr; } }
-
-.kpi-card {
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md, 12px);
-  background: var(--background-surface);
-  padding: 16px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.kpi-label {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-}
-
-.kpi-value {
-  font-family: var(--font-mono);
-  font-size: 22px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  line-height: 1;
-}
-
-.kpi-value--positive { color: var(--success); }
-.kpi-value--negative { color: var(--danger);  }
-.kpi-value--neutral  { color: var(--text-primary); }
-
-.kpi-sublabel {
-  font-family: var(--font-sans);
-  font-size: 10px;
-  color: var(--text-muted);
-}
-
-/* ── Section block ───────────────────────────────────────────────────────── */
-.section-block {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
-
-.section-label {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-secondary);
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border-subtle);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-/* ── Range pills ─────────────────────────────────────────────────────────── */
-.range-pills {
-  display: flex;
-  gap: 4px;
-}
-
-.pill {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-pill, 999px);
-  padding: 2px 10px;
-  cursor: pointer;
-  background: transparent;
-  color: var(--text-secondary);
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-.pill:hover    { border-color: var(--accent-primary); color: var(--text-primary); }
-.pill--active  { border-color: var(--accent-primary); background: var(--accent-surface); color: var(--accent-primary); }
-
-/* ── Charts ──────────────────────────────────────────────────────────────── */
-.chart-block {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.chart-title {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.chart-legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-3);
-}
-
-.legend-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
-}
-
-.chart-wrap {
-  height: 180px;
-  position: relative;
-  background: var(--background-surface);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm, 8px);
-  padding: 8px;
-}
-
-.chart-wrap--tall { height: 240px; }
-
-.chart-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-@media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
-</style>
