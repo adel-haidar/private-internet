@@ -9,7 +9,7 @@ from assistant.job import agent as job_agent
 from assistant.job.db import init_pool, list_matches, list_unknown_companies, set_status, update_company
 from assistant.job.models import RunReport
 from assistant.job.report import format_report
-from assistant.shared.auth import require_auth
+from assistant.shared.auth import require_user
 from assistant.shared.settings import Settings, get_settings
 
 logger = logging.getLogger(__name__)
@@ -26,11 +26,11 @@ class StatusUpdate(BaseModel):
 async def trigger_run(
     background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),
-    _: str = Depends(require_auth),
+    ident: dict = Depends(require_user),
 ):
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
-    background_tasks.add_task(_run_job_agent, settings)
+    background_tasks.add_task(_run_job_agent, settings, ident["token"])
     return {
         "status": "started",
         "message": "Job hunt agent running in background. Poll GET /api/jobs/report for results.",
@@ -43,7 +43,7 @@ async def get_matches(
     country: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     settings: Settings = Depends(get_settings),
-    _: str = Depends(require_auth),
+    _: dict = Depends(require_user),
 ):
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
@@ -57,7 +57,7 @@ async def update_status(
     match_id: int,
     body: StatusUpdate,
     settings: Settings = Depends(get_settings),
-    _: str = Depends(require_auth),
+    _: dict = Depends(require_user),
 ):
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
@@ -73,7 +73,7 @@ async def update_status(
 
 
 @router.get("/fix-companies")
-async def fix_companies(settings: Settings = Depends(get_settings), _: str = Depends(require_auth)):
+async def fix_companies(settings: Settings = Depends(get_settings), _: dict = Depends(require_user)):
     """One-time migration: re-fetch company names for rows with 'Explore companies' or 'Unknown'."""
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
@@ -109,7 +109,7 @@ async def fix_companies(settings: Settings = Depends(get_settings), _: str = Dep
 
 
 @router.get("/report")
-async def get_report(_: str = Depends(require_auth)):
+async def get_report(_: dict = Depends(require_user)):
     if _latest_report is None:
         raise HTTPException(
             404, "No completed run yet — call GET /api/jobs/run to start one."
@@ -117,7 +117,7 @@ async def get_report(_: str = Depends(require_auth)):
     return {"report": format_report(_latest_report), "data": _latest_report}
 
 
-async def _run_job_agent(settings: Settings) -> None:
+async def _run_job_agent(settings: Settings, token: Optional[str] = None) -> None:
     global _latest_report
 
     bedrock_client = boto3.client("bedrock-runtime", region_name=settings.aws_region)
@@ -127,12 +127,14 @@ async def _run_job_agent(settings: Settings) -> None:
     if settings.mcp_memory_url:
         from assistant.shared.memory_client import MemoryClient
 
-        token = _get_mcp_token(settings)
+        # Forward the caller's bearer token so the run summary is saved to that
+        # user's own brain. Internal/timer callers forward the INTERNAL_SECRET
+        # (→ seed admin); fall back to it if no token was supplied.
         memory_client = MemoryClient(
             bedrock_client=bedrock_client,
             model_id=settings.bedrock_model_id,
             server_url=settings.mcp_memory_url,
-            token=token,
+            token=token or _get_mcp_token(settings),
         )
 
     try:

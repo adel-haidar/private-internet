@@ -24,7 +24,7 @@ from assistant.email.auth_service import MicrosoftTokenStore, get_token_store
 from assistant.email.email_assessor import EmailAssessor
 from assistant.email.email_response_writer import EmailResponseWriter
 from assistant.email.model import EmailMessage, EmailSyncResult
-from assistant.shared.auth import require_auth
+from assistant.shared.auth import require_auth, require_user
 from assistant.shared.graph_client import GraphClient
 from assistant.shared.memory_client import MemoryClient
 from assistant.shared.onedrive_client import OneDriveClient
@@ -98,8 +98,13 @@ def get_fresh_token() -> str:
     return secret
 
 
-def _make_memory_client(settings: Settings) -> MemoryClient:
-    """Build a MemoryClient with a fresh OAuth token (raises 503 if unconfigured)."""
+def _make_memory_client(settings: Settings, token: str | None = None) -> MemoryClient:
+    """Build a MemoryClient (raises 503 if MCP_MEMORY_URL is unconfigured).
+
+    `token` is the bearer token forwarded to Service A's per-user memory API. Pass
+    the caller's own token (from `require_user`) for per-user scoping; falls back
+    to the INTERNAL_SECRET (→ seed admin) for owner-scoped / internal callers.
+    """
     if not settings.mcp_memory_url:
         raise HTTPException(
             status_code=503,
@@ -109,7 +114,7 @@ def _make_memory_client(settings: Settings) -> MemoryClient:
         bedrock_client=_get_bedrock_client(settings.aws_region),
         model_id=settings.bedrock_model_id,
         server_url=settings.mcp_memory_url,
-        token=get_fresh_token(),
+        token=token or get_fresh_token(),
     )
 
 
@@ -264,7 +269,7 @@ def sync_email(token_store: TokenStoreDep, settings: SettingsDep, _: str = Depen
 
 
 @app.post("/api/banking/analyse", response_model=BankAdviserResult)
-async def analyse_bank_statement(req: AnalyseRequest, settings: SettingsDep, _: str = Depends(require_auth)):
+async def analyse_bank_statement(req: AnalyseRequest, settings: SettingsDep, ident: dict = Depends(require_user)):
     """Run a multi-month financial analysis using bank statements from MCP memory.
 
     Accepts an explicit period (ytd / single / range), searches MCP once per month
@@ -287,12 +292,11 @@ async def analyse_bank_statement(req: AnalyseRequest, settings: SettingsDep, _: 
         raise HTTPException(status_code=400, detail=str(e))
 
     bedrock_client = _get_bedrock_client(settings.aws_region)
-    token = get_fresh_token()
     memory_client = MemoryClient(
         bedrock_client=bedrock_client,
         model_id=settings.bedrock_model_id,
         server_url=settings.mcp_memory_url,
-        token=token,
+        token=ident["token"],
     )
 
     all_statements: list[str] = []
@@ -369,13 +373,13 @@ async def analyse_bank_statement(req: AnalyseRequest, settings: SettingsDep, _: 
 
 
 @app.get("/api/banking/analysis/latest")
-async def latest_bank_analysis(settings: SettingsDep, _: str = Depends(require_auth)):
+async def latest_bank_analysis(settings: SettingsDep, ident: dict = Depends(require_user)):
     """Return the most recently cached bank analysis from MCP memory.
 
     Lets the dashboard render the last result instantly instead of re-running
     the full fetch + LLM pipeline on every page load.
     """
-    memory_client = _make_memory_client(settings)
+    memory_client = _make_memory_client(settings, token=ident["token"])
     payload = await memory_client.fetch_latest_analysis("bank-adviser")
     if not payload:
         raise HTTPException(status_code=404, detail="No cached analysis available — run one first.")

@@ -115,3 +115,60 @@ async def require_auth(request: Request) -> str:
         return row["client_id"]
 
     raise HTTPException(status_code=401, detail="invalid or expired token")
+
+
+async def require_user(request: Request) -> dict:
+    """Authenticate ANY valid caller for the per-user (multi-tenant) modules.
+
+    Unlike `require_auth` (which owner-gates), this allows non-admin platform
+    users through — each caller's own bearer token is returned so it can be
+    forwarded verbatim to Service A's per-user memory REST API, which resolves
+    the token to the right tenant (platform JWT → that user; INTERNAL_SECRET /
+    legacy OAuth → seed admin). Used by finance (banking) and job-hunt.
+
+    Returns a dict:
+      {"token": <raw bearer token to forward>,
+       "user_id": <str | None>,   # platform user id, else None (admin paths)
+       "is_admin": <bool>,
+       "internal": <bool>}        # True only for the INTERNAL_SECRET path
+
+    Raises 401 for missing/invalid tokens (never 403 — CloudFront rewrites
+    403/404 to the SPA index.html and would break JSON parsing).
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="missing token")
+    token = auth[7:]
+
+    settings = get_settings()
+
+    # 1. Same-host callers (cron timers, sibling agents) → forward the internal
+    #    secret, which Service A resolves to the seed admin (unchanged behaviour).
+    internal_secret = getattr(settings, "internal_secret", None) or os.getenv("INTERNAL_SECRET")
+    if internal_secret and hmac.compare_digest(token, internal_secret):
+        return {"token": token, "user_id": None, "is_admin": True, "internal": True}
+
+    # 2. Platform JWT — ANY user (admin or not) is allowed; forward their JWT so
+    #    Service A scopes memory to that tenant.
+    secret = getattr(settings, "secret_key", "") or os.getenv("SECRET_KEY", "")
+    claims = _verify_jwt(token, secret)
+    if claims is not None:
+        return {
+            "token": token,
+            "user_id": str(claims.get("sub")) if claims.get("sub") is not None else None,
+            "is_admin": bool(claims.get("is_admin")),
+            "internal": False,
+        }
+
+    # 3. Legacy OAuth access token → seed admin (back-compat).
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT client_id, expires_at FROM oauth_tokens"
+            " WHERE token = $1 AND token_type = 'access'",
+            token,
+        )
+    if row and datetime.now(timezone.utc) <= row["expires_at"]:
+        return {"token": token, "user_id": None, "is_admin": True, "internal": False}
+
+    raise HTTPException(status_code=401, detail="invalid or expired token")

@@ -7,9 +7,6 @@ from datetime import datetime, timezone
 from urllib.parse import urlparse
 import httpx
 
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
-
 from assistant.email.model import EmailMessage
 from assistant.shared.base_llm_service import BaseLLMService
 
@@ -24,8 +21,10 @@ class MemoryClient(BaseLLMService):
     reply to an email, we search the memory server using the sender and subject
     as the query so the LLM has personal context about who is writing and why.
 
-    Connects over the MCP streamable-HTTP transport, which uses a single HTTP
-    endpoint (typically /mcp) for all JSON-RPC messages.
+    Talks to Service A's per-user memory REST API (/api/memory*), forwarding the
+    caller's bearer token so reads/writes are scoped to the right tenant. The
+    server_url is the MCP endpoint (…/mcp/mcp); its scheme+host is reused as the
+    REST base via `_api_base_url`.
     """
 
     def __init__(
@@ -381,6 +380,20 @@ class MemoryClient(BaseLLMService):
 
     _ANALYSIS_TITLE_PREFIX = "agent-analysis"
 
+    async def _save_text_api(self, title: str, content: str, tags: list[str]) -> None:
+        """Persist a memory via Service A's per-user REST API (POST /api/memory/text).
+
+        The bearer token is forwarded so Service A scopes the save to the caller's
+        own brain (platform JWT → that user; INTERNAL_SECRET → seed admin).
+        """
+        headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
+        async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+            resp = await client.post(
+                f"{self._api_base_url}/api/memory/text",
+                json={"title": title, "content": content, "tags": tags},
+            )
+            resp.raise_for_status()
+
     async def save_analysis(self, kind: str, payload: dict) -> None:
         """Persist an analysis result as a JSON memory.
 
@@ -390,22 +403,12 @@ class MemoryClient(BaseLLMService):
         """
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         title = f"{self._ANALYSIS_TITLE_PREFIX}:{kind} {timestamp}"
-        headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
-        async with httpx.AsyncClient(headers=headers) as http_client:
-            async with streamable_http_client(
-                url=self._server_url, http_client=http_client
-            ) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    await session.call_tool(
-                        "save",
-                        {
-                            "title": title,
-                            "tags": [self._ANALYSIS_TITLE_PREFIX, kind],
-                            "content": json.dumps(payload, ensure_ascii=False),
-                        },
-                    )
-        logger.info("Saved %s analysis to MCP memory as %r", kind, title)
+        await self._save_text_api(
+            title=title,
+            content=json.dumps(payload, ensure_ascii=False),
+            tags=[self._ANALYSIS_TITLE_PREFIX, kind],
+        )
+        logger.info("Saved %s analysis to memory as %r", kind, title)
 
     async def fetch_latest_analysis(self, kind: str) -> dict | None:
         """Fetch the most recent saved analysis of the given kind, or None."""
@@ -444,37 +447,29 @@ class MemoryClient(BaseLLMService):
             f"Run on {date}. {strong_count} strong matches, {good_count} good matches saved to DB."
             f"{top_summary}"
         )
-        headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
-        async with httpx.AsyncClient(headers=headers) as http_client:
-            async with streamable_http_client(
-                url=self._server_url, http_client=http_client
-            ) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    await session.call_tool(
-                        "save",
-                        {
-                            "title": f"Job Hunt Run — {date}",
-                            "tags": ["job-search", "run-summary", "switzerland"],
-                            "content": content,
-                        },
-                    )
-        logger.debug("Job run summary saved to MCP memory for %s", date)
+        await self._save_text_api(
+            title=f"Job Hunt Run — {date}",
+            content=content,
+            tags=["job-search", "run-summary", "switzerland"],
+        )
+        logger.debug("Job run summary saved to memory for %s", date)
 
     async def _search(self, query: str) -> str:
-        """Internal async implementation that performs the actual MCP call."""
+        """Semantic memory search via Service A's per-user REST API.
+
+        Calls GET /api/memory/search?q=… with the forwarded bearer token so the
+        results are scoped to the caller's own brain (platform JWT → that user;
+        INTERNAL_SECRET / legacy OAuth → seed admin). Concatenates the returned
+        memories' content into a single plain-text block for the LLM prompt.
+        """
         headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
-        async with httpx.AsyncClient(headers=headers) as http_client:
-            async with streamable_http_client(
-                url=self._server_url, http_client=http_client
-            ) as (read, write, _):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    result = await session.call_tool("search", {"query": query})
-                    if result.isError or not result.content:
-                        return ""
-                    return "\n".join(
-                        item.text
-                        for item in result.content
-                        if hasattr(item, "text") and item.text
-                    )
+        async with httpx.AsyncClient(headers=headers, timeout=30.0) as client:
+            resp = await client.get(
+                f"{self._api_base_url}/api/memory/search",
+                params={"q": query},
+            )
+            resp.raise_for_status()
+            items = resp.json().get("items", [])
+        return "\n".join(
+            item["content"] for item in items if item.get("content")
+        )
