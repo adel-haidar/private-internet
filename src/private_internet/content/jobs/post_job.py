@@ -47,7 +47,9 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
         cur.execute(
             """SELECT * FROM content_topics
                WHERE user_id = %s
-               ORDER BY weight DESC, last_used_at ASC NULLS FIRST
+               -- Prefer the user's real (memory-derived) topics over the generic
+               -- onboarding seed topics, so the feed reflects their actual brain.
+               ORDER BY (source = 'bootstrap') ASC, weight DESC, last_used_at ASC NULLS FIRST
                LIMIT %s""",
             (user_id, count),
         )

@@ -64,7 +64,8 @@ def _select_topic(conn, topic_id: str | None, *, user_id: str) -> dict:
                        WHERE v.topic_id = t.id
                          AND v.created_at >= now() - INTERVAL '7 days'
                    )
-                   ORDER BY t.weight DESC, t.last_used_at ASC NULLS FIRST
+                   -- Prefer real (memory-derived) topics over onboarding seed topics.
+                   ORDER BY (t.source = 'bootstrap') ASC, t.weight DESC, t.last_used_at ASC NULLS FIRST
                    LIMIT 1""",
                 (user_id,),
             )
