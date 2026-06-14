@@ -232,7 +232,7 @@ class TestRegister:
                   return_value=_Settings(require_email_verification=True)),
             patch("private_internet.users.routes.get_user_by_email", return_value=user),
         ):
-            resp = await login(LoginRequest(email="a@b.com", password=_GOOD_PW))
+            resp = await login(LoginRequest(email="a@b.com", password=_GOOD_PW), _FakeRequest(ip="10.0.0.1"))
         assert resp.status_code == 403
         assert _body(resp)["error"] == "email_not_verified"
 
@@ -243,7 +243,7 @@ class TestLogin:
     @pytest.mark.anyio
     async def test_unknown_email_404(self):
         with patch("private_internet.users.routes.get_user_by_email", return_value=None):
-            resp = await login(LoginRequest(email="nobody@example.com", password=_GOOD_PW))
+            resp = await login(LoginRequest(email="nobody@example.com", password=_GOOD_PW), _FakeRequest(ip="10.0.0.2"))
         assert resp.status_code == 404
         assert "No account found" in _body(resp)["error"]
 
@@ -251,7 +251,7 @@ class TestLogin:
     async def test_wrong_password_401(self):
         user = {"id": "u-1", "email": "a@b.com", "password_hash": hash_password(_GOOD_PW)}
         with patch("private_internet.users.routes.get_user_by_email", return_value=user):
-            resp = await login(LoginRequest(email="a@b.com", password="wrong-password!!"))
+            resp = await login(LoginRequest(email="a@b.com", password="wrong-password!!"), _FakeRequest(ip="10.0.0.3"))
         assert resp.status_code == 401
         assert _body(resp)["error"] == "Incorrect password."
 
@@ -264,10 +264,28 @@ class TestLogin:
             patch("private_internet.users.routes.touch_last_active") as mock_touch,
             patch("private_internet.users.routes.create_user_token", return_value="jwt-tok"),
         ):
-            result = await login(LoginRequest(email="A@B.com", password=_GOOD_PW))
+            result = await login(LoginRequest(email="A@B.com", password=_GOOD_PW), _FakeRequest(ip="10.0.0.4"))
         assert result["token"] == "jwt-tok"
         assert "password_hash" not in result["user"]
         mock_touch.assert_called_once_with("u-1")
+
+    @pytest.mark.anyio
+    async def test_account_locks_out_after_repeated_failures(self):
+        user = {"id": "u-9", "email": "lock@b.com", "password_hash": hash_password(_GOOD_PW)}
+        with patch("private_internet.users.routes.get_user_by_email", return_value=user):
+            for _ in range(5):
+                resp = await login(
+                    LoginRequest(email="lock@b.com", password="wrong-password!!"),
+                    _FakeRequest(ip="10.9.9.9"),
+                )
+                assert resp.status_code == 401
+            # 6th attempt is locked out — even with the *correct* password.
+            resp = await login(
+                LoginRequest(email="lock@b.com", password=_GOOD_PW),
+                _FakeRequest(ip="10.9.9.9"),
+            )
+        assert resp.status_code == 429
+        assert "Retry-After" in resp.headers
 
 
 # ── onboarding ─────────────────────────────────────────────────

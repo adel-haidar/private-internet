@@ -70,6 +70,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Private Internet API", lifespan=lifespan)
 
+
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    """Defense-in-depth response headers for every API response.
+
+    Kept conservative on purpose: no Content-Security-Policy here (it would need
+    per-route tuning for /mcp and the OAuth pages). HSTS is ignored by browsers
+    over plain HTTP, so it is safe to send unconditionally.
+    """
+    response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+    )
+    return response
+
+
 app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(user_status_router)

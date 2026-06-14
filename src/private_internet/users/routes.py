@@ -81,6 +81,28 @@ def _rate_limited(key: str, *, limit: int, window_seconds: int) -> int | None:
     return None
 
 
+def _peek_locked(key: str, *, limit: int, window_seconds: int) -> int | None:
+    """Check ``key`` WITHOUT recording a hit. Returns Retry-After seconds if the
+    bucket is already at/over ``limit``, else None. Used for failed-attempt
+    lockouts where only failures (recorded separately) should count."""
+    now = time.monotonic()
+    bucket = _RATE_BUCKETS[key]
+    cutoff = now - window_seconds
+    while bucket and bucket[0] < cutoff:
+        bucket.popleft()
+    if len(bucket) >= limit:
+        return max(int(bucket[0] + window_seconds - now) + 1, 1)
+    return None
+
+
+def _record_failure(key: str) -> None:
+    _RATE_BUCKETS[key].append(time.monotonic())
+
+
+def _clear_bucket(key: str) -> None:
+    _RATE_BUCKETS.pop(key, None)
+
+
 def _client_ip(request: Request) -> str:
     # nginx sets X-Forwarded-For; take the first hop. Fall back to the socket.
     xff = request.headers.get("X-Forwarded-For")
@@ -242,7 +264,16 @@ async def forgot_password(body: EmailRequest, request: Request):
 
 
 @router.post("/reset-password")
-async def reset_password(body: ResetPasswordRequest):
+async def reset_password(body: ResetPasswordRequest, request: Request):
+    # Throttle token submission per IP to stop reset-token brute forcing.
+    retry_after = _rate_limited(f"reset-ip:{_client_ip(request)}", limit=10, window_seconds=900)
+    if retry_after is not None:
+        return _error(
+            429,
+            "Too many attempts. Please wait a moment and try again.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
     user = get_user_by_reset_token(body.token)
     if user is None:
         return _error(400, "This reset link is invalid or has already been used.")
@@ -270,15 +301,39 @@ async def reset_password(body: ResetPasswordRequest):
 
 
 @router.post("/login")
-async def login(body: LoginRequest):
+async def login(body: LoginRequest, request: Request):
     settings = get_settings()
     email = body.email.strip().lower()
+
+    # Per-IP throttle on ALL attempts (blunts distributed/scripted guessing).
+    retry_after = _rate_limited(f"login-ip:{_client_ip(request)}", limit=10, window_seconds=300)
+    if retry_after is not None:
+        return _error(
+            429,
+            "Too many sign-in attempts. Please wait a moment and try again.",
+            headers={"Retry-After": str(retry_after)},
+        )
+
+    # Per-account lockout on FAILED attempts only (5 failures / 15 min). Peeked
+    # before verifying so a successful login is never blocked by its own check.
+    fail_key = f"login-fail:{email}"
+    locked = _peek_locked(fail_key, limit=5, window_seconds=900)
+    if locked is not None:
+        return _error(
+            429,
+            "Too many failed sign-in attempts for this account. Please wait before trying again.",
+            headers={"Retry-After": str(locked)},
+        )
+
     user = get_user_by_email(email, include_password_hash=True)
     if user is None:
+        _record_failure(fail_key)
         return _error(404, "No account found with this email.")
     if not verify_password(body.password, user.get("password_hash")):
+        _record_failure(fail_key)
         return _error(401, "Incorrect password.")
 
+    _clear_bucket(fail_key)  # successful auth resets the lockout counter
     user.pop("password_hash", None)  # never leaves this layer
 
     if settings.require_email_verification and not user.get("email_verified"):
