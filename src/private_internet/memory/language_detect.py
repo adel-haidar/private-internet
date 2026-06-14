@@ -15,7 +15,7 @@ from functools import lru_cache
 # Curated to the platform's supported locales so the detector stays small and
 # fast instead of loading all ~75 lingua models.
 _LANGUAGES = (
-    "ENGLISH", "GERMAN", "FRENCH", "SPANISH", "ARABIC", "RUSSIAN", "CHINESE", "SWEDISH",
+    "ENGLISH", "GERMAN", "FRENCH", "SPANISH", "ARABIC", "RUSSIAN", "CHINESE",
 )
 _MIN_CONFIDENCE = 0.85   # below this -> store NULL (treated as unknown)
 _MIN_CHARS = 10          # too short to detect reliably
