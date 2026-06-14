@@ -19,8 +19,9 @@ import { sv } from './locales/sv'
 import { ru } from './locales/ru'
 import { zh } from './locales/zh'
 import { ar } from './locales/ar'
+import { tlh } from './locales/tlh'
 
-export type LocaleCode = 'en' | 'de' | 'es' | 'fr' | 'sv' | 'ru' | 'zh' | 'ar'
+export type LocaleCode = 'en' | 'de' | 'es' | 'fr' | 'sv' | 'ru' | 'zh' | 'ar' | 'tlh'
 
 export interface LocaleMeta { code: LocaleCode; label: string; rtl?: boolean }
 
@@ -34,9 +35,10 @@ export const LOCALES: LocaleMeta[] = [
   { code: 'ru', label: 'Русский' },
   { code: 'zh', label: '中文' },
   { code: 'ar', label: 'العربية', rtl: true },
+  { code: 'tlh', label: 'tlhIngan Hol' },
 ]
 
-const MESSAGES: Record<LocaleCode, Record<string, unknown>> = { en, de, es, fr, sv, ru, zh, ar }
+const MESSAGES: Record<LocaleCode, Record<string, unknown>> = { en, de, es, fr, sv, ru, zh, ar, tlh }
 const RTL = new Set<LocaleCode>(['ar'])
 const STORAGE_KEY = 'pi-locale'
 
