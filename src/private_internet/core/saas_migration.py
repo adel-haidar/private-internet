@@ -35,6 +35,8 @@ _USER_COLUMNS = [
     ("stripe_customer_id", "VARCHAR(64)"),
     ("stripe_subscription_id", "VARCHAR(64)"),
     ("subscription_current_period_end", "TIMESTAMPTZ"),
+    # ── Notification preferences (JSON map of channel -> bool) ──
+    ("notification_prefs", "JSONB DEFAULT '{}'::jsonb"),
 ]
 
 # plan → (max_memories, max_posts_per_week, max_videos_per_week,

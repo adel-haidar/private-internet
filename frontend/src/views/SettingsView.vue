@@ -6,7 +6,6 @@ import Avatar from '../components/ui/Avatar.vue'
 import PiButton from '../components/ui/PiButton.vue'
 import PiInput from '../components/ui/PiInput.vue'
 import PiSelect from '../components/ui/PiSelect.vue'
-import Badge from '../components/ui/Badge.vue'
 import ModeToggle from '../components/ui/ModeToggle.vue'
 import ConfirmModal from '../components/ui/ConfirmModal.vue'
 import { useToast } from '../components/ui/useToast'
@@ -61,6 +60,20 @@ const originalName = ref('')
 const language = ref('English')
 const savingProfile = ref(false)
 
+// Avatar
+const avatarUrl = ref('')
+const avatarInput = ref<HTMLInputElement | null>(null)
+const uploadingAvatar = ref(false)
+
+// Notification preferences (persisted; delivery activates with notifications)
+const NOTIF_ITEMS = [
+  { key: 'pulse_posts', label: 'New Pulse posts' },
+  { key: 'signal_ready', label: 'Signal video ready' },
+  { key: 'health_reminders', label: 'Health sync reminders' },
+  { key: 'weekly_summary', label: 'Weekly brain summary' },
+]
+const notifPrefs = ref<Record<string, boolean>>({})
+
 async function authHeaders(): Promise<Record<string, string>> {
   const token = await requireAuth()
   return { Authorization: `Bearer ${token}` }
@@ -76,10 +89,42 @@ onMounted(async () => {
       email.value = user.email ?? ''
       displayName.value = user.display_name ?? ''
       originalName.value = displayName.value
+      avatarUrl.value = user.avatar_url ?? ''
+      notifPrefs.value = user.notification_prefs ?? {}
       language.value = LANGS.find(l => l.code === user.language_preference)?.label ?? 'English'
     }
   } catch { /* ignore */ }
 })
+
+// ── Avatar upload ───────────────────────────────────────────────────────────────
+function pickAvatar() { avatarInput.value?.click() }
+async function onAvatarFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  uploadingAvatar.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`${API_BASE}/api/auth/avatar`, { method: 'POST', headers: await authHeaders(), body: fd })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.avatar_url) { avatarUrl.value = data.avatar_url; toast('Photo updated', 'success') }
+    else toast(data.error || 'Could not upload photo', 'error')
+  } catch { toast('Could not upload photo', 'error') } finally { uploadingAvatar.value = false }
+}
+
+// ── Notification preferences ─────────────────────────────────────────────────────
+async function toggleNotif(key: string) {
+  notifPrefs.value = { ...notifPrefs.value, [key]: !notifPrefs.value[key] }
+  try {
+    await fetch(`${API_BASE}/api/auth/notifications`, {
+      method: 'PATCH',
+      headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prefs: notifPrefs.value }),
+    })
+  } catch { toast('Could not save preference', 'error') }
+}
 
 const nameDirty = computed(() => !!displayName.value.trim() && displayName.value !== originalName.value)
 
@@ -177,8 +222,9 @@ const showBilling = computed(() => billing.value?.billing_enabled)
         <!-- Profile -->
         <div v-if="section === 'Profile'" style="display: flex; flex-direction: column; gap: var(--space-5); max-width: 460px;">
           <div style="display: flex; align-items: center; gap: var(--space-4);">
-            <Avatar :name="displayName || email" :size="56" />
-            <PiButton variant="secondary" size="compact" @click="toast('Photo upload is coming soon')">Upload photo</PiButton>
+            <Avatar :name="displayName || email" :src="avatarUrl || undefined" :size="56" />
+            <input ref="avatarInput" type="file" accept="image/png,image/jpeg,image/webp" hidden @change="onAvatarFile" />
+            <PiButton variant="secondary" size="compact" :loading="uploadingAvatar" @click="pickAvatar">Upload photo</PiButton>
           </div>
 
           <div class="pi-field">
@@ -260,13 +306,24 @@ const showBilling = computed(() => billing.value?.billing_enabled)
 
         <!-- Notifications -->
         <div v-else-if="section === 'Notifications'" style="display: flex; flex-direction: column; gap: var(--space-4); max-width: 460px;">
-          <div
-            v-for="n in ['New Pulse posts', 'Signal video ready', 'Health sync reminders', 'Weekly brain summary']" :key="n"
-            style="display: flex; align-items: center; justify-content: space-between; opacity: 0.6;"
+          <label
+            v-for="n in NOTIF_ITEMS" :key="n.key"
+            style="display: flex; align-items: center; justify-content: space-between; cursor: pointer; gap: var(--space-4);"
           >
-            <span style="font-size: var(--text-base);">{{ n }}</span>
-            <Badge variant="outlined">Coming soon</Badge>
-          </div>
+            <span style="font-size: var(--text-base);">{{ n.label }}</span>
+            <button
+              type="button"
+              role="switch"
+              :aria-checked="!!notifPrefs[n.key]"
+              :class="['pi-switch', notifPrefs[n.key] ? 'pi-switch--on' : '']"
+              @click="toggleNotif(n.key)"
+            >
+              <span class="pi-switch__knob" />
+            </button>
+          </label>
+          <p class="t-tertiary" style="font-size: var(--text-xs); line-height: 1.5; margin-top: var(--space-2);">
+            Your choices are saved now. Delivery turns on when notifications are enabled for your server.
+          </p>
         </div>
 
         <!-- About -->
@@ -305,6 +362,38 @@ const showBilling = computed(() => billing.value?.billing_enabled)
 }
 .pi-set-row__title { font-family: var(--font-display); font-weight: 500; font-size: var(--text-base); color: var(--text-primary); }
 .pi-set-row__desc { font-size: var(--text-sm); color: var(--text-secondary); margin-top: 2px; }
+
+/* Toggle switch (notification preferences) */
+.pi-switch {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  background: var(--background-raised);
+  border: 1px solid var(--border-medium);
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.pi-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+  transition: transform 0.15s var(--ease), background 0.15s var(--ease);
+}
+.pi-switch--on {
+  background: var(--accent-surface);
+  border-color: var(--accent-primary);
+}
+.pi-switch--on .pi-switch__knob {
+  transform: translateX(18px);
+  background: var(--accent-primary);
+}
 
 @media (max-width: 768px) {
   .pi-settings-grid { grid-template-columns: 1fr !important; }

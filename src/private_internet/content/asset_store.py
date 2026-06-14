@@ -47,3 +47,10 @@ class AssetStore:
         """Used in Phase 4."""
         key = f"content/videos/{video_id}/thumbnail.png"
         return self._upload(key, image_bytes, "image/png")
+
+    def upload_avatar(self, image_bytes: bytes, user_id: str, content_type: str) -> str:
+        """Profile photo. Stable key per user (overwrites on re-upload); callers
+        should cache-bust with a query string since the CDN caches aggressively."""
+        ext = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}.get(content_type, "png")
+        key = f"avatars/{user_id}.{ext}"
+        return self._upload(key, image_bytes, content_type)

@@ -185,6 +185,24 @@ def set_stripe_customer_id(user_id: str, customer_id: str) -> None:
     conn.close()
 
 
+def set_notification_prefs(user_id: str, prefs: dict) -> dict | None:
+    """Merge-replace the user's notification preferences (JSONB)."""
+    import json
+    conn = _connect()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute(
+            "UPDATE users SET notification_prefs = %s::jsonb WHERE id = %s RETURNING *",
+            (json.dumps(prefs), user_id),
+        )
+        row = cur.fetchone()
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
+    return _serialize_user(row) if row else None
+
+
 def set_subscription(
     user_id: str,
     *,

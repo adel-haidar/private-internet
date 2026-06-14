@@ -17,7 +17,7 @@ import time
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Request, UploadFile
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -44,6 +44,7 @@ from private_internet.users.service import (
     get_user_by_reset_token,
     get_user_by_verification_token,
     mark_email_verified,
+    set_notification_prefs,
     set_password,
     set_reset_token,
     set_verification_token,
@@ -139,6 +140,10 @@ class ProfileRequest(BaseModel):
 
 class DeleteAccountRequest(BaseModel):
     confirm: str = ""
+
+
+class NotificationPrefsRequest(BaseModel):
+    prefs: dict[str, bool] = {}
 
 
 class EmailRequest(BaseModel):
@@ -380,6 +385,40 @@ async def update_profile(
     if not fields:
         return _error(422, "Nothing to update.")
     user = update_user(ctx.user_id, **fields)
+    if user is None:
+        return _error(404, "User not found.")
+    return {"user": user}
+
+
+@router.post("/avatar")
+async def upload_avatar(
+    file: UploadFile = File(...),
+    ctx: RequestContext = Depends(get_request_context),
+):
+    content_type = file.content_type or ""
+    if content_type not in ("image/png", "image/jpeg", "image/webp"):
+        return _error(422, "Please upload a PNG, JPEG or WebP image.")
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        return _error(413, "Image is too large (max 5 MB).")
+    try:
+        from private_internet.content.asset_store import AssetStore
+        url = AssetStore().upload_avatar(data, str(ctx.user_id), content_type)
+    except Exception as e:
+        logger.error(f"{ctx.log_prefix} avatar upload failed: {e}")
+        return _error(503, "Photo storage isn’t configured on this server.")
+    # The S3 key is stable per user, so bust the CDN cache with a timestamp.
+    busted = f"{url}?t={int(time.time())}"
+    update_user(ctx.user_id, avatar_url=busted)
+    return {"avatar_url": busted}
+
+
+@router.patch("/notifications")
+async def update_notifications(
+    body: NotificationPrefsRequest,
+    ctx: RequestContext = Depends(get_request_context),
+):
+    user = set_notification_prefs(ctx.user_id, body.prefs)
     if user is None:
         return _error(404, "User not found.")
     return {"user": user}
