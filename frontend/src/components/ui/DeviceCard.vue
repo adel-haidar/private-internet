@@ -14,10 +14,12 @@ interface Props {
   acceptHint?: string
 }
 
-const props = withDefaults(defineProps<Props>(), {
+withDefaults(defineProps<Props>(), {
   connected: false,
   instructions: () => [],
 })
+
+const emit = defineEmits<{ files: [files: File[]] }>()
 
 const open = ref(false)
 </script>
@@ -50,6 +52,6 @@ const open = ref(false)
         <li v-for="(s, i) in instructions" :key="i">{{ s }}</li>
       </ol>
     </div>
-    <UploadZone :compact="true" :title="`Upload ${name} export`" :hint="acceptHint" />
+    <UploadZone :compact="true" :title="`Upload ${name} export`" :hint="acceptHint" @files="emit('files', $event)" />
   </PiCard>
 </template>

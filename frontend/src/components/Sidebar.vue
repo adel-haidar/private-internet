@@ -33,7 +33,7 @@ const NAV_MAIN: NavItem[] = [
   { label: 'Pulse',        to: '/pulse',     icon: 'pulse' },
   { label: 'Health',       to: '/health',    icon: 'health' },
   { label: 'Finances',     to: '/finances',  icon: 'finances' },
-  { label: 'Email',        to: '/email',     icon: 'email' },
+  // Email assistant deactivated for the first release — re-add when EMAIL_ENABLED is on.
   { label: 'Job hunt',     to: '/job',       icon: 'job' },
 ]
 

@@ -49,6 +49,8 @@ const PI_ICON_PATHS: Record<string, string> = {
   repository:  'M3 3h18v18H3z M3 9h18 M9 21V9',
   overview:    'M3 13h8V3H3v10zm10 8h8V3h-8v18zM3 21h8v-6H3v6z',
   memory:      'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z',
+  copy:        'M9 9h11a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-9a2 2 0 0 1 2-2z M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1',
+  down:        'M12 5v14 M19 12l-7 7-7-7',
 }
 
 interface Props {

@@ -28,28 +28,18 @@ async def run_topic_intelligence_job(*, user_id: str):
     research_service = WebResearchService()
     storage_service = TopicStorageService()
 
-    # 1. Fetch recent memories
+    # 1-2. Discover candidate topics by clustering the user's memory embeddings
+    #      locally and naming each cluster/intersection from keywords only.
+    #      Bedrock receives keyword sets, never raw memory text.
     try:
-        memories = await reader.fetch_recent_memories(limit=20, user_id=user_id)
-        logger.info(f"Fetched {len(memories)} recent memories from memory store.")
+        candidates = await reader.extract_topic_candidates_clustered(user_id=user_id)
+        logger.info(f"Discovered {len(candidates)} topic candidates: {[c.name for c in candidates]}")
     except Exception as e:
-        logger.error(f"Failed to fetch recent memories: {e}", exc_info=True)
-        return
-
-    if not memories:
-        logger.info("No memories found. Topic intelligence run completed with 0 topics processed.")
-        return
-
-    # 2. Extract topic candidates using LLM (Bedrock)
-    try:
-        candidates = await reader.extract_topic_candidates(memories)
-        logger.info(f"Extracted {len(candidates)} topic candidates: {[c.name for c in candidates]}")
-    except Exception as e:
-        logger.error(f"Failed to extract topic candidates from memories: {e}", exc_info=True)
+        logger.error(f"Failed to discover topic candidates: {e}", exc_info=True)
         return
 
     if not candidates:
-        logger.info("No topic candidates extracted. Job finished.")
+        logger.info("No topic candidates discovered. Topic intelligence run finished with 0 topics.")
         return
 
     # 3. Process each candidate (parallel research, relevance score, and DB save)
