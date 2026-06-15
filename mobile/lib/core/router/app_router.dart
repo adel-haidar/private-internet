@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../features/auth/forgot_password_screen.dart';
 import '../../features/auth/login_screen.dart';
 import '../../features/auth/register_screen.dart';
 import '../../features/brain/brain_screen.dart';
 import '../../features/brain/memory_detail_screen.dart';
 import '../../features/dashboard/dashboard_screen.dart';
 import '../../features/finances/finances_screen.dart';
+import '../../features/jobs/jobs_screen.dart';
 import '../../features/health/health_screen.dart';
 import '../../features/health/health_callback_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
@@ -40,6 +42,8 @@ class Routes {
   static const health = '/health';
   static const signal = '/signal';
   static const finances = '/finances';
+  static const jobs = '/jobs';
+  static const forgotPassword = '/forgot-password';
   static const settings = '/settings';
   static const healthCallback = '/health/devices/callback';
   static const stories = '/stories';
@@ -81,6 +85,7 @@ final routerProvider = Provider<GoRouter>((ref) {
     routes: [
       GoRoute(path: Routes.login, builder: (_, __) => const LoginScreen()),
       GoRoute(path: Routes.register, builder: (_, __) => const RegisterScreen()),
+      GoRoute(path: Routes.forgotPassword, builder: (_, __) => const ForgotPasswordScreen()),
       GoRoute(path: Routes.onboarding, builder: (_, __) => const OnboardingScreen()),
       GoRoute(
         path: Routes.healthCallback,
@@ -102,6 +107,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: Routes.finances,
         parentNavigatorKey: _rootKey,
         builder: (_, __) => const FinancesScreen(),
+      ),
+      GoRoute(
+        path: Routes.jobs,
+        parentNavigatorKey: _rootKey,
+        builder: (_, __) => const JobsScreen(),
       ),
       GoRoute(
         path: Routes.settings,

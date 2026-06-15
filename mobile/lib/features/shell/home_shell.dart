@@ -131,6 +131,7 @@ class HomeShell extends ConsumerWidget {
                 tile(Icons.movie_outlined, 'Stories', 'AI films and series', Routes.stories),
                 tile(Icons.music_note_outlined, 'Aria', 'Music from your memories', Routes.aria),
                 tile(Icons.account_balance_outlined, 'Finances', 'Your money, in plain language', Routes.finances),
+                tile(Icons.work_outline, 'Job hunt', 'Roles matched to your brain', Routes.jobs),
                 tile(Icons.settings_outlined, 'Settings', 'Profile, privacy and data', Routes.settings),
               ],
             ),

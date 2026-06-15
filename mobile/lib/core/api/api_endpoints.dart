@@ -86,6 +86,12 @@ class ApiEndpoints {
   // MISSING: `/health/devices/*/connect`, `/health/sync-status`. Device OAuth +
   // live-sync are surfaced as "coming soon" in the UI.
 
+  // ---- Jobs (Service B, public via nginx /api/jobs) ---------------------
+  static const String jobMatches = '/jobs/matches';
+  static const String jobsRun = '/jobs/run';
+  static const String jobCountries = '/jobs/countries';
+  static String jobMatchStatus(int id) => '/jobs/matches/$id/status';
+
   // ---- Finance (Service B) ----------------------------------------------
   static const String bankingAnalyse = '/banking/analyse';
   static const String bankingLatest = '/banking/analysis/latest';

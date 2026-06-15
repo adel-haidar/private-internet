@@ -111,7 +111,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                             textAlign: TextAlign.center,
                             style: AppText.sm.copyWith(color: c.brainAmber)),
                       ],
-                      const SizedBox(height: AppDimens.space5),
+                      const SizedBox(height: AppDimens.space3),
+                      Center(
+                        child: TextButton(
+                          onPressed: () => context.push(Routes.forgotPassword),
+                          child: Text('Forgot password?',
+                              style: AppText.sm.copyWith(color: c.textSecondary)),
+                        ),
+                      ),
                       Center(
                         child: TextButton(
                           onPressed: () => context.push(Routes.register),
