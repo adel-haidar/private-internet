@@ -10,10 +10,12 @@ import {
   type ArMood, type AriaTrack,
 } from '../../composables/useAria'
 
+import type { AriaPodcast } from '../../composables/useAria'
+
 const emit = defineEmits<{ (e: 'open-playlist', id: string): void }>()
 const {
-  track, playing, toggle, playTrack, openNow,
-  libTracks, libPlaylists, libLoading, libError, loadLibrary,
+  track, playing, toggle, playTrack, playPodcast, openNow,
+  libTracks, libPlaylists, libPodcasts, libLoading, libError, loadLibrary,
 } = useAria()
 
 onMounted(() => loadLibrary())
@@ -33,6 +35,12 @@ const moodsPresent = computed(() =>
 function play(t: AriaTrack) {
   if (t.status) return
   playTrack(t, readyIds.value)
+}
+
+function openPodcast(p: AriaPodcast) {
+  if (p.status) return
+  playPodcast(p)
+  openNow()
 }
 </script>
 
@@ -66,7 +74,7 @@ function play(t: AriaTrack) {
         <div class="al__now-meta">
           <div class="al__now-eyebrow mono">Now playing</div>
           <div class="al__now-title">{{ track.title }}</div>
-          <div class="al__now-mood" :style="{ color: AR_MOOD_COLOR[track.mood] }">{{ track.mood }}</div>
+          <div class="al__now-mood" :style="{ color: AR_MOOD_COLOR[track.mood] }">{{ track.kind === 'podcast' ? 'Podcast' : track.mood }}</div>
         </div>
         <button class="al__now-play" aria-label="Play/pause" @click.stop="toggle">
           <svg v-if="playing" width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
@@ -84,6 +92,23 @@ function play(t: AriaTrack) {
             </span>
             <span class="al__name">{{ pl.name }}</span>
             <span class="al__sub" :style="{ color: AR_MOOD_COLOR[pl.mood] }">{{ pl.mood }}</span>
+          </button>
+        </div>
+      </template>
+
+      <!-- podcasts -->
+      <template v-if="libPodcasts.length > 0">
+        <h3 class="al__h">Podcasts</h3>
+        <div class="al__row">
+          <button v-for="p in libPodcasts" :key="p.id" class="al__card" @click="openPodcast(p)">
+            <span class="al__sq" :style="p.art_url ? { backgroundImage: `url(${p.art_url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : arArtStyle(p.title, 'Focus')">
+              <span class="al__mic" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+              </span>
+              <span v-if="p.dur" class="al__count mono">{{ p.dur }}</span>
+            </span>
+            <span class="al__name">{{ p.title }}</span>
+            <span class="al__sub al__sub--pod">Podcast</span>
           </button>
         </div>
       </template>
@@ -163,6 +188,8 @@ function play(t: AriaTrack) {
 .al__sq { position: relative; width: 132px; height: 132px; border-radius: 12px; display: block; }
 .al__count, .al__dur { position: absolute; left: 8px; bottom: 8px; background: rgba(0,0,0,0.7); color: #fff; padding: 1px 6px; border-radius: 999px; font-size: 10px; }
 .al__dur { left: auto; right: 8px; }
+.al__mic { position: absolute; right: 8px; bottom: 8px; color: #fff; opacity: 0.7; display: flex; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); }
+.al__sub--pod { color: var(--text-tertiary); }
 .al__gen { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-secondary); font-size: 11px; background: color-mix(in srgb, var(--brain-amber-surface) 85%, transparent); border-radius: 12px; }
 .al__name { font-size: 13px; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .al__sub { font-size: 11px; }

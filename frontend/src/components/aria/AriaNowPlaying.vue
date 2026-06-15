@@ -4,7 +4,7 @@
  * mood-tint background, album-art hero that scales on play/pause, seekable
  * waveform, transport, and Player | Lyrics tabs. Queue listed below.
  */
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   useAria, arArtBackground, arBars, arFmt, arSecs, AR_MOOD_COLOR,
 } from '../../composables/useAria'
@@ -17,10 +17,34 @@ const {
 
 const tab = ref<'player' | 'lyrics'>('player')
 
+const isPodcast = computed(() => track.value?.kind === 'podcast')
+const transcript = computed(() => track.value?.transcript ?? [])
+
+/** Host display name for a transcript line. */
+function hostName(host: 'A' | 'B'): string {
+  return host === 'A' ? (track.value?.hostAName ?? 'Host A') : (track.value?.hostBName ?? 'Host B')
+}
+
 const total = computed(() => (track.value ? arSecs(track.value) : 0))
 const cur = computed(() => Math.round(total.value * progress.value / 100))
 const bars = computed(() => (track.value ? arBars(track.value.id, 64) : []))
 const queueTracks = computed(() => queue.value.map((id) => getTrack(id)).filter(Boolean))
+
+// ── Transcript auto-scroll (podcasts) ─────────────────────────────────────────
+// Estimate the active line from playback position and scroll it into view.
+const lineEls = ref<(HTMLElement | null)[]>([])
+function setLineRef(el: HTMLElement | null, i: number) { lineEls.value[i] = el }
+
+const currentLine = computed(() => {
+  const n = transcript.value.length
+  if (!isPodcast.value || n === 0) return -1
+  return Math.min(n - 1, Math.floor((progress.value / 100) * n))
+})
+
+watch(currentLine, (i) => {
+  if (i < 0 || tab.value !== 'lyrics') return
+  lineEls.value[i]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+})
 
 function seekBars(e: MouseEvent) {
   const el = e.currentTarget as HTMLElement
@@ -54,13 +78,18 @@ function seekBy(secs: number) {
           </button>
         </div>
         <div class="np__chips">
-          <span class="np__mood" :style="{ color: AR_MOOD_COLOR[track.mood], background: 'color-mix(in srgb, ' + AR_MOOD_COLOR[track.mood] + ' 15%, transparent)' }">{{ track.mood }}</span>
+          <span
+            v-if="isPodcast"
+            class="np__mood"
+            :style="{ color: AR_MOOD_COLOR['Focus'], background: 'color-mix(in srgb, ' + AR_MOOD_COLOR['Focus'] + ' 15%, transparent)' }"
+          >Podcast</span>
+          <span v-else class="np__mood" :style="{ color: AR_MOOD_COLOR[track.mood], background: 'color-mix(in srgb, ' + AR_MOOD_COLOR[track.mood] + ' 15%, transparent)' }">{{ track.mood }}</span>
           <span v-if="track.topic" class="np__from">from: {{ track.topic }}</span>
         </div>
 
         <div class="np__tabs">
           <button :class="['np__tab', tab === 'player' && 'np__tab--on']" @click="tab = 'player'">Player</button>
-          <button :class="['np__tab', tab === 'lyrics' && 'np__tab--on']" @click="tab = 'lyrics'">Lyrics</button>
+          <button :class="['np__tab', tab === 'lyrics' && 'np__tab--on']" @click="tab = 'lyrics'">{{ isPodcast ? 'Transcript' : 'Lyrics' }}</button>
         </div>
 
         <template v-if="tab === 'player'">
@@ -88,7 +117,20 @@ function seekBy(secs: number) {
         </template>
 
         <template v-else>
-          <div class="np__lyrics">
+          <!-- Podcast: host-prefixed transcript with active-line highlight -->
+          <div v-if="isPodcast" class="np__lyrics">
+            <p v-if="!transcript.length" class="np__nolyrics">No transcript for this episode.</p>
+            <p
+              v-for="(line, i) in transcript" :key="i"
+              :ref="(el) => setLineRef(el as HTMLElement | null, i)"
+              class="np__tline" :class="{ 'np__tline--on': i === currentLine }"
+            >
+              <span class="np__thost" :class="line.host === 'A' ? 'np__thost--a' : 'np__thost--b'">{{ hostName(line.host) }}:</span>
+              {{ line.text }}
+            </p>
+          </div>
+          <!-- Music: lyrics -->
+          <div v-else class="np__lyrics">
             <p v-if="!track.lyrics?.length" class="np__nolyrics">No lyrics for this track.</p>
             <p v-for="(line, i) in track.lyrics" :key="i" class="np__line">{{ line }}</p>
           </div>
@@ -139,6 +181,11 @@ function seekBy(secs: number) {
 .np__lyrics { padding: 8px 0; }
 .np__line { font-family: var(--font-serif); font-size: 18px; line-height: 1.7; color: var(--text-primary); margin: 0 0 6px; }
 .np__nolyrics { font-family: var(--font-serif); color: var(--text-tertiary); }
+.np__tline { font-family: var(--font-serif); font-size: 16px; line-height: 1.65; color: var(--text-tertiary); margin: 0 0 12px; transition: color 0.3s; scroll-margin: 80px; }
+.np__tline--on { color: var(--text-primary); }
+.np__thost { font-family: var(--font-display); font-weight: 600; font-size: 14px; }
+.np__thost--a { color: var(--accent-primary); }
+.np__thost--b { color: var(--brain-amber); }
 .np__queue { margin-top: 28px; border-top: 1px solid var(--border-subtle); padding-top: 16px; }
 .np__queue-head { font-size: 11px; color: var(--text-tertiary); margin-bottom: 10px; }
 .np__qrow { display: flex; align-items: center; gap: 10px; padding: 6px 0; }

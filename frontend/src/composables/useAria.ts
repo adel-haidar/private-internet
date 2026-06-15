@@ -63,7 +63,15 @@ interface PlaylistOut {
   tracks?: TrackOut[]
 }
 
-/** Normalised track shape used throughout the UI. */
+/** A single line of a podcast transcript. */
+export interface PodcastLine {
+  host: 'A' | 'B'
+  text: string
+}
+
+/** Normalised track shape used throughout the UI.
+ * `kind` discriminates music tracks from podcasts so the single shared player,
+ * mini-player and Now Playing overlay can drive both. */
 export interface AriaTrack {
   id: string
   title: string
@@ -78,6 +86,48 @@ export interface AriaTrack {
   status?: 'processing'  // undefined = ready
   audio_url?: string
   art_url?: string
+  is_liked: boolean
+  // Podcast-only fields (kind === 'podcast'); undefined for music tracks.
+  kind?: 'track' | 'podcast'
+  transcript?: readonly PodcastLine[]
+  hostAName?: string
+  hostBName?: string
+}
+
+/** Raw shape from GET /api/aria/podcasts (list). */
+interface PodcastSummaryOut {
+  id: string
+  title: string
+  description?: string
+  topic_category?: string
+  duration_seconds?: number
+  status: 'generating' | 'ready' | 'failed'
+  art_url?: string
+  language_code: string
+  is_liked: boolean
+  created_at: string
+}
+
+/** Raw shape from GET /api/aria/podcasts/{id} (detail). */
+interface PodcastDetailOut extends PodcastSummaryOut {
+  audio_url?: string
+  waveform_url?: string
+  transcript: PodcastLine[]
+  brain_topic_ids: string[]
+  host_a_name: string
+  host_b_name: string
+}
+
+/** Normalised podcast shape used by the library cards. */
+export interface AriaPodcast {
+  id: string
+  title: string
+  description?: string
+  topic?: string
+  dur: string             // "12 min"
+  duration_seconds?: number
+  art_url?: string
+  status?: 'processing'   // undefined = ready
   is_liked: boolean
 }
 
@@ -124,6 +174,41 @@ function normPlaylist(p: PlaylistOut): AriaPlaylist {
     total_duration: p.total_duration,
     trackIds: p.tracks?.map((t) => t.id) ?? [],
     tracks: p.tracks?.map(normTrack),
+  }
+}
+
+function normPodcast(p: PodcastSummaryOut): AriaPodcast {
+  return {
+    id: p.id,
+    title: p.title,
+    description: p.description,
+    topic: p.topic_category || undefined,
+    dur: p.duration_seconds != null ? arMin(p.duration_seconds) : '',
+    duration_seconds: p.duration_seconds,
+    art_url: p.art_url,
+    status: p.status === 'generating' ? 'processing' : undefined,
+    is_liked: p.is_liked,
+  }
+}
+
+/** Podcasts reuse the music player; convert a fetched detail into an AriaTrack.
+ * Podcasts have no mood, so they borrow the 'Focus' palette for consistent
+ * theming — the UI distinguishes them with a microphone icon, not colour. */
+function podcastToTrack(d: PodcastDetailOut): AriaTrack {
+  return {
+    id: d.id,
+    title: d.title,
+    mood: 'Focus',
+    dur: d.duration_seconds != null ? arFmt(d.duration_seconds) : '',
+    duration_seconds: d.duration_seconds,
+    topic: d.topic_category || undefined,
+    audio_url: d.audio_url,
+    art_url: d.art_url,
+    is_liked: d.is_liked,
+    kind: 'podcast',
+    transcript: d.transcript ?? [],
+    hostAName: d.host_a_name,
+    hostBName: d.host_b_name,
   }
 }
 
@@ -177,6 +262,7 @@ async function arPost<T>(path: string, body: unknown): Promise<T> {
 
 const _libTracks = ref<AriaTrack[]>([])
 const _libPlaylists = ref<AriaPlaylist[]>([])
+const _libPodcasts = ref<AriaPodcast[]>([])
 const _libLoading = ref(false)
 const _libError = ref<string | null>(null)
 const _libLoaded = ref(false)
@@ -189,18 +275,25 @@ async function loadLibrary(force = false): Promise<void> {
   _libLoading.value = true
   _libError.value = null
   try {
-    const data = await arGet<{
-      tracks: TrackOut[]
-      playlists: PlaylistOut[]
-      liked_count: number
-      total_tracks: number
-    }>('/library')
+    // Library (tracks + playlists) and podcasts load together; a podcast
+    // failure must not blank the music library, so it degrades to [].
+    const [data, podcasts] = await Promise.all([
+      arGet<{
+        tracks: TrackOut[]
+        playlists: PlaylistOut[]
+        liked_count: number
+        total_tracks: number
+      }>('/library'),
+      arGet<PodcastSummaryOut[]>('/podcasts').catch(() => [] as PodcastSummaryOut[]),
+    ])
     _libTracks.value = data.tracks.map(normTrack)
     _libPlaylists.value = data.playlists.map(normPlaylist)
+    _libPodcasts.value = podcasts.map(normPodcast)
     _likedCount.value = data.liked_count
     _totalTracks.value = data.total_tracks
-    // Sync liked state into the player liked set from API data
+    // Sync liked state into the player liked set from API data (tracks + podcasts).
     const liked = new Set(data.tracks.filter((t) => t.is_liked).map((t) => t.id))
+    podcasts.filter((p) => p.is_liked).forEach((p) => liked.add(p.id))
     _liked.value = liked
     _libLoaded.value = true
   } catch (e) {
@@ -216,6 +309,12 @@ export async function fetchPlaylist(id: string): Promise<AriaPlaylist> {
   return normPlaylist(data)
 }
 
+/** Fetch a single podcast's detail (audio_url + transcript) as a playable track. */
+export async function fetchPodcast(id: string): Promise<AriaTrack> {
+  const data = await arGet<PodcastDetailOut>(`/podcasts/${id}`)
+  return podcastToTrack(data)
+}
+
 /** Search tracks. */
 export async function searchAria(q: string): Promise<{ query: string; tracks: AriaTrack[] }> {
   const data = await arGet<{ query: string; tracks: TrackOut[] }>(`/search?q=${encodeURIComponent(q)}`)
@@ -227,6 +326,11 @@ export async function searchAria(q: string): Promise<{ query: string; tracks: Ar
 export function arFmt(t: number): string {
   const abs = Math.max(0, Math.round(t))
   return `${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, '0')}`
+}
+
+/** Coarse "N min" label for podcasts (not the music "M:SS" format). */
+export function arMin(secs: number): string {
+  return `${Math.max(1, Math.round(secs / 60))} min`
 }
 
 /** Duration in seconds from the track's dur string or duration_seconds field. */
@@ -432,6 +536,30 @@ export function useAria() {
     _engage()
   }
 
+  /** Play a podcast through the shared player. Fetches detail (audio_url +
+   * transcript) first; no music queue is set and no track play-session API is
+   * called (podcasts aren't rows in aria_play_history). */
+  async function playPodcast(p: AriaPodcast) {
+    if (p.status === 'processing') return
+    // End any in-flight music play session before switching.
+    if (_currentPlayId && _track.value) {
+      const elapsed = arSecs(_track.value) * (_progress.value / 100)
+      _apiPlayEnd(_currentPlayId, elapsed)
+      _currentPlayId = null
+    }
+    let t: AriaTrack
+    try {
+      t = await fetchPodcast(p.id)
+    } catch {
+      return
+    }
+    _track.value = t
+    _progress.value = 0
+    _playing.value = true
+    _queue.value = []
+    _engage()
+  }
+
   function toggle() {
     if (!_track.value) return
     _playing.value = !_playing.value
@@ -462,9 +590,15 @@ export function useAria() {
     const nowLiked = !s.has(id)
     nowLiked ? s.add(id) : s.delete(id)
     _liked.value = s
-    // Fire-and-forget API call
-    arPost('/like', { track_id: id, liked: nowLiked }).catch(() => {
-      // revert on failure
+    // Podcasts and tracks have distinct like endpoints/payloads — route by kind.
+    const isPodcast =
+      _libPodcasts.value.some((p) => p.id === id) ||
+      (_track.value?.kind === 'podcast' && _track.value.id === id)
+    const req = isPodcast
+      ? arPost(`/podcasts/${id}/like`, { liked: nowLiked })
+      : arPost('/like', { track_id: id, liked: nowLiked })
+    // Fire-and-forget; revert on failure.
+    req.catch(() => {
       const r = new Set(_liked.value)
       nowLiked ? r.delete(id) : r.add(id)
       _liked.value = r
@@ -510,6 +644,7 @@ export function useAria() {
     // library state
     libTracks: readonly(_libTracks),
     libPlaylists: readonly(_libPlaylists),
+    libPodcasts: readonly(_libPodcasts),
     libLoading: readonly(_libLoading),
     libError: readonly(_libError),
     libLoaded: readonly(_libLoaded),
@@ -518,6 +653,7 @@ export function useAria() {
     // methods
     isLiked,
     playTrack,
+    playPodcast,
     toggle,
     next,
     prev,

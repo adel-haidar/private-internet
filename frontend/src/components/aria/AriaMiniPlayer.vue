@@ -22,7 +22,11 @@ function onSeek(e: MouseEvent) {
   <div v-if="track" class="amp" :style="{ '--mood': AR_MOOD_COLOR[track.mood] }">
     <div class="amp__bar" @click="onSeek"><div class="amp__bar-fill" :style="{ width: progress + '%' }" /></div>
     <div class="amp__row">
-      <button class="amp__art" :style="arArtBackground(track)" aria-label="Open now playing" @click="openNow" />
+      <button class="amp__art" :style="arArtBackground(track)" aria-label="Open now playing" @click="openNow">
+        <span v-if="track.kind === 'podcast'" class="amp__mic" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8"/></svg>
+        </span>
+      </button>
       <div class="amp__meta" @click="openNow">
         <div class="amp__title">{{ track.title }}</div>
         <div class="amp__sub mono">{{ track.mood }} · {{ arFmt(remaining) }} left</div>
@@ -54,7 +58,8 @@ function onSeek(e: MouseEvent) {
 .amp__bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; cursor: pointer; }
 .amp__bar-fill { height: 100%; background: var(--brain-amber); }
 .amp__row { display: flex; align-items: center; gap: 12px; height: 100%; padding: 0 16px; }
-.amp__art { width: 44px; height: 44px; border-radius: 8px; border: 0; cursor: pointer; flex: 0 0 auto; }
+.amp__art { position: relative; width: 44px; height: 44px; border-radius: 8px; border: 0; cursor: pointer; flex: 0 0 auto; }
+.amp__mic { position: absolute; right: 3px; bottom: 3px; color: #fff; opacity: 0.7; display: flex; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); }
 .amp__meta { min-width: 0; flex: 1; cursor: pointer; }
 .amp__title { font-family: var(--font-display); font-weight: 500; font-size: 14px; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .amp__sub { font-size: 12px; color: var(--text-tertiary); }
