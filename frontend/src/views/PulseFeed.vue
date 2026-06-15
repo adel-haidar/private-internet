@@ -15,7 +15,7 @@ import FeedVoteButton from '../components/feed/FeedVoteButton.vue'
 import PulsePostCard from '../components/feed/PulsePostCard.vue'
 import PulseReader from '../components/feed/PulseReader.vue'
 import PulseFilterPanel from '../components/feed/PulseFilterPanel.vue'
-import { headline, readMinutes, postFormat } from '../components/feed/post-format'
+import { headline, readMinutes } from '../components/feed/post-format'
 
 const { posts, loading, error, hasMore, loadMore, sort, setSort } = usePulseFeed()
 const toast = useToast()
@@ -54,20 +54,9 @@ const featured = computed<Post | null>(() =>
   filtered.value.length ? filtered.value.reduce((a, b) => (a.score >= b.score ? a : b)) : null,
 )
 
-// Remaining posts, with consecutive Format-B posts paired into 2-up rows.
-const rows = computed<Post[][]>(() => {
-  const rest = filtered.value.filter((p) => p.id !== featured.value?.id)
-  const out: Post[][] = []
-  for (let i = 0; i < rest.length; i++) {
-    if (postFormat(rest[i]) === 'B' && rest[i + 1] && postFormat(rest[i + 1]) === 'B') {
-      out.push([rest[i], rest[i + 1]])
-      i++
-    } else {
-      out.push([rest[i]])
-    }
-  }
-  return out
-})
+// Remaining posts (everything but the hero) flow into a masonry of columns on
+// wide screens, so the feed fills the width instead of a single narrow column.
+const rest = computed<Post[]>(() => filtered.value.filter((p) => p.id !== featured.value?.id))
 
 async function vote(post: Post, like: boolean) {
   votes[post.id] = like ? 'up' : 'down'
@@ -106,8 +95,8 @@ async function vote(post: Post, like: boolean) {
 
     <template v-else>
       <div class="pulse__feed">
-        <!-- featured -->
-        <div v-if="featured">
+        <!-- featured (spans full width above the masonry) -->
+        <div v-if="featured" class="pulse__feat">
           <FeaturedCard
             :seed="featured.creator_name"
             :image="featured.image_url"
@@ -126,13 +115,13 @@ async function vote(post: Post, like: boolean) {
           </div>
         </div>
 
-        <!-- rows -->
-        <template v-for="(row, i) in rows" :key="i">
-          <div v-if="row.length === 2" class="pulse__duo">
-            <PulsePostCard v-for="p in row" :key="p.id" :post="p" compact :vote="votes[p.id] ?? null" @vote="(l) => vote(p, l)" @open="reading = p" />
-          </div>
-          <PulsePostCard v-else :post="row[0]" :vote="votes[row[0].id] ?? null" @vote="(l) => vote(row[0], l)" @open="reading = row[0]" />
-        </template>
+        <!-- post masonry -->
+        <div class="pulse__masonry">
+          <PulsePostCard
+            v-for="p in rest" :key="p.id" :post="p"
+            :vote="votes[p.id] ?? null" @vote="(l) => vote(p, l)" @open="reading = p"
+          />
+        </div>
 
         <div v-if="filtered.length === 0" class="pulse__empty">
           Nothing here yet. Add to your brain and your feed will fill with stories.
@@ -166,14 +155,25 @@ async function vote(post: Post, like: boolean) {
 </template>
 
 <style scoped>
-.pulse { max-width: 720px; margin: 0 auto; padding: 8px 0 48px; }
+.pulse { max-width: var(--content-dashboard); margin: 0 auto; padding: 8px 0 48px; }
 .pulse__masthead { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 12px; }
 .pulse__title { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: 0.1em; color: var(--text-primary); }
 .pulse__filter { background: none; border: 0; color: var(--text-primary); cursor: pointer; display: flex; padding: 6px; }
 .pulse__chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 4px 18px; }
 .pulse__feed { display: flex; flex-direction: column; gap: 14px; }
 .pulse__featactions { display: flex; gap: 6px; margin-top: 10px; }
-.pulse__duo { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* The hero spans the full feed width as a banner above the masonry. */
+.pulse__feat { width: 100%; }
+/* Masonry: single column by default, more columns as width allows. CSS columns
+   keep each card intact (break-inside) while letting the feed fill the page. */
+.pulse__masonry { display: flex; flex-direction: column; gap: 14px; }
+@media (min-width: 1000px) {
+  .pulse__masonry { display: block; column-count: 2; column-gap: 16px; }
+  .pulse__masonry > * { break-inside: avoid; margin: 0 0 16px; }
+}
+@media (min-width: 1440px) {
+  .pulse__masonry { column-count: 3; }
+}
 .pulse__skeleton { display: flex; flex-direction: column; gap: 14px; }
 .pulse__sk { height: 160px; border-radius: var(--radius-md); background: var(--background-raised); animation: pulse-sk 1.4s ease-in-out infinite; }
 @keyframes pulse-sk { 0%, 100% { opacity: 0.6; } 50% { opacity: 1; } }
