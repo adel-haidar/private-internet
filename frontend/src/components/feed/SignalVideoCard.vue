@@ -8,7 +8,7 @@ import BrainPulse from '../ui/BrainPulse.vue'
 import { seededThumb } from './seeded'
 import { fmtSecs, isProcessing } from './video-util'
 
-const props = withDefaults(defineProps<{ video: Video; width?: number }>(), { width: 220 })
+const props = withDefaults(defineProps<{ video: Video; width?: number; fluid?: boolean }>(), { width: 220, fluid: false })
 defineEmits<{ (e: 'play'): void }>()
 
 const processing = computed(() => isProcessing(props.video))
@@ -16,7 +16,7 @@ const dur = computed(() => fmtSecs(props.video.duration_seconds))
 </script>
 
 <template>
-  <button class="vc" :style="{ width: width + 'px' }" :disabled="processing" @click="$emit('play')">
+  <button class="vc" :class="{ 'vc--fluid': fluid }" :style="fluid ? undefined : { width: width + 'px' }" :disabled="processing" @click="$emit('play')">
     <span class="vc__thumb" :style="video.thumbnail_url ? { backgroundImage: `url(${video.thumbnail_url})` } : seededThumb(video.creator_name)">
       <span v-if="processing" class="vc__proc">
         <BrainPulse :size="24" />
@@ -34,6 +34,7 @@ const dur = computed(() => fmtSecs(props.video.duration_seconds))
 
 <style scoped>
 .vc { flex: 0 0 auto; background: none; border: 0; padding: 0; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 8px; }
+.vc--fluid { flex: 1 1 auto; width: 100%; }
 .vc:disabled { cursor: default; }
 .vc__thumb { position: relative; aspect-ratio: 16/9; border-radius: var(--radius-sm); background-size: cover; background-position: center; overflow: hidden; }
 .vc__dur { position: absolute; right: 6px; bottom: 6px; padding: 1px 6px; border-radius: 999px; background: rgba(0,0,0,0.78); color: #fff; font-family: var(--font-mono); font-size: 10px; }

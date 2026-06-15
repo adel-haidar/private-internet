@@ -127,7 +127,7 @@ function play(v: Video) {
 </template>
 
 <style scoped>
-.signal { max-width: 920px; margin: 0 auto; padding: 8px 0 48px; }
+.signal { max-width: var(--content-dashboard); margin: 0 auto; padding: 8px 0 48px; }
 .signal__masthead { display: flex; align-items: center; justify-content: space-between; padding: 0 4px 12px; }
 .signal__title { font-family: var(--font-display); font-weight: 600; font-size: 15px; letter-spacing: 0.1em; color: var(--text-primary); }
 .signal__search { background: none; border: 0; color: var(--text-primary); cursor: pointer; display: flex; padding: 6px; }

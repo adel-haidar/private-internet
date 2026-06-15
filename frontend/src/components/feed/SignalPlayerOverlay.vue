@@ -18,6 +18,11 @@ const emit = defineEmits<{ (e: 'close'): void; (e: 'play', v: Video): void }>()
 
 const toast = useToast()
 const el = ref<HTMLVideoElement | null>(null)
+// On wide viewports the "More like this" rail sits beside the video as a vertical
+// list (cards fill the rail); on narrow ones it stays a horizontal scroll row.
+const wide = ref(false)
+let mq: MediaQueryList | undefined
+function syncWide() { wide.value = !!mq?.matches }
 const playing = ref(true)
 const cur = ref(0)
 const dur = ref(props.video.duration_seconds ?? 0)
@@ -56,8 +61,16 @@ async function doVote(like: boolean) {
   try { await logInteraction(props.video.id, 'video', like ? 'like' : 'dislike'); toast('Feedback saved') } catch { /* best-effort */ }
 }
 
-onMounted(() => poke())
-onBeforeUnmount(() => clearTimeout(hideTimer))
+onMounted(() => {
+  poke()
+  mq = window.matchMedia('(min-width: 1024px)')
+  syncWide()
+  mq.addEventListener('change', syncWide)
+})
+onBeforeUnmount(() => {
+  clearTimeout(hideTimer)
+  mq?.removeEventListener('change', syncWide)
+})
 </script>
 
 <template>
@@ -133,7 +146,7 @@ onBeforeUnmount(() => clearTimeout(hideTimer))
       <div v-if="related.length" class="sp__more">
         <div class="sp__morehd">More like this</div>
         <div class="sp__morerow">
-          <SignalVideoCard v-for="r in related" :key="r.id" :video="r" :width="200" @play="emit('play', r)" />
+          <SignalVideoCard v-for="r in related" :key="r.id" :video="r" :width="200" :fluid="wide" @play="emit('play', r)" />
         </div>
       </div>
     </div>
@@ -175,4 +188,23 @@ onBeforeUnmount(() => clearTimeout(hideTimer))
 .sp__morerow { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 6px; }
 .sp-fade-enter-active, .sp-fade-leave-active { transition: opacity 0.2s; }
 .sp-fade-enter-from, .sp-fade-leave-to { opacity: 0; }
+
+/* Wide viewports: video + meta on the left, "More like this" as a vertical rail
+   on the right — using the side and bottom space a single row would waste. */
+@media (min-width: 1024px) {
+  .sp__scroll {
+    max-width: 1500px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(300px, 26vw, 400px);
+    grid-template-areas: "stage rail" "meta rail";
+    align-items: start;
+    column-gap: 32px;
+    padding: 24px 24px 56px;
+  }
+  .sp__stage { grid-area: stage; border-radius: var(--radius-md); overflow: hidden; }
+  .sp__meta { grid-area: meta; padding: 20px 0 0; }
+  .sp__more { grid-area: rail; padding: 0; }
+  .sp__morehd { margin-top: 0; }
+  .sp__morerow { flex-direction: column; overflow: visible; gap: 14px; padding-bottom: 0; }
+}
 </style>
