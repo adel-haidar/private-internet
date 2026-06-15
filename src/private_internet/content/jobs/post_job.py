@@ -77,8 +77,16 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
                 research = [dict(r) for r in cur.fetchall()]
                 cur.close()
 
-                # c. Generate post text
+                # c. Generate post text. Returns None if the post failed
+                # validation twice — skip it rather than saving a bad post.
                 post = await text_generator.generate(topic, creator, tone, research)
+                if post is None:
+                    failed += 1
+                    logger.warning(
+                        f"Skipping topic '{topic['name']}' — post generation "
+                        "failed validation twice."
+                    )
+                    continue
                 total_input_tokens += post.usage.get("inputTokens", 0)
                 total_output_tokens += post.usage.get("outputTokens", 0)
 
@@ -102,10 +110,11 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
                 cur = conn.cursor()
                 cur.execute(
                     """INSERT INTO content_posts
-                       (id, creator_id, topic_id, body, image_url, image_prompt, tone, user_id)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+                       (id, creator_id, topic_id, body, image_url, image_prompt, tone,
+                        post_format, user_id)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (post_id, creator["id"], topic["id"], post.body, image_url, image_prompt,
-                     tone, user_id),
+                     tone, post.post_format, user_id),
                 )
 
                 # g. Bump topic usage

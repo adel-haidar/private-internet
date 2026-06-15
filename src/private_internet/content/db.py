@@ -96,6 +96,10 @@ def init_content_db() -> None:
     # Added after P1: topic keywords feed the P3 creator-affinity matching.
     cur.execute("ALTER TABLE content_topics ADD COLUMN IF NOT EXISTS keywords TEXT[]")
 
+    # PULSE storytelling-format rewrite: record which of the six formats the
+    # generator chose, for later per-mood/topic performance analysis.
+    cur.execute("ALTER TABLE content_posts ADD COLUMN IF NOT EXISTS post_format VARCHAR(50)")
+
     cur.execute("CREATE INDEX IF NOT EXISTS idx_posts_creator ON content_posts(creator_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_posts_topic ON content_posts(topic_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_posts_created ON content_posts(created_at DESC)")

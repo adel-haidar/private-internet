@@ -11,6 +11,11 @@ from private_internet.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Tool-use (forced tool_choice) calls need a Claude model. Mistral Small does not
+# support the converse toolConfig reliably, so PULSE's structured generation uses
+# the same Claude default the brain organiser uses (known-good in eu-central-1).
+PULSE_MODEL_DEFAULT = "eu.anthropic.claude-3-5-sonnet-20240620-v1:0"
+
 
 def bedrock_text_region() -> str:
     """Region for the primary content TEXT model (Mistral Small) — it IS available
@@ -61,6 +66,53 @@ async def converse_text(
         text = response["output"]["message"]["content"][0]["text"]
         usage = response.get("usage", {})
         return text, usage
+
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, invoke)
+
+
+async def converse_tool(
+    user_prompt: str,
+    tool: dict,
+    *,
+    system_prompt: Optional[str] = None,
+    temperature: float = 0.0,
+    max_tokens: int = 1024,
+    model_id: Optional[str] = None,
+) -> Tuple[Optional[dict], dict]:
+    """
+    Invoke a Claude model on Bedrock with a single FORCED tool (toolChoice).
+    Returns (tool_input, usage) where tool_input is the model's structured
+    arguments for the tool, or None if no toolUse block came back.
+
+    `tool` is in Anthropic-native shape: {"name", "description", "input_schema"}.
+    It is adapted to the Bedrock converse `toolSpec` format here.
+    """
+    model = model_id or os.getenv("BEDROCK_PULSE_MODEL_ID", PULSE_MODEL_DEFAULT)
+
+    def invoke():
+        client = boto3.client("bedrock-runtime", region_name=bedrock_text_region())
+        kwargs = {
+            "modelId": model,
+            "messages": [{"role": "user", "content": [{"text": user_prompt}]}],
+            "inferenceConfig": {"temperature": temperature, "maxTokens": max_tokens},
+            "toolConfig": {
+                "tools": [{"toolSpec": {
+                    "name": tool["name"],
+                    "description": tool["description"],
+                    "inputSchema": {"json": tool["input_schema"]},
+                }}],
+                "toolChoice": {"tool": {"name": tool["name"]}},
+            },
+        }
+        if system_prompt:
+            kwargs["system"] = [{"text": system_prompt}]
+        response = client.converse(**kwargs)
+        usage = response.get("usage", {})
+        for block in response["output"]["message"]["content"]:
+            if "toolUse" in block:
+                return block["toolUse"]["input"], usage
+        return None, usage
 
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, invoke)

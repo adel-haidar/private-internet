@@ -10,7 +10,11 @@ from unittest.mock import MagicMock, patch, AsyncMock
 _BEDROCK = SimpleNamespace(image_backend="bedrock", aws_region="eu-central-1")
 
 from private_internet.content.creator_selector import CreatorSelector, ALL_TONES, _TONE_MAP
-from private_internet.content.post_generator import PostTextGenerator, GeneratedPost
+from private_internet.content.post_generator import (
+    PostTextGenerator,
+    GeneratedPost,
+    validate_pulse_post,
+)
 from private_internet.content.image_generator import PostImageGenerator
 from private_internet.content.asset_store import AssetStore
 from private_internet.content.jobs.post_job import generate_posts_batch
@@ -97,18 +101,102 @@ class TestCreatorSelector:
             assert all(t in ALL_TONES for t in tones)
 
 
+# ── Validation helpers / fixtures ──────────────────────────────
+
+# A body of exactly 90 words — inside the 75-130 valid range.
+_VALID_BODY = " ".join(["word"] * 89 + ["end."])
+
+
+def _tool_post(body=_VALID_BODY, fmt="micro_story", opening="Switzerland pays double."):
+    """A well-formed write_pulse_post tool response dict."""
+    return {
+        "format_chosen": fmt,
+        "format_justification": "It fits.",
+        "post_body": body,
+        "word_count": len(body.split()),
+        "opening_sentence": opening,
+        "target_emotion": "curiosity",
+    }
+
+
+# ── validate_pulse_post ────────────────────────────────────────
+
+class TestValidatePulsePost:
+    def test_accepts_well_formed_post(self):
+        ok, reason = validate_pulse_post(_tool_post())
+        assert ok is True
+        assert reason == ""
+
+    @pytest.mark.parametrize("n_words,valid", [
+        (74, False),    # just below the 75 floor
+        (75, True),     # lower boundary inclusive
+        (90, True),     # comfortable middle
+        (130, True),    # upper boundary inclusive
+        (131, False),   # just above the 130 ceiling
+    ])
+    def test_length_boundaries(self, n_words, valid):
+        body = " ".join(["word"] * n_words)
+        ok, reason = validate_pulse_post(_tool_post(body=body))
+        assert ok is valid
+        if not valid:
+            assert "Word count" in reason
+
+    @pytest.mark.parametrize("opening", [
+        "In today's world we must adapt.",
+        "Did you know that interest compounds?",
+        "As a German engineer, I struggled.",
+        "I want to talk about something.",
+        "Let's explore the data together.",
+        "It's important to note the trend.",
+        "At the end of the day it matters.",
+        "In this post I will explain.",
+        "Today I want to share a story.",
+        "Welcome to my breakdown of this.",
+    ])
+    def test_rejects_every_forbidden_opening(self, opening):
+        # Pad the body so the only failing check is the opening.
+        ok, reason = validate_pulse_post(_tool_post(opening=opening))
+        assert ok is False
+        assert "Forbidden opening" in reason
+
+    def test_forbidden_opening_is_case_insensitive(self):
+        ok, reason = validate_pulse_post(_tool_post(opening="DID YOU KNOW this?"))
+        assert ok is False
+        assert "Forbidden opening" in reason
+
+    @pytest.mark.parametrize("bullet", ["•", "●", "◦", "▪"])
+    def test_rejects_bullet_points(self, bullet):
+        body = " ".join(["word"] * 89) + f" {bullet} item"
+        ok, reason = validate_pulse_post(_tool_post(body=body))
+        assert ok is False
+        assert "bullet" in reason.lower()
+
+    def test_rejects_markdown_header_inline(self):
+        body = " ".join(["word"] * 89) + "\n# Heading"
+        ok, reason = validate_pulse_post(_tool_post(body=body))
+        assert ok is False
+        assert "header" in reason.lower()
+
+    def test_rejects_markdown_header_at_start(self):
+        body = "# " + " ".join(["word"] * 89)
+        ok, reason = validate_pulse_post(_tool_post(body=body))
+        assert ok is False
+        assert "header" in reason.lower()
+
+
 # ── PostTextGenerator ──────────────────────────────────────────
 
 class TestPostTextGenerator:
     @pytest.mark.anyio
-    async def test_generate_returns_body_and_urls(self):
+    async def test_generate_returns_body_format_and_urls(self):
         body_text = (
-            "Switzerland pays double. Germany has Ämter. You do the math.\n"
-            "More here: https://example.com/swiss-salaries"
+            "Switzerland pays double. " + " ".join(["word"] * 85)
+            + " More here: https://example.com/swiss-salaries"
         )
+        tool_post = _tool_post(body=body_text, fmt="counterintuitive_opening")
         with patch(
-            "private_internet.content.post_generator.converse_text",
-            new=AsyncMock(return_value=(body_text, {"inputTokens": 100, "outputTokens": 50})),
+            "private_internet.content.post_generator.converse_tool",
+            new=AsyncMock(return_value=(tool_post, {"inputTokens": 100, "outputTokens": 50})),
         ):
             generator = PostTextGenerator()
             research = [{"title": "Swiss salaries", "summary": "High.", "url": "https://example.com/swiss-salaries"}]
@@ -116,20 +204,57 @@ class TestPostTextGenerator:
 
         assert isinstance(post, GeneratedPost)
         assert "Switzerland" in post.body
+        assert post.post_format == "counterintuitive_opening"
         assert post.referenced_urls == ["https://example.com/swiss-salaries"]
         assert post.usage["inputTokens"] == 100
 
     @pytest.mark.anyio
-    async def test_generate_passes_creator_style_and_tone(self):
-        mock_converse = AsyncMock(return_value=("post", {}))
-        with patch("private_internet.content.post_generator.converse_text", new=mock_converse):
+    async def test_generate_passes_creator_style_and_forces_tool(self):
+        mock_converse = AsyncMock(return_value=(_tool_post(), {}))
+        with patch("private_internet.content.post_generator.converse_tool", new=mock_converse):
             generator = PostTextGenerator()
             await generator.generate(_topic(), _creator(), "critical", [])
 
         kwargs = mock_converse.call_args.kwargs
         assert "frustrated German engineer" in kwargs["system_prompt"]
-        assert "Tone: critical" in kwargs["system_prompt"]
-        assert kwargs["temperature"] == 0.7
+        assert "EXACTLY ONE of the six formats" in kwargs["system_prompt"]
+        assert kwargs["temperature"] == 0.0
+        assert kwargs["tool"]["name"] == "write_pulse_post"
+
+    @pytest.mark.anyio
+    async def test_retries_once_then_succeeds(self):
+        bad = _tool_post(body=" ".join(["word"] * 10))   # too short → rejected
+        good = _tool_post()
+        mock_converse = AsyncMock(side_effect=[(bad, {}), (good, {})])
+        with patch("private_internet.content.post_generator.converse_tool", new=mock_converse):
+            generator = PostTextGenerator()
+            post = await generator.generate(_topic(), _creator(), "critical", [])
+
+        assert post is not None
+        assert mock_converse.call_count == 2
+        # The retry must carry the rejection reason back to the model.
+        retry_prompt = mock_converse.call_args_list[1].kwargs["user_prompt"]
+        assert "rejected because" in retry_prompt
+
+    @pytest.mark.anyio
+    async def test_returns_none_after_two_failures(self):
+        bad = _tool_post(body=" ".join(["word"] * 10))
+        mock_converse = AsyncMock(return_value=(bad, {}))
+        with patch("private_internet.content.post_generator.converse_tool", new=mock_converse):
+            generator = PostTextGenerator()
+            post = await generator.generate(_topic(), _creator(), "critical", [])
+
+        assert post is None
+        assert mock_converse.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_returns_none_when_no_tool_output(self):
+        mock_converse = AsyncMock(return_value=(None, {}))
+        with patch("private_internet.content.post_generator.converse_tool", new=mock_converse):
+            generator = PostTextGenerator()
+            post = await generator.generate(_topic(), _creator(), "critical", [])
+
+        assert post is None
 
 
 # ── PostImageGenerator ─────────────────────────────────────────
@@ -227,7 +352,10 @@ class TestGeneratePostsBatch:
 
         mock_text_gen = MagicMock()
         mock_text_gen.generate = AsyncMock(
-            return_value=GeneratedPost(body="post body", referenced_urls=[], usage={"inputTokens": 10, "outputTokens": 5})
+            return_value=GeneratedPost(
+                body="post body", referenced_urls=[], post_format="reframe",
+                usage={"inputTokens": 10, "outputTokens": 5},
+            )
         )
         mock_image_gen = MagicMock()
         mock_image_gen.generate_for_post = AsyncMock(return_value=(b"img", "prompt"))
@@ -252,6 +380,7 @@ class TestGeneratePostsBatch:
         assert params[3] == "post body"
         assert params[4] == "https://cdn/content/posts/x/image.png"
         assert params[6] == "satirical"
+        assert params[7] == "reframe"   # post_format stored for analysis
 
     @pytest.mark.anyio
     async def test_image_failure_is_non_fatal(self):
