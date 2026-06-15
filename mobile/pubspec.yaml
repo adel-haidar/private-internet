@@ -11,6 +11,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations: # Material/RTL localizations for the i18n system
+    sdk: flutter
 
   # State management — Riverpod (no Pinia/Bloc/GetX).
   # NOTE: we use the manual Riverpod API (NotifierProvider / AsyncNotifierProvider)
@@ -30,7 +32,7 @@ dependencies:
   url_launcher: ^6.2.7 # external links, OAuth redirect
   flutter_animate: ^4.5.0 # transitions, like/dislike fills
   cached_network_image: ^3.3.1 # thumbnails, avatars
-  intl: ^0.19.0 # date formatting
+  intl: ^0.20.2 # date formatting (also pinned by flutter_localizations)
   shared_preferences: ^2.2.3 # theme + UI state persistence
   shimmer: ^3.0.0 # skeleton loading states
   fl_chart: ^0.68.0 # health/finance charts

@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/api/api_endpoints.dart';
+import '../../core/i18n/i18n.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_dimens.dart';
@@ -30,10 +31,10 @@ class SettingsScreen extends ConsumerWidget {
     final themeMode = ref.watch(themeControllerProvider);
 
     return Scaffold(
-      appBar: AppBar(title: Text('Settings', style: AppText.md.copyWith(color: c.textPrimary))),
+      appBar: AppBar(title: Text(ref.t('settings.title'), style: AppText.md.copyWith(color: c.textPrimary))),
       body: ListView(
         children: [
-          _SectionHeader('Profile'),
+          _SectionHeader(ref.t('settings.sections.profile')),
           ListTile(
             leading: CircleAvatar(
               backgroundColor: c.accentSurface,
@@ -50,7 +51,13 @@ class SettingsScreen extends ConsumerWidget {
             title: Text('Email', style: AppText.base.copyWith(color: c.textPrimary)),
             subtitle: Text(user?.email ?? '—', style: AppText.sm.copyWith(color: c.textSecondary)),
           ),
-          _SectionHeader('Appearance'),
+          ListTile(
+            leading: Icon(Icons.language_outlined, color: c.textSecondary),
+            title: Text(ref.t('settings.profile.language'), style: AppText.base.copyWith(color: c.textPrimary)),
+            subtitle: Text(_languageLabel(ref), style: AppText.sm.copyWith(color: c.textSecondary)),
+            onTap: () => _changeLanguage(context, ref),
+          ),
+          _SectionHeader(ref.t('settings.profile.appearance')),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppDimens.space4, vertical: AppDimens.space2),
             child: Row(
@@ -70,7 +77,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
 
-          _SectionHeader('Privacy & data'),
+          _SectionHeader(ref.t('settings.sections.privacy')),
           ListTile(
             leading: Icon(Icons.download_outlined, color: c.textSecondary),
             title: Text('Export all my data', style: AppText.base.copyWith(color: c.textPrimary)),
@@ -102,12 +109,18 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => _clearBrain(context, ref),
           ),
           ListTile(
+            leading: Icon(Icons.workspace_premium_outlined, color: c.textSecondary),
+            title: Text(ref.t('settings.privacy.subscriptionTitle'), style: AppText.base.copyWith(color: c.textPrimary)),
+            subtitle: Text(ref.t('settings.privacy.subscriptionDesc'), style: AppText.sm.copyWith(color: c.textSecondary)),
+            onTap: () => _manageSubscription(context, ref),
+          ),
+          ListTile(
             leading: Icon(Icons.delete_forever_outlined, color: c.danger),
             title: Text('Delete my account', style: AppText.base.copyWith(color: c.danger)),
             onTap: () => _deleteAccount(context, ref),
           ),
 
-          _SectionHeader('Notifications'),
+          _SectionHeader(ref.t('settings.sections.notifications')),
           SwitchListTile(
             title: Text('Push notifications', style: AppText.base.copyWith(color: c.textTertiary)),
             subtitle: Text('Coming soon', style: AppText.sm.copyWith(color: c.textTertiary)),
@@ -121,7 +134,7 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: null,
           ),
 
-          _SectionHeader('About'),
+          _SectionHeader(ref.t('settings.sections.about')),
           const _VersionTile(),
           ListTile(
             leading: Icon(Icons.code, color: c.textSecondary),
@@ -139,13 +152,64 @@ class SettingsScreen extends ConsumerWidget {
                 await ref.read(authControllerProvider.notifier).logout();
                 if (context.mounted) context.go(Routes.login);
               },
-              child: Text('Sign out', style: AppText.base.copyWith(color: c.textSecondary)),
+              child: Text(ref.t('nav.signOut'), style: AppText.base.copyWith(color: c.textSecondary)),
             ),
           ),
           const SizedBox(height: AppDimens.space8),
         ],
       ),
     );
+  }
+
+  String _languageLabel(WidgetRef ref) {
+    final code = ref.watch(localeControllerProvider).languageCode;
+    return kLocales
+        .firstWhere((l) => l.code == code, orElse: () => kLocales.first)
+        .label;
+  }
+
+  Future<void> _changeLanguage(BuildContext context, WidgetRef ref) async {
+    final current = ref.read(localeControllerProvider).languageCode;
+    final code = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final l in kLocales)
+              ListTile(
+                title: Text(l.label),
+                trailing: l.code == current ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(ctx, l.code),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (code == null || code == current) return;
+    await ref.read(localeControllerProvider.notifier).set(code);
+    // Sync to the account so the choice follows the user across devices.
+    try {
+      await ref.read(apiClientProvider).patch(ApiEndpoints.profile, body: {'language_preference': code});
+    } catch (_) {
+      // Local switch already applied; ignore a transient sync failure.
+    }
+    if (context.mounted) AppToast.show(context, translate(code, 'settings.toast.languageUpdated'));
+  }
+
+  Future<void> _manageSubscription(BuildContext context, WidgetRef ref) async {
+    final code = ref.read(localeControllerProvider).languageCode;
+    try {
+      final res = await ref.read(apiClientProvider).post(ApiEndpoints.billingPortal);
+      final url = res is Map ? (res['url'] ?? res['portal_url']) as String? : null;
+      if (url != null && url.isNotEmpty) {
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      } else if (context.mounted) {
+        AppToast.show(context, translate(code, 'settings.toast.noBilling'));
+      }
+    } catch (e) {
+      if (context.mounted) AppToast.show(context, '$e', isError: true);
+    }
   }
 
   Future<void> _editName(BuildContext context, WidgetRef ref, String current) async {

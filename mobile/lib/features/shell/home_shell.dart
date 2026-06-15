@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../core/i18n/i18n.dart';
 import '../../core/router/app_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_dimens.dart';
@@ -79,20 +80,21 @@ class HomeShell extends ConsumerWidget {
               }
             },
             destinations: [
-              const NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Dashboard'),
+              NavigationDestination(icon: const Icon(Icons.dashboard_outlined), selectedIcon: const Icon(Icons.dashboard), label: ref.t('nav.dashboard')),
               NavigationDestination(
                 icon: BrainPulse(size: 16, slow: emptyBrain),
-                label: emptyBrain ? 'Start here' : 'Brain',
+                label: emptyBrain ? ref.t('sidebar.startHere') : ref.t('nav.brain'),
               ),
               NavigationDestination(
                 icon: _PresenceDot(show: !seen.pulse, child: const Icon(Icons.play_circle_outline)),
                 selectedIcon: const Icon(Icons.play_circle),
-                label: 'Pulse',
+                label: ref.t('nav.pulse'),
               ),
-              const NavigationDestination(icon: Icon(Icons.favorite_border), selectedIcon: Icon(Icons.favorite), label: 'Health'),
+              NavigationDestination(icon: const Icon(Icons.favorite_border), selectedIcon: const Icon(Icons.favorite), label: ref.t('nav.health')),
               NavigationDestination(
                 icon: _PresenceDot(show: !seen.signal || !seen.stories, child: const Icon(Icons.more_horiz)),
-                label: 'More',
+                label: 'More', // mobile-only nav group; no web locale key
+
               ),
             ],
           ),
