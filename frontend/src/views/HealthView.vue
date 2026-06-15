@@ -19,7 +19,7 @@ import InsightLine from '../components/ui/InsightLine.vue'
 import DeviceCard from '../components/ui/DeviceCard.vue'
 import ConfirmModal from '../components/ui/ConfirmModal.vue'
 import HealthExportGuide from '../components/health/HealthExportGuide.vue'
-import { useHealthDaily, useHealthTrends, useAppleHealthImport } from '../composables/useHealth'
+import { useHealthDaily, useHealthTrends, useAppleHealthImport, useHealthStatus } from '../composables/useHealth'
 import { requireAuth } from '../composables/useAuth'
 import { API_BASE } from '../config/env'
 import { useToast } from '../components/ui/useToast'
@@ -35,6 +35,7 @@ Chart.register(
 const { status: dailyStatus, result: daily, error: dailyError, fetchDaily, runDaily } = useHealthDaily()
 const { trends, error: trendError, status: trendStatus, fetchTrends } = useHealthTrends()
 const { status: importStatus, error: importError, uploadFile } = useAppleHealthImport()
+const { data: healthStatus, fetchStatus } = useHealthStatus()
 const toast = useToast()
 
 const today = new Date().toISOString().slice(0, 10)
@@ -47,7 +48,11 @@ const hasAnalysis = computed(() => !!(daily.value && daily.value.status !== 'not
 const hasTrendData = computed(() =>
   !!trends.value && Object.values(trends.value.series).some(s => s.length > 0),
 )
-const hasData = computed(() => hasAnalysis.value || hasTrendData.value)
+// Persistent, all-time signal: the brain already holds data for this user. Keeps
+// the page out of the empty first-run state on every login even after the newest
+// synced data ages out of the trend window.
+const hasBrainData = computed(() => !!healthStatus.value?.latest_data_date)
+const hasData = computed(() => hasAnalysis.value || hasTrendData.value || hasBrainData.value)
 
 const latestTrendDate = computed(() => {
   if (!trends.value) return null
@@ -77,7 +82,8 @@ async function doUpload(file: File) {
     // Run the analysis for the most recent imported day so insights appear.
     const target = r.date_range[1] || today
     activeDate.value = target
-    await fetchTrends(trendDays.value)
+    await fetchStatus()
+    await fetchTrends(trendDays.value, target)
     await runDaily(target)
   } catch {
     toast(importError.value ?? 'Upload failed', 'error')
@@ -102,14 +108,21 @@ function openGuide(platform: 'ios' | 'android') {
 // ── Devices ─────────────────────────────────────────────────────────────────────
 const addDeviceOpen = ref(false)
 
+function statusSource(source: 'apple_watch' | 'beurer_scale') {
+  return healthStatus.value?.sources.find(s => s.source === source)
+}
+
 const appleSynced = computed(() => {
+  if (statusSource('apple_watch')?.has_data) return true
   const avail = (daily.value?.data_availability ?? []).find(a => a.source === 'apple_watch')
   return !!(avail?.available || avail?.last_data_date) || hasTrendData.value
 })
 const appleLastSync = computed(() => {
   const avail = (daily.value?.data_availability ?? []).find(a => a.source === 'apple_watch')
-  return avail?.last_data_date ?? latestTrendDate.value ?? undefined
+  return statusSource('apple_watch')?.last_data_date ?? avail?.last_data_date ?? latestTrendDate.value ?? undefined
 })
+const scaleSynced = computed(() => !!statusSource('beurer_scale')?.has_data)
+const scaleLastSync = computed(() => statusSource('beurer_scale')?.last_data_date ?? undefined)
 
 interface DeviceDef {
   icon: string; name: string; appleHealth: boolean
@@ -139,7 +152,7 @@ const allDevices = computed<DeviceDef[]>(() => [
     icon: 'scale', name: 'Smart Scale', appleHealth: false,
     acceptHint: 'Accepts .csv',
     instructions: ['Open your scale’s companion app', 'Export weight history as CSV', 'Upload the file here'],
-    synced: false,
+    synced: scaleSynced.value, lastSync: scaleLastSync.value,
   },
 ])
 const syncedDevices = computed(() => allDevices.value.filter(d => d.synced))
@@ -309,7 +322,7 @@ function buildCharts() {
 }
 watch(chartsOpen, (open) => { if (open) nextTick(buildCharts); else destroyCharts() })
 watch(trends, () => { if (chartsOpen.value) nextTick(buildCharts) })
-watch(trendDays, (d) => fetchTrends(d))
+watch(trendDays, (d) => fetchTrends(d, activeDate.value))
 onBeforeUnmount(destroyCharts)
 
 // ── Delete all health data ───────────────────────────────────────────────────
@@ -319,14 +332,20 @@ async function deleteAll() {
   try {
     const token = await requireAuth()
     const res = await fetch(`${API_BASE}/api/health/data`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
-    if (res.ok) { toast('Health data deleted', 'warning'); fetchDaily(activeDate.value); fetchTrends(trendDays.value) }
+    if (res.ok) { toast('Health data deleted', 'warning'); fetchStatus(); fetchDaily(activeDate.value); fetchTrends(trendDays.value, activeDate.value) }
     else toast('Deleting health data isn’t available yet.', 'error')
   } catch { toast('Deleting health data isn’t available yet.', 'error') }
 }
 
-onMounted(() => {
-  fetchDaily(today)
-  fetchTrends(trendDays.value)
+onMounted(async () => {
+  // Resolve the persistent sync state first, then load the LATEST stored analysis
+  // and an anchored trend window — not just "today" — so a previously synced device
+  // surfaces its data on every login instead of looking unsynced.
+  await fetchStatus()
+  const latest = healthStatus.value?.latest_data_date
+  if (latest) activeDate.value = latest
+  fetchDaily(activeDate.value)
+  fetchTrends(trendDays.value, activeDate.value)
 })
 </script>
 

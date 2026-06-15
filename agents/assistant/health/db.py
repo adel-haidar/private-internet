@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import asyncpg
@@ -186,11 +186,20 @@ async def fetch_trends(
     metric_types: list[str],
     days: int,
     *,
+    until: Optional[date] = None,
     user_id: str,
 ) -> dict[str, list[dict]]:
-    """Return daily time series for each metric_type over last N days. # MUST SCOPE BY USER"""
+    """Return daily time series for each metric_type over an N-day window.
+
+    The window ends at `until` (inclusive) when given, otherwise at now. Anchoring
+    to `until` lets the dashboard chart a previously synced export whose newest data
+    already aged out of the "last N days from today" window. # MUST SCOPE BY USER"""
     assert user_id, "user_id required"
-    cutoff = datetime.utcnow() - timedelta(days=days)
+    if until is not None:
+        end = datetime(until.year, until.month, until.day, tzinfo=timezone.utc) + timedelta(days=1)
+    else:
+        end = datetime.now(timezone.utc)
+    cutoff = end - timedelta(days=days)
     result: dict[str, list[dict]] = {mt: [] for mt in metric_types}
 
     async with pool.acquire() as conn:
@@ -201,14 +210,36 @@ async def fetch_trends(
                     date_trunc('day', recorded_at AT TIME ZONE 'UTC') AS day,
                     AVG(value) AS value
                 FROM health_metrics
-                WHERE user_id = $3::uuid AND metric_type = $1 AND recorded_at >= $2
+                WHERE user_id = $4::uuid AND metric_type = $1
+                  AND recorded_at >= $2 AND recorded_at < $3
                 GROUP BY day
                 ORDER BY day ASC
                 """,
-                mt, cutoff, user_id,
+                mt, cutoff, end, user_id,
             )
             result[mt] = [
                 {"date": r["day"].date().isoformat(), "value": float(r["value"])}
                 for r in rows
             ]
     return result
+
+
+async def fetch_latest_data_dates(
+    pool: asyncpg.Pool,
+    *,
+    user_id: str,
+) -> dict[str, date]:
+    """All-time latest data day per raw source (no time window) — the persistent
+    signal for "has this device ever synced, and when last?". # MUST SCOPE BY USER"""
+    assert user_id, "user_id required"
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """
+            SELECT source, MAX((recorded_at AT TIME ZONE 'UTC')::date) AS last_day
+            FROM health_metrics
+            WHERE user_id = $1::uuid
+            GROUP BY source
+            """,
+            user_id,
+        )
+    return {r["source"]: r["last_day"] for r in rows if r["last_day"]}

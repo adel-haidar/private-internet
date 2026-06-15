@@ -10,8 +10,14 @@ import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from functools import lru_cache
 
-from assistant.health.compute import compute_daily_summary
-from assistant.health.db import bulk_insert, fetch_trends, get_pool, init_pool
+from assistant.health.compute import _DEVICE_SOURCES, compute_daily_summary
+from assistant.health.db import (
+    bulk_insert,
+    fetch_latest_data_dates,
+    fetch_trends,
+    get_pool,
+    init_pool,
+)
 from assistant.health.ingest import parse_apple_health_export
 from assistant.health.models import (
     DailyHealthSummary,
@@ -207,13 +213,49 @@ async def get_daily(
 @router.get("/health/trends")
 async def get_trends(
     days: int = Query(default=30, ge=1, le=365),
+    until: date | None = Query(default=None),
     ident: dict = Depends(require_user),
 ):
-    """Return daily time series for charting: weight, resting_hr, sleep, steps, etc."""
+    """Return daily time series for charting: weight, resting_hr, sleep, steps, etc.
+
+    `until` anchors the window's end date (defaults to today) so a previously synced
+    export whose newest data has aged out can still be charted."""
     pool = await _pool()
     user_id = await _resolve_user_id(ident, pool)
-    series = await fetch_trends(pool, TREND_METRICS, days, user_id=user_id)
+    series = await fetch_trends(pool, TREND_METRICS, days, until=until, user_id=user_id)
     return {"days": days, "series": series}
+
+
+# ── Sync status ────────────────────────────────────────────────────────────────
+
+@router.get("/health/status")
+async def get_status(ident: dict = Depends(require_user)):
+    """Persistent, all-time per-device sync state from the brain.
+
+    Unlike /trends and /daily (both anchored to recent dates), this reflects whether
+    a device has *ever* synced and when it was last seen — so the dashboard recognizes
+    a previously synced device on every login instead of asking for a fresh import."""
+    pool = await _pool()
+    user_id = await _resolve_user_id(ident, pool)
+    latest = await fetch_latest_data_dates(pool, user_id=user_id)
+
+    sources = []
+    overall: date | None = None
+    for device, raw_sources in _DEVICE_SOURCES.items():
+        days = [latest[s] for s in raw_sources if latest.get(s)]
+        last = max(days) if days else None
+        if last and (overall is None or last > overall):
+            overall = last
+        sources.append({
+            "source": device,
+            "has_data": last is not None,
+            "last_data_date": last.isoformat() if last else None,
+        })
+
+    return {
+        "sources": sources,
+        "latest_data_date": overall.isoformat() if overall else None,
+    }
 
 
 # ── Summary (no LLM) ─────────────────────────────────────────────────────────

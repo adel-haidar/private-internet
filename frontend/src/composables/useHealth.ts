@@ -134,11 +134,14 @@ export function useHealthTrends() {
   const trends = ref<TrendsResponse | null>(null)
   const error  = ref<string | null>(null)
 
-  async function fetchTrends(days = 30): Promise<void> {
+  async function fetchTrends(days = 30, until?: string): Promise<void> {
     status.value = 'loading'
     error.value  = null
     try {
-      const res = await withTokenRefresh(() => authedGet(`/health/trends?days=${days}`))
+      // Anchor the window to `until` (the latest synced day) when given so an
+      // older export still charts instead of returning an empty last-N-days window.
+      const qs = `days=${days}${until ? `&until=${until}` : ''}`
+      const res = await withTokenRefresh(() => authedGet(`/health/trends?${qs}`))
       trends.value = await parseJson<TrendsResponse>(res)
       status.value = 'success'
     } catch (e) {
@@ -148,6 +151,40 @@ export function useHealthTrends() {
   }
 
   return { status, trends, error, fetchTrends }
+}
+
+// ── Sync status ──────────────────────────────────────────────────────────────
+
+export interface HealthStatusSource {
+  source: 'beurer_scale' | 'apple_watch'
+  has_data: boolean
+  last_data_date: string | null
+}
+
+export interface HealthStatusResponse {
+  sources: HealthStatusSource[]
+  latest_data_date: string | null
+}
+
+export function useHealthStatus() {
+  const status = ref<'idle' | 'loading' | 'error' | 'success'>('idle')
+  const data   = ref<HealthStatusResponse | null>(null)
+  const error  = ref<string | null>(null)
+
+  async function fetchStatus(): Promise<void> {
+    status.value = 'loading'
+    error.value  = null
+    try {
+      const res = await withTokenRefresh(() => authedGet('/health/status'))
+      data.value = await parseJson<HealthStatusResponse>(res)
+      status.value = 'success'
+    } catch (e) {
+      status.value = 'error'
+      error.value  = (e as Error).message
+    }
+  }
+
+  return { status, data, error, fetchStatus }
 }
 
 // ── Apple Health import ────────────────────────────────────────────────────
