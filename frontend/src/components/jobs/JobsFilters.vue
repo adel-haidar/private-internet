@@ -29,10 +29,9 @@ const hasFilters = () =>
       @change="store.setFilter('country', ($event.target as HTMLSelectElement).value)"
     >
       <option value="">Country: All</option>
-      <option value="Switzerland">Switzerland</option>
-      <option value="Canada">Canada</option>
-      <option value="Norway">Norway</option>
-      <option value="Singapore">Singapore</option>
+      <option v-for="c in store.state.availableCountries" :key="c.code" :value="c.name">
+        {{ c.name }}
+      </option>
     </select>
 
     <select
@@ -56,10 +55,7 @@ const hasFilters = () =>
       @change="store.setFilter('platform', ($event.target as HTMLSelectElement).value)"
     >
       <option value="">Platform: All</option>
-      <option value="jobs.ch">jobs.ch</option>
-      <option value="linkedin">LinkedIn</option>
-      <option value="indeed">Indeed</option>
-      <option value="stepstone">StepStone</option>
+      <option value="LinkedIn">LinkedIn</option>
     </select>
 
     <button

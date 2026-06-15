@@ -5,42 +5,26 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Optional
 
+from assistant.job.countries import name_for
 from assistant.job.db import count_all, init_pool, upsert_match
 from assistant.job.models import JobListing, RunReport, ScoredListing
 from assistant.job.report import format_report
 from assistant.job.scorer import JobScorer
-from assistant.job.scrapers.jobs_ch import JobsChScraper
 from assistant.job.scrapers.rapidapi import RapidApiScraper
-from assistant.job.scrapers.stepstone import StepStoneScraper
 
 logger = logging.getLogger(__name__)
 
-# (query, optional city) per target country
-_QUERIES: dict[str, list[tuple[str, Optional[str]]]] = {
-    "Switzerland": [
-        ("Senior Java Engineer", "Zurich"),
-        ("Spring Boot Entwickler", None),
-        ("AI Engineer Banking", "Zurich"),
-        ("Senior Backend Developer", "Geneva"),
-        ("Software Engineer fintech", None),
-    ],
-    "Canada": [
-        ("Senior Java Developer", "Toronto"),
-        ("Backend Engineer remote", None),
-        ("AI Engineer fintech", None),
-        ("Java Spring Boot remote", None),
-    ],
-    "Norway": [
-        ("Senior Java Developer", "Oslo"),
-        ("Backend Engineer Norway", None),
-        ("AI Engineer fintech", "Oslo"),
-    ],
-    "Singapore": [
-        ("Java Backend Engineer", "Singapore"),
-        ("Senior Software Engineer banking", "Singapore"),
-        ("AI Engineer fintech", "Singapore"),
-    ],
-}
+# Country-agnostic default search queries (role-based). These run against every
+# country the user selects in the dashboard. City hints are intentionally absent
+# so the queries generalise to any market. Per-user queries derived from the
+# caller's brain are a documented follow-up.
+_DEFAULT_QUERIES: list[tuple[str, Optional[str]]] = [
+    ("Senior Java Engineer", None),
+    ("Spring Boot Developer", None),
+    ("Senior Backend Developer", None),
+    ("AI Engineer fintech", None),
+    ("Software Engineer banking", None),
+]
 
 
 def _dedup_key(listing: JobListing) -> str:
@@ -65,8 +49,6 @@ _HARD_REJECT_DOMAINS = [
 
 
 def is_search_results_page(listing: JobListing) -> bool:
-    if "jobs.ch" in listing.job_url and "/detail/" not in listing.job_url:
-        return True
     title_lower = listing.title.lower().strip()
     return any(p.search(title_lower) for p in _SEARCH_PAGE_TITLE_PATTERNS)
 
@@ -100,14 +82,20 @@ async def run_agent(
     delay_seconds: float,
     max_per_query: int,
     user_id: str,
+    countries: list[str],
 ) -> RunReport:
     timestamp = datetime.utcnow()
     pool = await init_pool(database_url)
 
+    # `countries` are ISO alpha-2 codes chosen by the user in the dashboard.
+    # Display names are used for scoring context, the report, and the email.
+    country_codes = [c.upper() for c in countries if c]
+    country_names = [name_for(c) for c in country_codes]
+
     # Per-user job profile from the CALLER's brain. Score against it; if the user
     # has no profile (no résumé/skills/preferences in their brain), skip the scrape
     # entirely so they never receive the owner's matches. (Per-user search queries
-    # are a follow-up — _QUERIES is still the shared default below.)
+    # are a follow-up — _DEFAULT_QUERIES is still the shared default below.)
     candidate_profile = ""
     if memory_client is not None:
         try:
@@ -117,11 +105,13 @@ async def run_agent(
     scorer = JobScorer(
         bedrock_client=bedrock_client, model_id=model_id,
         candidate_profile=candidate_profile,
+        target_countries=country_names,
     )
 
-    # LinkedIn and Indeed block AWS EC2 IPs at the network level — standalone scrapers
-    # for those platforms will never succeed from this host. JSearch (RAPIDAPI_KEY)
-    # routes through its own proxy infrastructure and is the only reliable source.
+    # JSearch (RAPIDAPI_KEY) is the sole, international job source. It routes
+    # through its own proxy infrastructure, so it works from EC2 where LinkedIn
+    # and Indeed block the host directly. Local-market scrapers (jobs.ch,
+    # StepStone) were removed — the platform now serves any country.
     scrapers = []
     if rapidapi_key:
         scrapers.append(
@@ -129,13 +119,9 @@ async def run_agent(
         )
     else:
         logger.warning(
-            "RAPIDAPI_KEY not set — LinkedIn and Indeed results unavailable. "
-            "Set RAPIDAPI_KEY to enable JSearch coverage for both platforms."
+            "RAPIDAPI_KEY not set — JSearch is the only job source and is "
+            "unavailable. Set RAPIDAPI_KEY to enable the scrape."
         )
-    scrapers += [
-        JobsChScraper(delay_seconds, max_per_query),
-        StepStoneScraper(delay_seconds, max_per_query),
-    ]
 
     if not candidate_profile.strip():
         # No profile in the caller's brain → no scraping. Returns a zeroed report
@@ -147,21 +133,17 @@ async def run_agent(
     all_raw: list[JobListing] = []
     platforms_used: set[str] = set()
 
-    for country, queries in _QUERIES.items():
-        for query, city in queries:
+    for code in country_codes:
+        for query, city in _DEFAULT_QUERIES:
             for scraper in scrapers:
-                if scraper.name == "jobs.ch" and country != "Switzerland":
-                    continue
-                if scraper.name == "StepStone" and country != "Switzerland":
-                    continue
                 try:
-                    results = await scraper.search(query, country, city)
+                    results = await scraper.search(query, code, city)
                     all_raw.extend(results)
                     if results:
                         platforms_used.add(scraper.name)
                 except Exception:
                     logger.exception(
-                        "Scraper %s failed for %r in %s", scraper.name, query, country
+                        "Scraper %s failed for %r in %s", scraper.name, query, code
                     )
 
     raw_count = len(all_raw)
@@ -269,7 +251,7 @@ async def run_agent(
     report = RunReport(
         timestamp=timestamp,
         platforms=sorted(platforms_used),
-        countries=list(_QUERIES.keys()),
+        countries=country_names,
         raw_count=raw_count,
         dedup_count=dedup_count,
         hard_rejected_count=hard_rejected_count,

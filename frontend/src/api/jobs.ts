@@ -1,5 +1,5 @@
 import { requireAuth, refreshTokens, hasRefreshToken } from '../composables/useAuth'
-import type { MatchesResponse, RunResponse, RunReport, JobStatus } from '../types/jobs'
+import type { MatchesResponse, RunResponse, RunReport, JobStatus, CountriesResponse } from '../types/jobs'
 import { API_BASE } from '../config/env'
 
 const BASE = API_BASE
@@ -49,9 +49,21 @@ export async function fetchMatches(params: {
   return res.json() as Promise<MatchesResponse>
 }
 
-export async function triggerRun(): Promise<RunResponse> {
-  const res = await authFetch(`${BASE}/api/jobs/run`)
-  if (!res.ok) throw new Error(`Failed to trigger run: HTTP ${res.status}`)
+export async function fetchCountries(): Promise<CountriesResponse> {
+  const res = await authFetch(`${BASE}/api/jobs/countries`)
+  if (!res.ok) throw new Error(`Failed to fetch countries: HTTP ${res.status}`)
+  return res.json() as Promise<CountriesResponse>
+}
+
+export async function triggerRun(countries: string[]): Promise<RunResponse> {
+  const query = new URLSearchParams()
+  countries.forEach(c => query.append('countries', c))
+  const res = await authFetch(`${BASE}/api/jobs/run?${query.toString()}`)
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`
+    try { detail = (await res.json()).detail ?? detail } catch { /* ignore */ }
+    throw new Error(`Failed to trigger run: ${detail}`)
+  }
   return res.json() as Promise<RunResponse>
 }
 

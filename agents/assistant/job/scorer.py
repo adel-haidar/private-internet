@@ -33,50 +33,55 @@ Domain: Banking & fintech (Atruvia/FiduciaGAD, apoBank, Rabobank), payments, reg
 Active applications — DO NOT match:
   Mistral AI, Swisscom, PostFinance, LBBW, Capgemini CH, Adobe CH, Swissquote, TeamViewer"""
 
-_FILTER_RULES = """\
+def _filter_rules(target_countries: list[str]) -> str:
+    countries = ", ".join(target_countries) if target_countries else "the candidate's target countries"
+    return f"""\
 Hard disqualifiers (auto-reject, no scoring):
-  WRONG_COUNTRY         Not in CH, CA, NO, SG. Remote only if employer is in target country.
-  CITIZENSHIP_RESTRICTED Swiss/Canadian/local citizens only.
-  NO_SPONSORSHIP        Canada or Singapore role with no visa sponsorship mentioned.
-  TECHNOLOGY_MISMATCH   C++, .NET, PHP, iOS native, pure Python ML — no Java/Spring overlap.
-                        If Java is listed only as a 'bonus' or 'nice to have' and the primary
-                        language is Python, C++, C#, Scala, or the role title is 'Quantitative
-                        Developer / Quant Developer' → HARD REJECT with TECHNOLOGY_MISMATCH.
-  ALREADY_APPLIED       Company is in the active applications list.
+  WRONG_COUNTRY         Job is not located in {countries}. A remote job qualifies
+                        only if the employer is based in one of these countries.
+  CITIZENSHIP_RESTRICTED Role open only to local citizens / nationals, and the
+                        candidate's profile shows no matching citizenship or work rights.
+  NO_SPONSORSHIP        Role is in a country where the candidate needs sponsorship
+                        (per their profile) and none is mentioned.
+  TECHNOLOGY_MISMATCH   Primary stack has no overlap with the candidate's core stack.
+                        If the candidate's main language is listed only as a 'bonus' or
+                        'nice to have' while the primary language is different, or the role
+                        title is a clear mismatch → HARD REJECT with TECHNOLOGY_MISMATCH.
+  ALREADY_APPLIED       Company is in the candidate's active applications list.
   JUNIOR_ROLE           <3 years expected, entry-level, graduate, or trainee.
-  PURE_MANAGEMENT       CTO/VP/Head with no IC track.
+  PURE_MANAGEMENT       CTO/VP/Head with no individual-contributor track.
 
 Soft disqualifiers (include with note):
-  EXPERIENCE_GAP        Role requires >8 years; candidate has 6.
-  SALARY_BELOW          Below floor (CHF 110k / CAD 95k / NOK 900k / SGD 95k).
+  EXPERIENCE_GAP        Role requires significantly more experience than the candidate has.
+  SALARY_BELOW          Compensation is clearly below the candidate's stated target.
   RELOCATION_URGENT     Must be on-site within 30 days."""
 
-_SCORING_MODEL = """\
-Technical fit (0-35):
-  35 = Java + Spring Boot + Kafka + cloud
-  25 = Java + Spring Boot (missing cloud or Kafka)
-  15 = Scala or Kotlin with Spring
-   5 = Other backend with clear overlap
 
-Domain fit (0-25):
-  25 = Banking/fintech/payments explicitly required
-  15 = Financial services broadly
+def _scoring_model(target_countries: list[str]) -> str:
+    countries = ", ".join(target_countries) if target_countries else "a target country"
+    return f"""\
+Technical fit (0-35): score against the candidate's core stack from their profile.
+  35 = Full overlap with the candidate's primary stack (incl. their key frameworks)
+  25 = Strong overlap, missing one or two secondary technologies
+  15 = Partial overlap (adjacent language/framework)
+   5 = Other backend with some clear overlap
+
+Domain fit (0-25): score against the candidate's domain from their profile.
+  25 = Candidate's target domain explicitly required
+  15 = Adjacent / broader version of that domain
   10 = General enterprise backend
-   5 = Other domain
+   5 = Unrelated domain
 
 Location / work mode (0-20):
-  20 = Switzerland
-  15 = Norway
-  10 = Canada (sponsorship confirmed)
-   8 = Singapore (EP confirmed)
-   5 = Remote-first with target country employer
-  +5 bonus for Geneva/Lausanne + French listed as asset
+  20 = On-site or hybrid in one of: {countries}
+  12 = Remote-first with an employer based in one of those countries
+   0 = Outside the target countries
 
 Salary fit (0-10):
-  10 = At or above target floor
+  10 = At or above the candidate's stated target
    7 = Within 10% below target
    3 = 10-20% below target
-   0 = >20% below or not disclosed
+   0 = >20% below, or not disclosed
 
 AI / growth signal (0-10):
   10 = LLM/GenAI/Agentic/Bedrock/RAG/embeddings in JD
@@ -105,7 +110,7 @@ _JSON_SCHEMA = """\
 }"""
 
 
-def _build_prompt(listing: JobListing, candidate_profile: str) -> str:
+def _build_prompt(listing: JobListing, candidate_profile: str, target_countries: list[str]) -> str:
     return "\n".join([
         "You are a strict job matching agent. Evaluate the listing against the candidate profile.",
         "Apply hard disqualifiers first. If not disqualified, score on the 0-100 scale.",
@@ -115,10 +120,10 @@ def _build_prompt(listing: JobListing, candidate_profile: str) -> str:
         candidate_profile,
         "",
         "=== FILTER RULES ===",
-        _FILTER_RULES,
+        _filter_rules(target_countries),
         "",
         "=== SCORING MODEL ===",
-        _SCORING_MODEL,
+        _scoring_model(target_countries),
         "",
         "=== REQUIRED RETURN FORMAT (strict JSON) ===",
         _JSON_SCHEMA,
@@ -136,16 +141,27 @@ def _build_prompt(listing: JobListing, candidate_profile: str) -> str:
 
 
 class JobScorer(BaseLLMService):
-    def __init__(self, bedrock_client, model_id, candidate_profile: Optional[str] = None):
+    def __init__(
+        self,
+        bedrock_client,
+        model_id,
+        candidate_profile: Optional[str] = None,
+        target_countries: Optional[list[str]] = None,
+    ):
         super().__init__(bedrock_client=bedrock_client, model_id=model_id)
         # Score against the CALLER's profile (from their brain). Fall back to the
         # owner profile only if none was supplied (back-compat).
         self._candidate_profile = candidate_profile or _CANDIDATE_PROFILE
+        # Target countries are the user's dashboard selection (display names).
+        self._target_countries = target_countries or []
 
     def score(self, listing: JobListing) -> Optional[MatchResult]:
         try:
             raw = self._strip_markdown(
-                self._invoke(_build_prompt(listing, self._candidate_profile), max_tokens=2048)
+                self._invoke(
+                    _build_prompt(listing, self._candidate_profile, self._target_countries),
+                    max_tokens=2048,
+                )
             )
             data = json.loads(raw)
             return MatchResult(**data)

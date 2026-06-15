@@ -6,7 +6,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from assistant.job import agent as job_agent
-from assistant.job.db import init_pool, list_matches, list_unknown_companies, set_status, update_company
+from assistant.job import countries as job_countries
+from assistant.job.db import init_pool, list_matches, set_status
 from assistant.job.models import RunReport
 from assistant.job.report import format_report
 from assistant.shared.auth import require_user
@@ -39,9 +40,19 @@ async def _resolve_user_id(ident: dict, pool) -> str:
     return _seed_admin_id
 
 
+@router.get("/countries")
+async def get_countries(ident: dict = Depends(require_user)):
+    """The country list for the dashboard dropdown (ISO alpha-2 code + name)."""
+    return {"countries": job_countries.as_dicts()}
+
+
 @router.get("/run")
 async def trigger_run(
     background_tasks: BackgroundTasks,
+    countries: list[str] = Query(
+        default=[],
+        description="ISO 3166-1 alpha-2 country codes to search, e.g. ?countries=CH&countries=DE",
+    ),
     settings: Settings = Depends(get_settings),
     ident: dict = Depends(require_user),
 ):
@@ -49,9 +60,19 @@ async def trigger_run(
     # Search criteria are still the shared defaults — per-user criteria is a follow-up.
     if not settings.database_url:
         raise HTTPException(503, "DATABASE_URL is not configured")
+
+    # Validate the user's country selection. At least one is required, and every
+    # code must be a known ISO alpha-2 — no country is hardcoded server-side.
+    codes = [c.upper() for c in countries if c and c.strip()]
+    if not codes:
+        raise HTTPException(422, "Select at least one country to search (GET /api/jobs/countries).")
+    invalid = [c for c in codes if not job_countries.is_valid(c)]
+    if invalid:
+        raise HTTPException(422, f"Unknown country code(s): {', '.join(invalid)}")
+
     pool = await init_pool(settings.database_url)
     user_id = await _resolve_user_id(ident, pool)
-    background_tasks.add_task(_run_job_agent, settings, user_id, ident["token"])
+    background_tasks.add_task(_run_job_agent, settings, user_id, ident["token"], codes)
     return {
         "status": "started",
         "message": "Job hunt agent running in background. Poll GET /api/jobs/report for results.",
@@ -95,43 +116,6 @@ async def update_status(
     return {"id": match_id, "status": body.status}
 
 
-@router.get("/fix-companies")
-async def fix_companies(settings: Settings = Depends(get_settings), ident: dict = Depends(require_user)):
-    """One-time migration: re-fetch company names for rows with 'Explore companies' or 'Unknown'."""
-    if not settings.database_url:
-        raise HTTPException(503, "DATABASE_URL is not configured")
-    pool = await init_pool(settings.database_url)
-    user_id = await _resolve_user_id(ident, pool)
-    rows = await list_unknown_companies(pool, user_id=user_id)
-    if not rows:
-        return {"message": "No rows to fix", "updated": 0}
-
-    from assistant.job.scrapers.jobs_ch import extract_company_from_url
-
-    updated = 0
-    skipped = 0
-    for row in rows:
-        url: str = row["job_url"]
-        platform: str = row["platform"]
-        if platform != "jobs.ch":
-            skipped += 1
-            continue
-        company = await extract_company_from_url(url)
-        if company:
-            ok = await update_company(pool, url, company, user_id=user_id)
-            if ok:
-                updated += 1
-                logger.info("fix-companies: updated %s → %r", url, company)
-        else:
-            logger.warning("fix-companies: could not extract company for %s", url)
-
-    return {
-        "message": f"Updated {updated} rows ({skipped} non-jobs.ch skipped)",
-        "updated": updated,
-        "skipped": skipped,
-    }
-
-
 @router.get("/report")
 async def get_report(settings: Settings = Depends(get_settings), ident: dict = Depends(require_user)):
     pool = await init_pool(settings.database_url) if settings.database_url else None
@@ -144,7 +128,12 @@ async def get_report(settings: Settings = Depends(get_settings), ident: dict = D
     return {"report": format_report(report), "data": report}
 
 
-async def _run_job_agent(settings: Settings, user_id: str, token: Optional[str] = None) -> None:
+async def _run_job_agent(
+    settings: Settings,
+    user_id: str,
+    token: Optional[str] = None,
+    countries: Optional[list[str]] = None,
+) -> None:
     bedrock_client = boto3.client("bedrock-runtime", region_name=settings.aws_region)
     memory_client = None
     graph_client = None
@@ -185,6 +174,7 @@ async def _run_job_agent(settings: Settings, user_id: str, token: Optional[str] 
             delay_seconds=settings.scraper_delay_seconds,
             max_per_query=settings.scraper_max_results_per_query,
             user_id=user_id,
+            countries=countries or [],
         )
         _latest_reports[user_id] = report
     except Exception:

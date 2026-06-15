@@ -4,17 +4,11 @@ from typing import Optional
 
 import httpx
 
+from assistant.job.countries import name_for
 from assistant.job.models import JobListing
 from assistant.job.scrapers.base import BaseScraper
 
 logger = logging.getLogger(__name__)
-
-_COUNTRY_CODES = {
-    "Switzerland": "CH",
-    "Canada": "CA",
-    "Norway": "NO",
-    "Singapore": "SG",
-}
 
 
 class RapidApiScraper(BaseScraper):
@@ -40,13 +34,17 @@ class RapidApiScraper(BaseScraper):
     async def search(
         self, query: str, country: str, city: Optional[str] = None
     ) -> list[JobListing]:
-        country_code = _COUNTRY_CODES.get(country, country[:2].upper())
+        # `country` is an ISO 3166-1 alpha-2 code (e.g. "CH") — exactly what the
+        # JSearch `country` param wants. `country_name` is the display label we
+        # store on the listing.
+        country_code = (country or "").upper()
+        country_name = name_for(country_code)
         search_query = f"{query} {city}" if city else query
 
         params = {
             "query": search_query,
             "num_pages": "1",
-            "country": country_code,
+            "country": country_code.lower(),
             "employment_types": "FULLTIME",
         }
 
@@ -76,7 +74,7 @@ class RapidApiScraper(BaseScraper):
             remote_type = "remote" if item.get("job_is_remote") else "unknown"
             city_part = item.get("job_city") or ""
             state_part = item.get("job_state") or ""
-            location = ", ".join(p for p in [city_part, state_part] if p) or country
+            location = ", ".join(p for p in [city_part, state_part] if p) or country_name
 
             listings.append(
                 JobListing(
@@ -84,7 +82,7 @@ class RapidApiScraper(BaseScraper):
                     title=item.get("job_title") or "",
                     company=item.get("employer_name") or "",
                     location=location,
-                    country=country,
+                    country=country_name,
                     job_url=job_url,
                     posted_date=posted_date,
                     salary_raw=salary_raw,
@@ -97,7 +95,7 @@ class RapidApiScraper(BaseScraper):
 
         await self._sleep()
         logger.info(
-            "RapidAPI: %d results for %r in %s", len(listings), query, country
+            "RapidAPI: %d results for %r in %s", len(listings), query, country_name
         )
         return listings
 

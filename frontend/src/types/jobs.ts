@@ -66,5 +66,14 @@ export interface RunResponse {
   message: string
 }
 
+export interface Country {
+  code: string
+  name: string
+}
+
+export interface CountriesResponse {
+  countries: Country[]
+}
+
 export type SortField = 'match_score' | 'run_timestamp' | 'company' | 'country'
 export type SortDir = 'asc' | 'desc'

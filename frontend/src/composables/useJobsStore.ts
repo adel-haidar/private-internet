@@ -1,6 +1,17 @@
 import { reactive, computed, type UnwrapNestedRefs } from 'vue'
-import type { JobMatch, MatchTier, JobStatus, RunReport, SortField, SortDir } from '../types/jobs'
+import type { JobMatch, MatchTier, JobStatus, RunReport, SortField, SortDir, Country } from '../types/jobs'
 import * as api from '../api/jobs'
+
+const RUN_COUNTRIES_KEY = 'jobs.runCountries'
+
+function loadStoredRunCountries(): string[] {
+  try {
+    const raw = localStorage.getItem(RUN_COUNTRIES_KEY)
+    return raw ? (JSON.parse(raw) as string[]) : []
+  } catch {
+    return []
+  }
+}
 
 interface JobsState {
   matches: JobMatch[]
@@ -11,6 +22,8 @@ interface JobsState {
   lastReport: RunReport | null
   lastRunAt: string | null
   error: string | null
+  availableCountries: Country[]
+  selectedRunCountries: string[]
   filterTier: MatchTier | ''
   filterCountry: string
   filterStatus: JobStatus | ''
@@ -28,6 +41,8 @@ const state = reactive<JobsState>({
   lastReport: null,
   lastRunAt: null,
   error: null,
+  availableCountries: [],
+  selectedRunCountries: loadStoredRunCountries(),
   filterTier: '',
   filterCountry: '',
   filterStatus: '',
@@ -80,6 +95,25 @@ async function fetchMatches(): Promise<void> {
   }
 }
 
+async function loadCountries(): Promise<void> {
+  if (state.availableCountries.length > 0) return
+  try {
+    const res = await api.fetchCountries()
+    state.availableCountries = res.countries
+  } catch {
+    // non-fatal — the picker just shows nothing until a retry
+  }
+}
+
+function toggleRunCountry(code: string): void {
+  const i = state.selectedRunCountries.indexOf(code)
+  if (i === -1) state.selectedRunCountries.push(code)
+  else state.selectedRunCountries.splice(i, 1)
+  try {
+    localStorage.setItem(RUN_COUNTRIES_KEY, JSON.stringify(state.selectedRunCountries))
+  } catch { /* ignore */ }
+}
+
 async function fetchReport(): Promise<void> {
   try {
     const report = await api.fetchReport()
@@ -106,12 +140,17 @@ function stopPolling(): void {
 
 async function triggerRun(): Promise<void> {
   if (state.isRunning) return
+  if (state.selectedRunCountries.length === 0) {
+    state.runStatus = 'error'
+    state.error = 'Select at least one country before running the agent.'
+    return
+  }
   state.isRunning = true
   state.runStatus = 'running'
   state.error = null
 
   try {
-    await api.triggerRun()
+    await api.triggerRun(state.selectedRunCountries)
   } catch (err) {
     state.isRunning = false
     state.runStatus = 'error'
@@ -198,6 +237,8 @@ const _store = reactive({
   sortedMatches,
   fetchMatches,
   fetchReport,
+  loadCountries,
+  toggleRunCountry,
   triggerRun,
   updateStatus,
   setFilter,

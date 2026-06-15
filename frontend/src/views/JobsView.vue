@@ -4,6 +4,7 @@ import { useJobsStore } from '../composables/useJobsStore'
 import PageHead from '../components/ui/PageHead.vue'
 import JobsStats from '../components/jobs/JobsStats.vue'
 import JobsFilters from '../components/jobs/JobsFilters.vue'
+import JobsCountryPicker from '../components/jobs/JobsCountryPicker.vue'
 import JobsTable from '../components/jobs/JobsTable.vue'
 import JobRunProgress from '../components/jobs/JobRunProgress.vue'
 import JobsReportPanel from '../components/jobs/JobsReportPanel.vue'
@@ -12,7 +13,7 @@ const store = useJobsStore()
 const showReport = ref(false)
 
 onMounted(async () => {
-  await Promise.all([store.fetchMatches(), store.fetchReport()])
+  await Promise.all([store.fetchMatches(), store.fetchReport(), store.loadCountries()])
 })
 </script>
 
@@ -27,11 +28,12 @@ onMounted(async () => {
       <div class="header-left">
         <PageHead
           title="Job hunt"
-          desc="Switzerland · Canada · Norway · Singapore"
+          desc="AI-scored matches from LinkedIn — pick any countries to search"
         />
       </div>
       <div class="header-right">
         <div class="btn-group">
+          <JobsCountryPicker />
           <button
             class="btn btn-secondary"
             :aria-pressed="showReport"
@@ -41,7 +43,8 @@ onMounted(async () => {
           </button>
           <button
             class="btn btn-primary run-btn"
-            :disabled="store.state.isRunning"
+            :disabled="store.state.isRunning || store.state.selectedRunCountries.length === 0"
+            :title="store.state.selectedRunCountries.length === 0 ? 'Select at least one country first' : 'Run job hunt agent'"
             aria-label="Run job hunt agent"
             @click="store.triggerRun()"
           >
