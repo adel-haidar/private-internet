@@ -87,7 +87,7 @@ const url = computed(() => firstUrl(props.post.body))
 <style scoped>
 .pc { border-radius: var(--radius-md); border: 1px solid var(--border-subtle); }
 .pc--card { background: var(--background-surface); padding: 16px; }
-.pc--b { padding: 16px; display: flex; flex-direction: column; height: 100%; }
+.pc--b { padding: 16px; display: flex; flex-direction: column; }
 .pc__row { display: flex; align-items: center; gap: 8px; }
 .pc__spacer { flex: 1; }
 .pc__serif { font-family: var(--font-serif); color: var(--text-primary); }
