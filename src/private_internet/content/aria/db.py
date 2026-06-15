@@ -33,6 +33,13 @@ def init_aria_db() -> None:
         else:
             # Inline fallback (migration file missing — e.g. tests)
             _apply_inline_ddl(cur)
+        # Suno provenance columns (mirrors migration 0014_aria_suno.sql).
+        # Idempotent so startup is safe whether or not 0014 ran separately.
+        cur.execute(
+            "ALTER TABLE aria_tracks "
+            "ADD COLUMN IF NOT EXISTS suno_job_id VARCHAR(255), "
+            "ADD COLUMN IF NOT EXISTS generation_provider VARCHAR(50) DEFAULT 'suno'"
+        )
         conn.commit()
     except Exception:
         conn.rollback()
@@ -166,6 +173,7 @@ def update_track_status(
     waveform_s3_key: Optional[str] = None,
     art_s3_key: Optional[str] = None,
     duration_seconds: Optional[int] = None,
+    suno_job_id: Optional[str] = None,
 ) -> None:
     """Update a track's status and optional S3 keys. # MUST SCOPE BY USER"""
     assert user_id is not None
@@ -179,11 +187,12 @@ def update_track_status(
                    waveform_s3_key = COALESCE(%s, waveform_s3_key),
                    art_s3_key      = COALESCE(%s, art_s3_key),
                    duration_seconds = COALESCE(%s, duration_seconds),
+                   suno_job_id     = COALESCE(%s, suno_job_id),
                    updated_at      = now()
                WHERE id = %s AND user_id = %s""",
             (
                 status, audio_s3_key, waveform_s3_key, art_s3_key,
-                duration_seconds, track_id, user_id,
+                duration_seconds, suno_job_id, track_id, user_id,
             ),
         )
         conn.commit()

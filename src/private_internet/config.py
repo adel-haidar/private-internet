@@ -86,12 +86,25 @@ class Settings(BaseSettings):
     # (returns immediately) so the module can be deployed before billing/keys land.
     # elevenlabs_api_key is shared with SIGNAL narration above.
     aria_music_enabled: bool = True
-    # "elevenlabs" uses /v1/music; future backends (suno, udio) can be plugged in.
-    aria_music_backend: str = "elevenlabs"
-    # Maximum seconds of music to request per track (ElevenLabs caps at 30s on free plans).
-    aria_music_duration_seconds: int = 30
+    # "suno" uses Suno AI (sunoapi.org) for full-length 2–4 min tracks (current
+    # provider). "elevenlabs" is the legacy /v1/music path (now used only by the
+    # podcast generator). ARIA's generator uses Suno regardless of this value.
+    aria_music_backend: str = "suno"
     # Number of waveform bars to compute per track.
     aria_waveform_bars: int = 200
+
+    # ── ARIA music (Suno AI — sunoapi.org) ──────────────────────
+    # Suno generates complete songs (2–4 min). Key comes from the environment
+    # only (SUNO_API_KEY) — never hardcode or read it from a secrets file.
+    suno_api_key: str = ""
+    suno_base_url: str = "https://api.sunoapi.org"
+    # Model version: V4 | V4_5 | V4_5PLUS | V4_5ALL | V5 | V5_5. V4_5 reliably
+    # produces 2–4 min tracks (well over the 120s ARIA minimum).
+    suno_model: str = "V4_5"
+    # Suno requires a callBackUrl on every generate request. We poll
+    # record-info instead of consuming callbacks (polling is authoritative), so
+    # this only needs to be a reachable https URL. Defaults to our own domain.
+    suno_callback_url: str = ""
 
     # ── Billing (Stripe) ────────────────────────────────────────
     # Master switch. While False the app is NOT gated on a subscription, so the

@@ -4,7 +4,7 @@ Pipeline per track:
   1. Fetch recent user memories (reuse memory service search).
   2. Bedrock metadata via forced tool_choice (temp=0, max_tokens=1024) →
      title, mood, genre, bpm, key, instruments, lyrics snippet.
-  3. ElevenLabs music generation (music_client.generate_music with fallback).
+  3. Suno music generation (suno_client, full-length track + min-duration check).
   4. compute_waveform → list[float].
   5. fal album art (fal_image.generate_image, 1024x1024).
   6. Upload audio + waveform.json + art to S3 via asset_store.
@@ -36,7 +36,7 @@ from private_internet.content.aria.db import (
     list_tracks,
     list_playlists,
 )
-from private_internet.content.aria.music_client import generate_music
+from private_internet.content.aria.suno_client import SunoClient
 from private_internet.content.aria.waveform import compute_waveform
 from private_internet.content.asset_store import AssetStore
 from private_internet.content.fal_image import generate_image
@@ -86,9 +86,21 @@ _TRACK_TOOL_SCHEMA = {
             "type": "string",
             "description": "Optional short lyrical phrase or spoken intro (max 80 chars). Empty string if purely instrumental.",
         },
-        "music_prompt": {
+        "suno_style_prompt": {
             "type": "string",
-            "description": "A detailed English prompt for the music generation API (60–200 chars).",
+            "description": (
+                "Music generation style prompt for Suno AI. "
+                "Format: '[genre], [mood], [key instruments], [tempo descriptor]'. "
+                "Example: 'ambient piano, melancholic, strings, slow'. "
+                "Maximum 200 characters. Musical terms only — no abstract concepts."
+            ),
+        },
+        "make_instrumental": {
+            "type": "boolean",
+            "description": (
+                "True for instrumental only. "
+                "False only if lyrics were generated in this tool call."
+            ),
         },
         "art_prompt": {
             "type": "string",
@@ -97,7 +109,7 @@ _TRACK_TOOL_SCHEMA = {
     },
     "required": [
         "title", "mood", "genre", "topic_category", "bpm", "musical_key",
-        "instruments", "lyrics", "music_prompt", "art_prompt",
+        "instruments", "lyrics", "suno_style_prompt", "make_instrumental", "art_prompt",
     ],
 }
 
@@ -311,18 +323,35 @@ async def generate_track(*, user_id: str) -> str:
         ),
     )
 
+    suno_task_id: Optional[str] = None
     try:
-        # 3. Music generation (blocking HTTP call, off event loop).
+        # 3. Music generation via Suno (full-length track; client polls + enforces
+        #    the 120s minimum and retries once internally).
         t_music = datetime.now(timezone.utc)
-        music_prompt = metadata.get("music_prompt", f"{metadata['mood']} {metadata.get('genre', 'ambient')} music")
-        audio_bytes = await loop.run_in_executor(
-            None, lambda: generate_music(music_prompt)
+        style_prompt = (
+            metadata.get("suno_style_prompt")
+            or metadata.get("music_prompt")
+            or f"{metadata['mood']} {metadata.get('genre', 'ambient')}"
         )
+        make_instrumental = metadata.get("make_instrumental", True)
+        lyrics = metadata.get("lyrics", "") or ""
+        suno = SunoClient()
+        result = await suno.generate_with_min_duration(
+            prompt=lyrics,
+            style=style_prompt,
+            title=metadata["title"],
+            instrumental=make_instrumental,
+        )
+        audio_bytes = result.audio
+        suno_task_id = result.task_id
+        suno_duration = int(round(result.duration_seconds))
         logger.info(
-            "[user:%s] ARIA: audio in %.1fs (%d bytes)",
+            "[user:%s] ARIA: audio in %.1fs (%d bytes, %ds, job %s)",
             user_id[:8],
             (datetime.now(timezone.utc) - t_music).total_seconds(),
             len(audio_bytes),
+            suno_duration,
+            suno_task_id,
         )
 
         # 4. Waveform (CPU-bound pure Python, off event loop).
@@ -354,8 +383,8 @@ async def generate_track(*, user_id: str) -> str:
         waveform_key = _s3_key_from_cdn(waveform_cdn, store)
         art_key = _s3_key_from_cdn(art_cdn, store) if art_cdn else None
 
-        # Estimate duration from audio length (rough: 128 kbps mp3 → ~128000 bits/s).
-        duration_seconds = max(1, len(audio_bytes) * 8 // 128000)
+        # Real duration measured by the Suno client (pydub); already validated ≥120s.
+        duration_seconds = suno_duration
 
         # 7. Update DB: status=ready.
         await loop.run_in_executor(
@@ -368,6 +397,7 @@ async def generate_track(*, user_id: str) -> str:
                 waveform_s3_key=waveform_key,
                 art_s3_key=art_key,
                 duration_seconds=duration_seconds,
+                suno_job_id=suno_task_id,
             ),
         )
 
