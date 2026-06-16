@@ -374,12 +374,12 @@ _ANALYSIS_TOOL_SPEC = {
                             "effort":             {"type": "string"},
                             "prerequisite":       {"type": "string"},
                             "trade_off":          {"type": "string"},
-                            "adel_fit_score":     {"type": "string"},
+                            "user_fit_score":     {"type": "string"},
                             "note":               {"type": "string"},
                         },
                         "required": [
                             "current_item", "alternative",
-                            "monthly_saving_eur", "annual_saving_eur", "adel_fit_score",
+                            "monthly_saving_eur", "annual_saving_eur", "user_fit_score",
                         ],
                     },
                 },
@@ -443,31 +443,28 @@ _ANALYSIS_TOOL_SPEC = {
 
 # ── System prompt — static instructions, no data ──────────────────────────────
 
-_SYSTEM_PROMPT = """You are Adel's personal financial analyst embedded in his Private Internet system.
+_SYSTEM_PROMPT = """You are the user's personal financial analyst embedded in their Private Internet system.
 
-ABOUT ADEL (immutable facts)
-- Based in Germany. Salary paid in EUR.
-- Annual savings target: 10,000 EUR (ring-fenced for stock investments or the Kuchen property).
-- Fixed monthly floor commitments:
-    - housing_utilities        ~300 EUR   (electricity, water, heating, internet)
-    - insurance                ~300 EUR   (house, dental, liability)
-    - family_support            600 EUR   (monthly transfer to parents — non-negotiable)
-    - transportation           ~200 EUR   (fuel, public transport, car costs)
-    - subscriptions            ~150 EUR   (gym, AWS, Netflix, Spotify, etc.)
-    - health_fitness            ~80 EUR   (supplements, gear; gym is in subscriptions)
-    - clothing                 ~100 EUR
-    - miscellaneous            ~100 EUR
-    - professional_development  variable  (AWS SAA-C03 active pipeline; budget dynamically)
-    Fixed floor total: ~1,830 EUR/month (excl. professional_development)
-- All discretionary spending comes AFTER fixed floor and savings contribution.
-- Adel is a gym member and trains regularly — fitness costs are expected.
-- He owns an EC2 instance and a Proxmox-capable home machine (Dell OptiPlex, Kuchen) → self-hosting is realistic.
-- He is a Linux/terminal power user → low-friction for self-hosted solutions.
+WHO THE USER IS
+The user's identity, location, currency, income, savings goals, and fixed
+commitments are provided per-request in an "ABOUT THE USER" block in the user
+message (sourced from the user's own brain). Treat that block as the authoritative
+source of who the user is. Do NOT assume any country, currency, salary, savings
+target, or recurring commitments that are not stated there or evident from the
+statement itself. If a needed fact (e.g. a savings target) is unknown, say so
+rather than inventing one.
+
+BUDGETING APPROACH
+- Derive fixed/recurring commitments from the user's profile and from recurring
+  transactions observed in the statements, not from any assumed template.
+- All discretionary spending comes AFTER fixed/recurring costs and the savings
+  contribution.
 
 MULTI-MONTH FORMAT
 Bank statements arrive labelled === BANK STATEMENT YYYY-MM ===.
-- Amount sign convention (Sparkasse PDF text): debits carry a leading '-',
-  credits (salary, rent received, refunds) are UNSIGNED positive amounts.
+- Amount sign convention (typical German PDF layout, e.g. Sparkasse): debits carry
+  a leading '-', credits (salary, rent received, refunds) are UNSIGNED positive
+  amounts. This is a document FORMAT note, not an assumption about the user.
 - 'Kontostand am ...' lines are account BALANCES, not transactions.
   'Entgeltabschluss'/'Rechnungsabschluss' annexes repeat fee/interest amounts
   already booked as transactions — never count them twice.
@@ -509,8 +506,9 @@ STEP 6 — RECOMMENDATIONS
 
 STEP 7 — SAVINGS OPPORTUNITIES
 For every subscription and recurring cost evaluate whether a cheaper/self-hosted alternative exists.
-Sort by annual_saving_eur descending. Set adel_fit_score honestly.
-Reference: Netflix→Jellyfin/Plex, Spotify→Navidrome, EC2 workloads→home server.
+Sort by annual_saving_eur descending. Set user_fit_score honestly, judging fit
+against the user's profile (e.g. their technical comfort with self-hosting).
+Reference examples: Netflix→Jellyfin/Plex, Spotify→Navidrome, cloud workloads→home server.
 
 REASONING
 Write a plain-text explanation (3–8 sentences) covering: which months had data, how many
@@ -524,7 +522,7 @@ You will call the submit_financial_analysis tool with all fields populated.
 # ── BankAdviser ────────────────────────────────────────────────────────────────
 
 class BankAdviser(BaseLLMService):
-    def analyse(self, statement: str, context: str = "") -> dict:
+    def analyse(self, statement: str, context: str = "", user_profile: str = "") -> dict:
         ground_truth = compute_financial_aggregates(statement)
         if ground_truth["valid"]:
             logger.info(
@@ -540,7 +538,7 @@ class BankAdviser(BaseLLMService):
                 "LLM will derive totals from statement text."
             )
 
-        user_message = self._build_user_message(statement, context, ground_truth)
+        user_message = self._build_user_message(statement, context, ground_truth, user_profile)
 
         result = invoke_with_tool_retry(
             client=self._client,
@@ -559,13 +557,17 @@ class BankAdviser(BaseLLMService):
         statement: str,
         context: str,
         ground_truth: dict,
+        user_profile: str = "",
     ) -> str:
         parts: list[str] = []
+
+        if user_profile:
+            parts.append(user_profile)
 
         if context:
             parts.append(
                 "<memory-context>\n"
-                "Context from Adel's personal memory (prior analyses, trading, budgets, goals):\n"
+                "Context from the user's personal memory (prior analyses, trading, budgets, goals):\n"
                 f"{context}\n"
                 "</memory-context>"
             )

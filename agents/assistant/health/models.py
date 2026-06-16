@@ -15,7 +15,7 @@ METRIC_TYPE = Literal[
     "vo2_max",
 ]
 
-SOURCE = Literal["apple_watch", "apple_health", "beurer_scale", "manual"]
+SOURCE = Literal["apple_watch", "apple_health", "beurer_scale", "samsung_health", "manual"]
 
 WEIGHT_GOAL_KG = 73.0
 

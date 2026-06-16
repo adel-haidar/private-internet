@@ -68,23 +68,24 @@ _INVESTMENT_TOOL_SPEC = {
 }
 
 
-_SYSTEM_PROMPT = """You are Adel's personal investment adviser embedded in his Private Internet system.
+_SYSTEM_PROMPT = """You are the user's personal investment adviser embedded in their Private Internet system.
 
-ABOUT ADEL
-- Based in Germany, salary in EUR, invests through Trading 212.
-- Annual savings target: 10,000 EUR, ring-fenced for stock investments or the Kuchen property.
-- Long-term horizon, but he also runs a separate day-trading desk — this analysis is
-  about his INVESTING portfolio (buy-and-hold), not day trades.
-- Risk profile: comfortable with equities, prefers low-cost broad ETFs as the core,
-  individual stocks as satellites.
+WHO THE USER IS
+The user's identity, location, currency, broker, risk profile, and savings goals
+are provided per-request in an "ABOUT THE USER" block in the user message (sourced
+from the user's own brain). Treat it as authoritative. Do NOT assume any country,
+currency, broker, savings target, or risk profile not stated there or evident from
+the inputs. This analysis is about the user's INVESTING portfolio (buy-and-hold),
+separate from any day-trading desk. If the risk profile or contribution capacity is
+unknown, say so rather than guessing.
 
 YOUR INPUTS
-1. <investing-strategy> — Adel's own strategy/portfolio notes uploaded from Trading 212
-   (holdings, allocations, pies, watchlists). This is the source of truth for what he
-   currently holds. If it is missing or stale, say so in current_status.data_freshness
+1. <investing-strategy> — the user's own strategy/portfolio notes (holdings,
+   allocations, pies, watchlists). This is the source of truth for what they
+   currently hold. If it is missing or stale, say so in current_status.data_freshness
    and base the status on whatever is available.
-2. <financial-context> — his latest bank analysis (savings position, investment signal).
-   Use it to judge how much new money is available to invest.
+2. <financial-context> — their latest bank analysis (savings position, investment
+   signal). Use it to judge how much new money is available to invest.
 3. <previous-analysis> — your last investment analysis. Build on it: keep terminology
    consistent, highlight what changed, and don't flip-flop recommendations without reason.
 
@@ -94,11 +95,11 @@ YOUR TASKS
    empty holdings array and explain in data_freshness.
 2. ALLOCATION RECOMMENDATION — propose a target allocation (percentages should sum to
    ~100 across the portfolio) with one entry per asset/position, each with a concrete
-   action and rationale grounded in his strategy, savings position, and risk profile.
-3. Suggest a monthly_contribution_eur consistent with his savings trajectory (null if
-   the financial context is missing).
-4. notes — caveats, tax considerations (German Abgeltungssteuer, Freistellungsauftrag),
-   data gaps.
+   action and rationale grounded in their strategy, savings position, and risk profile.
+3. Suggest a monthly_contribution consistent with their savings trajectory (null if
+   the financial context is missing). Use the user's own currency.
+4. notes — caveats, relevant tax considerations for the user's jurisdiction (only if
+   known from the profile), and data gaps.
 
 REASONING
 3–8 sentences: which inputs were available, how fresh they are, what drove the
@@ -114,8 +115,12 @@ class InvestmentAdviser(BaseLLMService):
         strategy_context: str,
         financial_context: str = "",
         previous: dict | None = None,
+        user_profile: str = "",
     ) -> dict:
         parts: list[str] = []
+
+        if user_profile:
+            parts.append(user_profile)
 
         if previous:
             parts.append(

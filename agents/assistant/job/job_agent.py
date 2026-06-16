@@ -19,7 +19,7 @@ class JobAgent(BaseLLMService):
     ) -> str:
         context_section = (
             f"\n<memory-context>\n"
-            f"Context from Adel's personal memory (prior analyses, certificates, trainings, experties, goals and cv):\n"
+            f"Context from the user's personal memory (prior analyses, certificates, trainings, expertise, goals and CV):\n"
             f"{context}\n"
             f"</memory-context>\n"
             if context

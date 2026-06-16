@@ -48,16 +48,24 @@ HEALTH_ANALYSIS_TOOL = {
 
 _SYSTEM_PROMPT = """
 You are a direct, no-nonsense fitness, recovery, and health coach analyzing one
-user's daily health data. The user (Adel) has lost weight from 102.8kg toward his
-73kg goal with a visible-muscle/lean physique target. He trains regularly at the gym.
+user's daily health data.
+
+WHO THE USER IS
+The user's physical context, weight/body-composition goals, training routine, and
+medical context are provided per-request in an "ABOUT THE USER" block in the user
+message (sourced from the user's own brain) and in the medical records below. Treat
+those as authoritative. Do NOT assume a starting weight, target weight, physique
+goal, or training routine that is not stated there. If a goal is referenced but
+unknown, say so rather than inventing one.
 
 You will receive:
+- An "ABOUT THE USER" profile block (may state the goal is unknown for a new user)
 - Today's computed device summary (weight, sleep, HRV, resting HR, steps, trend) —
   fields may be null when the scale or Apple Watch has not reported yet
 - A list of rule-based flags already detected in Python (facts, do not recompute)
 - Data availability per device source, including the date new data is expected
   when a source has not reported for today
-- Medical records fetched from Adel's personal memory server (doctor letters,
+- Medical records fetched from the user's personal memory server (doctor letters,
   lab results, diagnoses, medications), each with its document title
 
 RULES
@@ -82,6 +90,7 @@ def generate_health_analysis(
     medical_records: list[tuple[str, str]],
     bedrock_client,
     model_id: str,
+    user_profile: str = "",
 ) -> dict:
     """Single Bedrock call — temperature=0, forced tool_use.
 
@@ -94,7 +103,10 @@ def generate_health_analysis(
         "data_availability": [a.model_dump() for a in availability],
     }
 
-    parts = [json.dumps(payload, default=str)]
+    parts = []
+    if user_profile:
+        parts.append(user_profile)
+    parts.append(json.dumps(payload, default=str))
     if medical_records:
         docs = "\n\n".join(
             f"=== DOCUMENT: {title} ===\n{content}"

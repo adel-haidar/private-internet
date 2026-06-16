@@ -7,31 +7,15 @@ from assistant.shared.base_llm_service import BaseLLMService
 
 logger = logging.getLogger(__name__)
 
+# Neutral, person-agnostic fallback. The real profile is the CALLER's own, built
+# from their brain (see agent.run_agent, which gates the scrape on a non-empty
+# profile — a user with no profile is never scraped, so this fallback is only a
+# defensive back-compat default and must NOT encode any specific person.
 _CANDIDATE_PROFILE = """\
-Name: Adel Haidar | Title: Senior Software Engineer (6+ years)
-Location: Stuttgart, Germany | Citizenship: German
-Work rights: Unrestricted EU + Switzerland (bilateral treaty); EEA FoM for Norway; CA/SG require sponsorship
-Languages: Arabic (native), German (C1+), English (C1), French (B1/B2)
-Education: BSc IT-Management HdWM Mannheim + MIT ReACT Certificate
-Current salary: ~EUR 65,000 Stuttgart baseline
-
-Core stack (MUST match):
-  Java 21, Spring Boot, Spring Security, Spring Batch
-  Apache Kafka (producer/consumer, transactions, DLQ)
-  REST APIs, OpenAPI, Microservices
-  PostgreSQL, JPA/Hibernate, Flyway
-  Docker, Kubernetes, OpenShift
-  GitLab CI/CD, JaCoCo, Cucumber/BDD
-  Vue.js 3, TypeScript
-
-AI/cloud stack (secondary):
-  AWS Bedrock, Mistral AI, Python + FastAPI
-  AWS Lambda, S3, EC2, ALB, SSM
-
-Domain: Banking & fintech (Atruvia/FiduciaGAD, apoBank, Rabobank), payments, regulatory, EUDI Wallet/OpenID4VP
-
-Active applications — DO NOT match:
-  Mistral AI, Swisscom, PostFinance, LBBW, Capgemini CH, Adobe CH, Swissquote, TeamViewer"""
+No candidate profile was provided. Do not assume any name, location, citizenship,
+work rights, languages, skills, salary, target companies, or domain. With no
+profile to score against, treat every listing as a REJECT (insufficient
+information) rather than matching against any assumed background."""
 
 def _filter_rules(target_countries: list[str]) -> str:
     countries = ", ".join(target_countries) if target_countries else "the candidate's target countries"

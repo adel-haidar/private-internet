@@ -102,15 +102,53 @@ class MemoryClient(BaseLLMService):
             return ""
 
 
-    _BANK_STATEMENT_QUERY = "Konto Auszug"
+    _BANK_STATEMENT_QUERY = "Konto Auszug bank statement"
 
-    # Keywords that indicate a memory is a bank statement (not infra logs etc.)
-    _BANK_STATEMENT_KEYWORDS = [
+    # Keywords that indicate a memory is a bank statement (not infra logs etc.).
+    #
+    # Split into two lists for clarity:
+    #   _BANK_STATEMENT_KEYWORDS_LATIN  — ASCII/Latin terms (lowercased match)
+    #   _BANK_STATEMENT_KEYWORDS_JP     — Japanese Unicode terms (exact substring)
+    #
+    # The combined check in _looks_like_bank_statement uses both.
+    #
+    # GERMAN / GENERIC LATIN TERMS
+    _BANK_STATEMENT_KEYWORDS_LATIN = [
+        # German Sparkasse / generic
         "kontoauszug", "konto", "iban", "bic", "buchung", "gutschrift",
         "lastschrift", "überweisung", "saldo", "girokonto", "sparkasse",
         "volksbank", "commerzbank", "deutsche bank", "dkb", "ing", "n26",
-        "comdirect", "postbank", "bank", "habensaldo", "sollsaldo",
+        "comdirect", "postbank", "habensaldo", "sollsaldo",
+        # International English / generic
+        "bank statement", "account statement", "bank account",
+        "account balance", "transaction history", "statement of account",
+        "balance", "debit", "credit", "swift", "sort code",
+        # Currency markers that only appear in financial documents
+        "jpy", "¥", "usd", "$", "gbp", "£", "chf",
+        # Generic "bank" as a standalone word is kept but anchored below
+        "bank",
     ]
+
+    # JAPANESE TERMS (Unicode — checked against the original codepoint, not lowercased)
+    _BANK_STATEMENT_KEYWORDS_JP = [
+        "取引明細",   # transaction details / statement
+        "口座",       # account
+        "残高",       # balance
+        "振込",       # bank transfer (credit)
+        "入金",       # deposit / incoming payment
+        "出金",       # withdrawal / outgoing payment
+        "引き落とし", # direct debit
+        "明細書",     # statement / itemised list
+        "預金",       # deposit / savings account
+        "通帳",       # passbook
+        "銀行",       # bank
+        "給与",       # salary
+        "円",         # yen (kanji)
+    ]
+
+    # Kept for backward compatibility — callers that reference the old name
+    # directly (e.g. external scripts) still work.
+    _BANK_STATEMENT_KEYWORDS = _BANK_STATEMENT_KEYWORDS_LATIN
 
     # Semantic queries for supplementary financial context (prior analyses,
     # spending notes, savings goals). The bank statement itself is fetched
@@ -351,15 +389,15 @@ class MemoryClient(BaseLLMService):
                 logger.warning("Financial memory search failed for query %r", query, exc_info=True)
         return "\n".join(parts)
 
-    # Semantic queries for Adel's investing strategy (Trading 212 exports,
+    # Semantic queries for the user's investing strategy (broker exports,
     # portfolio notes, watchlists) uploaded to memory.
     _INVESTING_STRATEGY_QUERIES = [
-        "Trading 212 investing strategy portfolio holdings allocation pies",
+        "investing strategy portfolio holdings allocation pies broker export",
         "Investment strategy stocks ETF portfolio watchlist risk profile",
     ]
 
     async def fetch_investing_strategy(self) -> str:
-        """Search memory for Adel's uploaded investing strategy / portfolio notes."""
+        """Search memory for the user's uploaded investing strategy / portfolio notes."""
         parts: list[str] = []
         for query in self._INVESTING_STRATEGY_QUERIES:
             try:

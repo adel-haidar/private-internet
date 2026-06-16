@@ -29,6 +29,7 @@ from assistant.shared.graph_client import GraphClient
 from assistant.shared.memory_client import MemoryClient
 from assistant.shared.onedrive_client import OneDriveClient
 from assistant.shared.settings import Settings, get_settings
+from assistant.shared.user_profile import build_user_profile
 
 logger = logging.getLogger(__name__)
 app = FastAPI()
@@ -361,8 +362,14 @@ async def analyse_bank_statement(req: AnalyseRequest, settings: SettingsDep, ide
         model_id=settings.bedrock_model_id,
     )
 
+    user_profile = await build_user_profile(memory_client, domain="banking")
+
     try:
-        raw = bank_adviser.analyse(statement=statements_context, context=combined_context)
+        raw = bank_adviser.analyse(
+            statement=statements_context,
+            context=combined_context,
+            user_profile=user_profile,
+        )
         result = BankAdviserResult.model_validate(raw)
     except Exception as exc:
         logger.exception("BankAdviser analysis failed")
@@ -402,7 +409,7 @@ async def latest_bank_analysis(settings: SettingsDep, ident: dict = Depends(requ
 
 @app.post("/api/investing/analyse")
 async def analyse_investments(settings: SettingsDep, ident: dict = Depends(require_user)):
-    """Analyse the caller's investing position from their Trading 212 strategy in memory.
+    """Analyse the caller's investing position from their uploaded strategy in memory.
 
     Combines the uploaded strategy, the latest cached bank analysis (savings
     position / investment signal) and the previous investment analysis into a
@@ -431,11 +438,13 @@ async def analyse_investments(settings: SettingsDep, ident: dict = Depends(requi
         bedrock_client=_get_bedrock_client(settings.aws_region),
         model_id=settings.bedrock_model_id,
     )
+    user_profile = await build_user_profile(memory_client, domain="investing")
     try:
         raw = adviser.analyse(
             strategy_context=strategy_context,
             financial_context=financial_context,
             previous=previous.get("result") if previous else None,
+            user_profile=user_profile,
         )
     except Exception as exc:
         logger.exception("Investment analysis failed")
@@ -486,11 +495,13 @@ async def analyse_day_trading(settings: SettingsDep, ident: dict = Depends(requi
         bedrock_client=_get_bedrock_client(settings.aws_region),
         model_id=settings.bedrock_model_id,
     )
+    user_profile = await build_user_profile(memory_client, domain="trading")
     try:
         raw = trader.analyse(
             market_snapshot=snapshot,
             previous=previous,
             strategy_context=strategy_context,
+            user_profile=user_profile,
         )
     except Exception as exc:
         logger.exception("Day trading analysis failed")

@@ -50,16 +50,34 @@ async def run_daily_health_workflow(
     # Step 4 — Fetch medical records from MCP memory (titles are reported back
     # to the caller as the list of documents the analysis is based on)
     medical_records: list[tuple[str, str]] = []
+    user_profile = ""
     if mcp_url and mcp_token:
         try:
             medical_records = await fetch_medical_records(mcp_url, mcp_token)
         except Exception:
             logger.warning("Failed to fetch medical records from MCP memory", exc_info=True)
 
+        # Build the per-user "ABOUT THE USER" block from the CALLER's own brain so
+        # the coach reasons about this user (weight/goal/training), not the owner.
+        try:
+            from assistant.shared.memory_client import MemoryClient
+            from assistant.shared.user_profile import build_user_profile
+
+            memory_client = MemoryClient(
+                bedrock_client=bedrock_client,
+                model_id=model_id,
+                server_url=mcp_url,
+                token=mcp_token,
+            )
+            user_profile = await build_user_profile(memory_client, domain="health")
+        except Exception:
+            logger.warning("Failed to build user profile for health analysis", exc_info=True)
+
     # Step 5 — Generate analysis (single LLM call, temp=0, tool_use):
     # coach_insight + basic analysis + mandatory reasoning
     llm = generate_health_analysis(
-        summary, flags, availability, medical_records, bedrock_client, model_id
+        summary, flags, availability, medical_records, bedrock_client, model_id,
+        user_profile=user_profile,
     )
 
     # Step 6 — Assemble response
