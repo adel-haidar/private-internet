@@ -19,10 +19,19 @@ logger = logging.getLogger(__name__)
 
 _TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
 
-# Amazon Polly narration voice used on the fallback path (en-US, neutral). Polly
-# runs off the EC2 IAM role — no external key — so it is the reliable safety net
-# when ElevenLabs is unavailable (bad key → 401, exhausted quota → 429).
-_POLLY_FALLBACK_VOICE = "Joanna"
+# Amazon Polly fallback voices per language: (voice_id, Polly locale). Polly runs
+# off the EC2 IAM role — no external key — so it is the reliable safety net when
+# ElevenLabs is unavailable (bad key → 401, exhausted quota → 429). Polly requires
+# a full locale ("en-US", not "en") and a real voice id; the Arabic/Russian voices
+# are standard-only and PollyEngine retries the standard engine automatically.
+_POLLY_VOICES: dict[str, tuple[str, str]] = {
+    "en": ("Joanna", "en-US"),
+    "de": ("Vicki", "de-DE"),
+    "fr": ("Lea", "fr-FR"),
+    "ru": ("Tatyana", "ru-RU"),
+    "ar": ("Zeina", "arb"),
+}
+_POLLY_DEFAULT = ("Joanna", "en-US")
 
 
 class ElevenLabsEngine:
@@ -95,6 +104,9 @@ def synthesize_narration(text: str, language_code: str, output_path: str) -> int
             logger.warning(
                 "ElevenLabs narration failed (%s) — falling back to Amazon Polly", exc
             )
-    return PollyEngine().synthesize_section(
-        text, _POLLY_FALLBACK_VOICE, language_code, output_path
+    # Polly needs a real voice + full locale; map on the primary language subtag
+    # ("en-US" → "en") and default to English for anything unmapped.
+    voice_id, locale = _POLLY_VOICES.get(
+        language_code.split("-")[0].lower(), _POLLY_DEFAULT
     )
+    return PollyEngine().synthesize_section(text, voice_id, locale, output_path)
