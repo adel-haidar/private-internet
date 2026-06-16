@@ -110,7 +110,7 @@ export interface SavingsOpportunity {
   effort:             string
   prerequisite:       string
   trade_off:          string
-  adel_fit_score:     string
+  user_fit_score:     string
   note:               string
 }
 

@@ -309,7 +309,7 @@ onBeforeUnmount(destroyCharts)
                 <td class="fin-num">{{ eur(opp.monthly_saving_eur) }}</td>
                 <td class="fin-num">{{ eur(opp.annual_saving_eur) }}</td>
                 <td class="fin-muted">{{ opp.effort }}</td>
-                <td><Badge :variant="fitBadge(opp.adel_fit_score).variant">{{ fitBadge(opp.adel_fit_score).label }}</Badge></td>
+                <td><Badge :variant="fitBadge(opp.user_fit_score).variant">{{ fitBadge(opp.user_fit_score).label }}</Badge></td>
                 <td style="text-align: center;">
                   <span :style="{ display: 'inline-flex', color: 'var(--text-tertiary)', transition: 'transform .15s', transform: expandedOpps.has(i) ? 'rotate(90deg)' : 'none' }"><PIIcon name="chevronRight" :size="14" /></span>
                 </td>

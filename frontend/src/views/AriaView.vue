@@ -3,6 +3,7 @@
  * view state, like StoriesView). The mini-player + Now Playing overlay live in
  * App.vue so playback persists across navigation. */
 import { ref } from 'vue'
+import BrainBanner from '../components/BrainBanner.vue'
 import AriaLibrary from '../components/aria/AriaLibrary.vue'
 import AriaPlaylist from '../components/aria/AriaPlaylist.vue'
 
@@ -11,6 +12,8 @@ const selected = ref<string | null>(null)
 
 <template>
   <div class="aria-root">
+    <BrainBanner />
+
     <AriaPlaylist
       v-if="selected"
       :playlist-id="selected"

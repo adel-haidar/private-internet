@@ -1,5 +1,10 @@
 export const zh = {
   common: { save: '保存', cancel: '取消' },
+  brainBanner: {
+    message: '你向大脑添加的内容越多，下一波内容就越能反映你的记忆。',
+    cta: '丰富你的大脑 →',
+    dismiss: '关闭',
+  },
   nav: {
     dashboard: '仪表盘',
     brain: '你的大脑',

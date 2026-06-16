@@ -1,5 +1,10 @@
 export const de = {
   common: { save: 'Speichern', cancel: 'Abbrechen' },
+  brainBanner: {
+    message: 'Je mehr du deinem Gehirn hinzufügst, desto mehr spiegelt die nächste Welle an Inhalten deine Erinnerungen wider.',
+    cta: 'Gehirn füttern →',
+    dismiss: 'Schließen',
+  },
   nav: {
     dashboard: 'Übersicht',
     brain: 'Dein Gehirn',

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useStories } from '../composables/useStories'
+import BrainBanner from '../components/BrainBanner.vue'
 import StoriesLibrary from '../components/stories/StoriesLibrary.vue'
 import StoriesFilm from '../components/stories/StoriesFilm.vue'
 import StoriesSeries from '../components/stories/StoriesSeries.vue'
@@ -12,6 +13,8 @@ const { view, watch, navigate, play, stopWatch } = useStories()
 
 <template>
   <div class="stories-root">
+    <BrainBanner />
+
     <!-- Sub-views -->
     <StoriesLibrary
       v-if="view.name === 'library'"

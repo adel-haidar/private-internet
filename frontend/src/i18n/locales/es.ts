@@ -1,5 +1,10 @@
 export const es = {
   common: { save: 'Guardar', cancel: 'Cancelar' },
+  brainBanner: {
+    message: 'Cuanto más añades a tu cerebro, más reflejará la próxima ola de contenido tus recuerdos.',
+    cta: 'Alimenta tu cerebro →',
+    dismiss: 'Cerrar',
+  },
   nav: {
     dashboard: 'Panel',
     brain: 'Tu cerebro',

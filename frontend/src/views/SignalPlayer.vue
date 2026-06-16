@@ -13,6 +13,7 @@ import SignalVideoCard from '../components/feed/SignalVideoCard.vue'
 import SignalSearch from '../components/feed/SignalSearch.vue'
 import SignalPlayerOverlay from '../components/feed/SignalPlayerOverlay.vue'
 import { fmtSecs, isPlayable, isProcessing } from '../components/feed/video-util'
+import BrainBanner from '../components/BrainBanner.vue'
 
 const { videos, loading, error, topicNames, loadMore } = useSignalLibrary()
 
@@ -54,6 +55,8 @@ function play(v: Video) {
   </div>
 
   <div v-else class="signal">
+    <BrainBanner />
+
     <!-- masthead -->
     <div class="signal__masthead">
       <span class="signal__title">SIGNAL</span>

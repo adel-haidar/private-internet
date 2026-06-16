@@ -16,6 +16,7 @@ import PulsePostCard from '../components/feed/PulsePostCard.vue'
 import PulseReader from '../components/feed/PulseReader.vue'
 import PulseFilterPanel from '../components/feed/PulseFilterPanel.vue'
 import { headline, readMinutes } from '../components/feed/post-format'
+import BrainBanner from '../components/BrainBanner.vue'
 
 const { posts, loading, error, hasMore, loadMore, sort, setSort } = usePulseFeed()
 const toast = useToast()
@@ -69,6 +70,8 @@ async function vote(post: Post, like: boolean) {
 
 <template>
   <div class="pulse">
+    <BrainBanner />
+
     <!-- masthead -->
     <div class="pulse__masthead">
       <span class="pulse__title">PULSE</span>

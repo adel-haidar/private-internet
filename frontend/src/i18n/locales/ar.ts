@@ -1,5 +1,10 @@
 export const ar = {
   common: { save: 'حفظ', cancel: 'إلغاء' },
+  brainBanner: {
+    message: 'كلما أضفت إلى دماغك، كلما عكست الموجة القادمة من المحتوى ذكرياتك.',
+    cta: '← أثرِ دماغك',
+    dismiss: 'إغلاق',
+  },
   nav: {
     dashboard: 'لوحة التحكم',
     brain: 'دماغك',
