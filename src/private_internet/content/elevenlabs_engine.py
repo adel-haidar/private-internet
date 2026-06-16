@@ -8,12 +8,21 @@ Synchronous (urllib) — video_job calls it via run_in_executor like Polly.
 """
 
 import json
+import logging
 import urllib.request
 
 from private_internet.config import get_settings
 from private_internet.content.polly_engine import PollyEngine
+from private_internet.content.voice_config import get_voice_id
+
+logger = logging.getLogger(__name__)
 
 _TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
+
+# Amazon Polly narration voice used on the fallback path (en-US, neutral). Polly
+# runs off the EC2 IAM role — no external key — so it is the reliable safety net
+# when ElevenLabs is unavailable (bad key → 401, exhausted quota → 429).
+_POLLY_FALLBACK_VOICE = "Joanna"
 
 
 class ElevenLabsEngine:
@@ -64,3 +73,28 @@ def get_tts_engine():
     if (s.tts_engine or "polly").lower() == "elevenlabs" and s.elevenlabs_api_key:
         return ElevenLabsEngine()
     return PollyEngine()
+
+
+def synthesize_narration(text: str, language_code: str, output_path: str) -> int:
+    """Synthesize narration to an mp3 at ``output_path``; returns duration in ms.
+
+    Engine chain: ElevenLabs (when ``tts_engine=elevenlabs`` and a key is set) →
+    Amazon Polly on ANY ElevenLabs failure (invalid key → 401, quota → 429,
+    network, etc.). This guarantees narration always completes, so a dead
+    ElevenLabs key can never hard-fail SIGNAL/STORIES video assembly — it just
+    degrades the voice to Polly until a valid key is restored. Each engine gets
+    the voice id it expects (ElevenLabs per-language voice vs a real Polly voice).
+    """
+    s = get_settings()
+    if (s.tts_engine or "polly").lower() == "elevenlabs" and s.elevenlabs_api_key:
+        try:
+            return ElevenLabsEngine().synthesize_section(
+                text, get_voice_id(language_code), language_code, output_path
+            )
+        except Exception as exc:
+            logger.warning(
+                "ElevenLabs narration failed (%s) — falling back to Amazon Polly", exc
+            )
+    return PollyEngine().synthesize_section(
+        text, _POLLY_FALLBACK_VOICE, language_code, output_path
+    )

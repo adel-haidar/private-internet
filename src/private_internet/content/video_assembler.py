@@ -41,7 +41,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, List, Optional, Union
 
 from private_internet.content.asset_store import AssetStore
-from private_internet.content.elevenlabs_engine import ElevenLabsEngine, get_tts_engine
+from private_internet.content.elevenlabs_engine import synthesize_narration
 from private_internet.content.fal_video import generate_video_clip
 from private_internet.content.replicate_wan_client import (
     ReplicateWanClient,
@@ -53,7 +53,6 @@ from private_internet.content.visual_translator import (
     kling_duration,
     translate_scenes,
 )
-from private_internet.content.voice_config import get_voice_id
 
 logger = logging.getLogger(__name__)
 
@@ -189,11 +188,8 @@ async def _emit(on_progress: ProgressCb, patch: dict) -> None:
 
 
 def _synthesize_narration(narration_text: str, language_code: str, out_path: str) -> None:
-    """Generate the full narration mp3 via the configured TTS engine."""
-    tts = get_tts_engine()
-    # ElevenLabs is multilingual (voice per language); Polly needs a real voice id.
-    voice_id = get_voice_id(language_code) if isinstance(tts, ElevenLabsEngine) else "Joanna"
-    tts.synthesize_section(narration_text, voice_id, language_code, out_path)
+    """Generate the full narration mp3 (ElevenLabs → Amazon Polly fallback)."""
+    synthesize_narration(narration_text, language_code, out_path)
 
 
 def _build_clip_plan(script_scenes: List[dict], translated: List[dict]) -> List[dict]:
