@@ -454,6 +454,14 @@ target, or recurring commitments that are not stated there or evident from the
 statement itself. If a needed fact (e.g. a savings target) is unknown, say so
 rather than inventing one.
 
+CURRENCY
+Use the currency present in the bank statement (EUR, JPY, USD, CHF, GBP, etc.).
+Populate meta.currency with the detected currency code (e.g. "JPY", "EUR").
+All numeric amounts in the output must be in the statement's native currency —
+do NOT convert. Tool fields named "monthly_cost_eur" / "monthly_saving_eur" /
+"annual_saving_eur" are kept for schema compatibility; populate them in the
+statement's actual currency.
+
 BUDGETING APPROACH
 - Derive fixed/recurring commitments from the user's profile and from recurring
   transactions observed in the statements, not from any assumed template.
@@ -462,12 +470,15 @@ BUDGETING APPROACH
 
 MULTI-MONTH FORMAT
 Bank statements arrive labelled === BANK STATEMENT YYYY-MM ===.
-- Amount sign convention (typical German PDF layout, e.g. Sparkasse): debits carry
-  a leading '-', credits (salary, rent received, refunds) are UNSIGNED positive
-  amounts. This is a document FORMAT note, not an assumption about the user.
-- 'Kontostand am ...' lines are account BALANCES, not transactions.
-  'Entgeltabschluss'/'Rechnungsabschluss' annexes repeat fee/interest amounts
-  already booked as transactions — never count them twice.
+- Amount sign convention varies by bank and country. Common patterns:
+    • German Sparkasse / many European banks: debits carry a leading '-',
+      credits (salary, incoming transfers, refunds) are UNSIGNED positive.
+    • Japanese banks / some others: explicit '+' for credits, '-' for debits.
+    • Some formats use a separate Debit/Credit column.
+  Determine the convention from the statement itself and apply it consistently.
+- Balance lines (e.g. 'Kontostand am ...', '残高') are account BALANCES, not
+  transactions. Fee-annex repeats (e.g. 'Entgeltabschluss', 'Rechnungsabschluss')
+  already appear as booked transactions — never count them twice.
 - chart_data arrays MUST contain one entry PER MONTH.
 - meta.analysis_period must be {from: "YYYY-MM-01", to: "YYYY-MM-DD"} using the first and last months.
 - yearly_progress.savings_ytd is the SUM of net_savings across all months in the range.
@@ -477,43 +488,49 @@ ANALYSIS STEPS
 
 STEP 1 — CATEGORISE TRANSACTIONS
 Assign every transaction to exactly one category. For ambiguous items prefer the more specific category.
+Transaction descriptions may be in any language (German, Japanese, English, etc.) — translate
+or transliterate as needed for category labels in the output.
 
 STEP 2 — SPENDING ANALYSIS
 - Compute actual spend per category. Compare against budget.
 - spending_analysis.categories entries MUST use exactly these keys:
-  {"budget": <monthly budget × months, or null>, "actual": <EUR spent>,
+  {"budget": <monthly budget × months, or null>, "actual": <amount in statement currency>,
    "delta": <budget - actual, or null>, "status": "...", "items": [...]}
   Budgets are MONTHLY floors — multiply by the number of months analysed.
 - Status: "ok" (within budget or ≤5% over) | "over" (>5% over) | "under" (>10% under)
 - Anomalies:
   • Category >20% over budget → severity "warning"
-  • Single transaction >500 EUR outside fixed costs → severity "warning"
+  • Single large transaction outside fixed costs → severity "warning"
   • New recurring charge not in prior context → severity "info"
   • Fixed commitment missing entirely → severity "critical"
 
 STEP 3 — SAVINGS TRACKING
-Use PRE-COMPUTED values from the user message for savings_ytd, remaining_target, trajectory,
-required_monthly_savings. Do NOT recalculate from transactions.
+If PRE-COMPUTED values are provided in the user message, use them directly for
+savings_ytd, remaining_target, trajectory, required_monthly_savings.
+Do NOT recalculate from transactions when pre-computed values are supplied.
+If no pre-computed values are supplied (non-EUR statement or first-time analysis),
+derive totals from the statement transactions.
 
 STEP 4 — NEXT MONTH BUDGET ALLOCATION
 Priority: 1) fixed floor 2) savings_contribution to stay on track 3) discretionary.
 
 STEP 5 — INVESTMENT SIGNAL
-If savings_ytd ≥ 2,000 EUR above pro-rated target: set ready_to_invest=true.
+If savings_ytd is meaningfully above the pro-rated yearly target: set ready_to_invest=true.
 
 STEP 6 — RECOMMENDATIONS
-3–6 prioritised, concrete actions with EUR amounts.
+3–6 prioritised, concrete actions with amounts in the statement's currency.
 
 STEP 7 — SAVINGS OPPORTUNITIES
 For every subscription and recurring cost evaluate whether a cheaper/self-hosted alternative exists.
-Sort by annual_saving_eur descending. Set user_fit_score honestly, judging fit
-against the user's profile (e.g. their technical comfort with self-hosting).
-Reference examples: Netflix→Jellyfin/Plex, Spotify→Navidrome, cloud workloads→home server.
+Sort by annual_saving_eur descending (populate with statement-currency amounts).
+Set user_fit_score honestly, judging fit against the user's profile (e.g. their technical
+comfort with self-hosting). Reference examples: Netflix→Jellyfin/Plex, Spotify→Navidrome,
+cloud workloads→home server.
 
 REASONING
 Write a plain-text explanation (3–8 sentences) covering: which months had data, how many
-transactions you found, whether pre-computed values were used, any data gaps or caveats.
-Be specific — mention actual amounts and months.
+transactions you found, the detected currency and sign convention, whether pre-computed
+values were used, any data gaps or caveats. Be specific — mention actual amounts and months.
 
 You will call the submit_financial_analysis tool with all fields populated.
 """.strip()

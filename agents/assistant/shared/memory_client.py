@@ -230,32 +230,70 @@ class MemoryClient(BaseLLMService):
                 page += 1
         return all_items
 
-    # Authoritative statement-month markers: the Sparkasse header
-    # 'Kontoauszug 5/2026' in the PDF text, or the filename
-    # 'Konto_..._Auszug_2026_0005.pdf' (statement number == month for
-    # monthly statements). Substring date matching (_mentions_month) is only
-    # a fallback — statement text routinely references neighbouring months
-    # ('Rundfunk 04.2026 - 06.2026', Wertstellung dates, opening balance
-    # dates), which previously pulled the SAME statement into several month
-    # buckets and double-counted every transaction.
-    _STATEMENT_HEADER_RE = re.compile(r"Kontoauszug\s+(\d{1,2})\s*/\s*(\d{4})")
-    _TITLE_STATEMENT_RE  = re.compile(r"Auszug_(\d{4})_0*(\d{1,2})")
+    # Authoritative statement-month markers — checked in priority order:
+    #
+    # 1. German Sparkasse header: 'Kontoauszug 5/2026' in the PDF text.
+    # 2. German filename:  'Konto_..._Auszug_2026_0005.pdf' (statement number
+    #    == month for monthly Sparkasse statements).
+    # 3. Japanese header:  '取引明細書' or '口座' with an ISO-style date block
+    #    'YYYY/MM/DD'. The earliest YYYY/MM date in the document body is used
+    #    as the statement month (most Japanese bank PDFs list transactions
+    #    in date order, so the first date is always within the covered period).
+    # 4. Generic ISO date: 'YYYY-MM-DD' anywhere in the content/title.
+    #
+    # Substring date matching (_mentions_month) is only a fallback — statement
+    # text routinely references neighbouring months ('Rundfunk 04.2026 - 06.2026',
+    # Wertstellung dates, opening-balance dates), which previously pulled the
+    # SAME statement into several month buckets and double-counted transactions.
+    _STATEMENT_HEADER_RE    = re.compile(r"Kontoauszug\s+(\d{1,2})\s*/\s*(\d{4})")
+    _TITLE_STATEMENT_RE     = re.compile(r"Auszug_(\d{4})_0*(\d{1,2})")
+    # Japanese/ISO date in body: YYYY/MM/DD or YYYY-MM-DD (used as fallback)
+    _ISO_DATE_RE            = re.compile(r"(\d{4})[/-](\d{2})[/-]\d{2}")
 
     def _statement_month(self, item: dict) -> str | None:
-        """Derive the statement month 'YYYY-MM' from header text or filename."""
-        m = self._STATEMENT_HEADER_RE.search(item.get("content") or "")
+        """Derive the statement month 'YYYY-MM' from header text or filename.
+
+        Supports:
+          - German Sparkasse header 'Kontoauszug N/YYYY'
+          - German filename 'Auszug_YYYY_NNNN'
+          - Japanese / international statements: earliest YYYY/MM or YYYY-MM-DD
+            date found in the document body (handles formats like '2026/05/25').
+        """
+        content = item.get("content") or ""
+        title   = item.get("title") or ""
+
+        # 1. German header (highest confidence — explicitly states the period)
+        m = self._STATEMENT_HEADER_RE.search(content)
         if m:
             return f"{m.group(2)}-{int(m.group(1)):02d}"
-        m = self._TITLE_STATEMENT_RE.search(item.get("title") or "")
+
+        # 2. German filename (e.g. Auszug_2026_0005.pdf)
+        m = self._TITLE_STATEMENT_RE.search(title)
         if m:
             return f"{m.group(1)}-{int(m.group(2)):02d}"
+
+        # 3. First ISO-style date in the content (YYYY/MM/DD or YYYY-MM-DD).
+        #    Used for Japanese statements (2026/05/25) and any locale that
+        #    emits dates year-first.  We take the FIRST occurrence so that the
+        #    opening/period header date is used rather than a trailing footnote.
+        m = self._ISO_DATE_RE.search(content)
+        if m:
+            year, mon = m.group(1), m.group(2)
+            # Sanity-guard: only trust years 2000–2099 and months 01–12.
+            if 2000 <= int(year) <= 2099 and 1 <= int(mon) <= 12:
+                return f"{year}-{mon}"
+
         return None
 
     def _mentions_month(self, text: str, month: str) -> bool:
-        """Return True if *text* references *month* in any common German date format.
+        """Return True if *text* references *month* in any common date format.
 
-        Accepts '2026-01', '01.2026', '01/2026', and also the bare year+month in
-        any order so that varied PDF layouts are all covered.
+        Accepts:
+          '2026-01'   — ISO (also used in section headers)
+          '01.2026'   — German dot format
+          '01/2026'   — German slash format
+          '2026/01'   — Japanese/ISO year-first slash format
+          '2026/01/DD' — full Japanese date (first two components matched)
         """
         if not text or not month:
             return False
@@ -264,22 +302,34 @@ class MemoryClient(BaseLLMService):
         except ValueError:
             return month in text
         return (
-            month in text               # 2026-01
-            or f"{mon}.{year}" in text  # 01.2026
-            or f"{mon}/{year}" in text  # 01/2026
+            month in text                # 2026-01
+            or f"{mon}.{year}" in text   # 01.2026  (German)
+            or f"{mon}/{year}" in text   # 01/2026  (German)
+            or f"{year}/{mon}" in text   # 2026/01  (Japanese/ISO year-first)
         )
 
     def _looks_like_bank_statement(self, item: dict) -> bool:
         """Return True if the memory appears to be a bank statement.
 
-        Checks title and content for German banking keywords to exclude
-        technical logs, infrastructure notes, and other non-financial memories
-        that happen to mention the target month.
+        Checks title and content for banking keywords to exclude technical
+        logs, infrastructure notes, and other non-financial memories that
+        happen to mention the target month.
+
+        Supports:
+          - German Sparkasse statements (original use-case)
+          - English / international statements
+          - Japanese statements (取引明細書, 口座, 残高, 振込, …)
         """
-        haystack = (
-            (item.get("title") or "") + " " + (item.get("content") or "")
-        ).lower()
-        return any(kw in haystack for kw in self._BANK_STATEMENT_KEYWORDS)
+        raw = (item.get("title") or "") + " " + (item.get("content") or "")
+        haystack_lower = raw.lower()
+        # Latin/ASCII terms: check lowercased haystack
+        if any(kw in haystack_lower for kw in self._BANK_STATEMENT_KEYWORDS_LATIN):
+            return True
+        # Japanese terms: check original codepoints (lowercasing is a no-op for
+        # CJK but keeping it consistent with the rest of the method)
+        if any(kw in raw for kw in self._BANK_STATEMENT_KEYWORDS_JP):
+            return True
+        return False
 
     # Re-uploads of the same PDF get a numeric suffix before the extension
     # ('Auszug_2025_0001_1.pdf'); strip it so they dedup against the original.

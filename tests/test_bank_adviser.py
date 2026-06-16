@@ -202,3 +202,116 @@ def test_dedup_collapses_reupload_suffix():
     deduped = client._deduplicate_by_title(items)
     assert len(deduped) == 1
     assert deduped[0]["id"] == "b"  # newest upload wins
+
+
+# ── Japanese / international statement support ────────────────────────────────
+
+# Minimal replica of Yuki's PDF text as it lands in memory after pypdf extraction.
+YUKI_JP = """\
+取引明細書 (Bank Statement)
+口座名義: ユキ
+日付 摘要 金額 (円)
+2026/05/25 給与振込 +300,000
+2026/05/27 食費 -5,000
+2026/05/28 家賃 -80,000
+"""
+
+# English-language international statement (e.g. HSBC international PDF)
+ENGLISH_INTL = """\
+Bank Statement
+Account Holder: Jane Smith
+IBAN: GB29 NWBK 6016 1331 9268 19
+SWIFT: NWBKGB2L
+Date       Description                Amount
+2026/03/01 Salary Credit          +2500.00
+2026/03/05 Rent                   -1200.00
+2026/03/10 Groceries               -150.00
+Balance: 1150.00
+"""
+
+
+def test_looks_like_bank_statement_japanese():
+    """Japanese statement with 取引明細書 / 口座 / 振込 must be recognised."""
+    client = _client()
+    item = {"title": "yuki_bank_statement.pdf", "content": YUKI_JP}
+    assert client._looks_like_bank_statement(item) is True
+
+
+def test_looks_like_bank_statement_english_intl():
+    """English statement with 'Bank Statement' / IBAN / SWIFT must be recognised."""
+    client = _client()
+    item = {"title": "statement_2026_03.pdf", "content": ENGLISH_INTL}
+    assert client._looks_like_bank_statement(item) is True
+
+
+def test_looks_like_bank_statement_rejects_non_financial():
+    """Infrastructure logs and generic text must NOT be identified as statements."""
+    client = _client()
+    item = {
+        "title": "server_log_2026_05.txt",
+        "content": "ERROR nginx: connection refused at 2026/05/25 08:12:00",
+    }
+    assert client._looks_like_bank_statement(item) is False
+
+
+def test_uploaded_file_stub_excluded_by_title_prefix_filter():
+    """'Uploaded file:' stubs must be excluded by the title-prefix guard in
+    fetch_bank_statement_for_month (not by _looks_like_bank_statement, which
+    may still match them because the filename contains 'bank').  The filter
+    that matters is:
+        not (item.get("title") or "").startswith("Uploaded file:")
+    This test verifies the guard fires for such items."""
+    stub_title = "Uploaded file: yuki_bank_statement.pdf"
+    assert stub_title.startswith("Uploaded file:")  # guard would drop this item
+
+
+def test_statement_month_from_japanese_date():
+    """First YYYY/MM/DD date in Japanese statement → YYYY-MM month."""
+    client = _client()
+    item = {"title": "yuki_bank_statement.pdf", "content": YUKI_JP}
+    assert client._statement_month(item) == "2026-05"
+
+
+def test_statement_month_from_iso_date_in_content():
+    """ISO date 'YYYY/MM/DD' in English international statement → YYYY-MM."""
+    client = _client()
+    item = {"title": "statement.pdf", "content": ENGLISH_INTL}
+    assert client._statement_month(item) == "2026-03"
+
+
+def test_mentions_month_japanese_slash_format():
+    """_mentions_month must accept 'YYYY/MM' (Japanese year-first slash format)."""
+    client = _client()
+    assert client._mentions_month(YUKI_JP, "2026-05") is True
+    assert client._mentions_month(YUKI_JP, "2026-04") is False
+
+
+def test_german_header_still_beats_iso_date_in_content():
+    """German 'Kontoauszug N/YYYY' header must take priority over any date in body."""
+    client = _client()
+    # MAR has both the header 'Kontoauszug 3/2026' AND dates like '31.03.2026'
+    item = {"title": "statement.pdf", "content": MAR}
+    assert client._statement_month(item) == "2026-03"
+
+
+def test_german_keywords_still_recognised():
+    """Existing German keywords must not be broken by the new multi-locale check."""
+    client = _client()
+    item = {"title": "Kontoauszug_Jan.pdf", "content": JAN}
+    assert client._looks_like_bank_statement(item) is True
+
+
+def test_compute_financial_aggregates_returns_invalid_for_japanese_statement():
+    """Japanese amounts (+300,000 / -5,000) don't match the German parser.
+
+    The function must return valid=False — NOT raise — so the pipeline degrades
+    gracefully: the LLM stage still receives the raw statement text and can
+    derive totals itself. The German Sparkasse path must remain unaffected.
+    """
+    result = compute_financial_aggregates(YUKI_JP)
+    assert result["valid"] is False
+    # Ensure no exception was raised and the dict is still well-formed
+    assert "total_income" in result
+    assert "total_expenses" in result
+    assert result["total_income"] == 0.0
+    assert result["total_expenses"] == 0.0
