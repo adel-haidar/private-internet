@@ -40,7 +40,7 @@ several items that were adjusted:
 | Plan | This scaffold |
 |------|---------------|
 | CDK v1 `@aws-cdk/aws-*` packages | CDK v2 single package `aws-cdk-lib` |
-| Domain `private.internet` (fictional) | Default `adel-intelligence.com` (real, via `domainName` context key) |
+| Domain `private.internet` (fictional) | Default `app.private-internet.io` (real, via `domainName` context key) |
 | `S3_BUCKET` env var | `S3_CONTENT_BUCKET` (matches `config.py` / app code) |
 | No `/mcp/*` or `/.well-known/*` behaviours | Both added — FROZEN paths, required for claude.ai MCP + RFC 8414 |
 | Single ACM cert (region unspecified) | Two certs: us-east-1 for CloudFront, eu-central-1 for ALB |
@@ -70,11 +70,11 @@ Complete **all** of these steps before touching `cdk deploy`:
 2. **Request SES production access**
    By default SES is in sandbox mode (can only send to verified addresses).
    Submit a production access request in the AWS console before going live.
-   Also verify the sending domain: `aws ses verify-domain-identity --domain adel-intelligence.com`
+   Also verify the sending domain: `aws ses verify-domain-identity --domain app.private-internet.io`
 
 3. **Set the `domainName` context** (if not using the default)
    ```bash
-   npx cdk deploy --context domainName=adel-intelligence.com
+   npx cdk deploy --context domainName=app.private-internet.io
    ```
    Or edit `cdk.json` → `context.domainName`.
 

@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     app_name: str = "Private Internet"
     # Public domain the platform is served from. Default keeps the current
     # production deployment working; self-hosters set APP_DOMAIN in .env.
-    app_domain: str = "adel-intelligence.com"
+    app_domain: str = "app.private-internet.io"
 
     # ── Multi-user platform ─────────────────────────────────────
     seed_admin_email: str = ""        # existing single-user data is assigned to this user

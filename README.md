@@ -91,7 +91,7 @@ uvicorn main:app --port 8001 --reload
 # Frontend (separate terminal)
 cd frontend
 npm install
-npm run dev  # proxies /api, /oauth, /mcp to https://adel-intelligence.com
+npm run dev  # proxies /api, /oauth, /mcp to https://app.private-internet.io
 ```
 
 ## Deployment

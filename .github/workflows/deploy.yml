@@ -74,8 +74,8 @@ jobs:
               \"echo ==> Deploying nginx config...\",
               \"cp /home/${{ secrets.EC2_USER }}/personal-intelligence/nginx/personal-intelligence.conf /etc/nginx/conf.d/personal-intelligence.conf\",
               \"echo ==> Disabling conflicting nginx server configs...\",
-              \"for f in /etc/nginx/conf.d/*.conf; do if [ \$f != /etc/nginx/conf.d/personal-intelligence.conf ] && grep -q adel-intelligence.com \$f; then echo Disabling conflicting nginx config \$f; mv \$f \$f.disabled; fi; done\",
-              \"grep -n adel-intelligence.com /etc/nginx/nginx.conf && echo WARNING: server block also defined in nginx.conf itself || true\",
+              \"for f in /etc/nginx/conf.d/*.conf; do if [ \$f != /etc/nginx/conf.d/personal-intelligence.conf ] && grep -q app.private-internet.io \$f; then echo Disabling conflicting nginx config \$f; mv \$f \$f.disabled; fi; done\",
+              \"grep -n app.private-internet.io /etc/nginx/nginx.conf && echo WARNING: server block also defined in nginx.conf itself || true\",
               \"nginx -t\",
               \"echo ==> Restarting services...\",
               \"systemctl restart personal-intelligence-api\",
@@ -86,7 +86,7 @@ jobs:
               \"systemctl is-active --quiet personal-intelligence-agents && echo agents: OK\",
               \"echo ==> Verifying nginx routes /api/health to the agents service...\",
               \"sleep 3\",
-              \"curl -s -o /dev/null -w %{http_code} -H 'Host: adel-intelligence.com' http://127.0.0.1/api/health/trends | grep -q 401 || (echo ERROR: /api/health is not reaching the agents service - the active nginx config is stale && exit 1)\",
+              \"curl -s -o /dev/null -w %{http_code} -H 'Host: app.private-internet.io' http://127.0.0.1/api/health/trends | grep -q 401 || (echo ERROR: /api/health is not reaching the agents service - the active nginx config is stale && exit 1)\",
               \"echo ==> Last 20 lines of agents log:\",
               \"journalctl -u personal-intelligence-agents -n 20 --no-pager\"
             ]" \

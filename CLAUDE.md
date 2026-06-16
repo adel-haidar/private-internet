@@ -6,8 +6,9 @@
 - **Infrastructure pointers that KEEP the old name** (renaming them breaks deploys):
   GitHub repo `personal-intelligence`, EC2 dir `~/personal-intelligence`,
   systemd units `personal-intelligence-api` / `personal-intelligence-agents`,
-  nginx conf `personal-intelligence.conf`, production domain `adel-intelligence.com`
-  (configurable per-instance via `APP_DOMAIN`).
+  nginx conf `personal-intelligence.conf`.
+- **Production domain:** `app.private-internet.io` (platform: API + dashboard),
+  `private-internet.io` (marketing site). Configurable per-instance via `APP_DOMAIN`.
 - Deploy copies systemd unit files on every backend deploy, so unit *contents*
   may change freely; unit *names* must not.
 
@@ -70,5 +71,5 @@ Required env vars (shared with the PULSE pipeline): `S3_CONTENT_BUCKET`, `CLOUDF
 ---
 
 ## Key URLs
-- Production: https://adel-intelligence.com
-- Dashboard: https://adel-intelligence.com (or subdomain — adjust as needed)
+- Platform (API + dashboard): https://app.private-internet.io
+- Marketing site: https://private-internet.io

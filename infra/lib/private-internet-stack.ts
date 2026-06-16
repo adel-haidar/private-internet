@@ -47,7 +47,7 @@ import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 export interface PrivateInternetStackProps extends cdk.StackProps {
   /**
    * The apex domain to register the certificate and Route 53 record on.
-   * Defaults to 'adel-intelligence.com' (current production domain).
+   * Defaults to 'app.private-internet.io' (current production domain).
    * Override via cdk.json context key "domainName" or --context on the CLI.
    *
    * NOTE: The plan used the fictional 'private.internet'. We always default to

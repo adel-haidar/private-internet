@@ -13,10 +13,10 @@ class ApiEndpoints {
   ApiEndpoints._();
 
   /// The single source of truth for the API origin.
-  static const String baseUrl = 'https://adel-intelligence.com/api';
+  static const String baseUrl = 'https://app.private-internet.io/api';
 
   /// Custom scheme used for the cloud-wearable OAuth deep link.
-  static const String oauthCallbackScheme = 'adel-intelligence';
+  static const String oauthCallbackScheme = 'private-internet';
 
   // ---- Auth (Service A, prefix /api/auth) -------------------------------
   static const String register = '/auth/register';

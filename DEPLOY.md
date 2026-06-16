@@ -6,7 +6,7 @@
 Browser
   │
   ▼
-CloudFront  (adel-intelligence.com)
+CloudFront  (app.private-internet.io)
   │
   ├── /api/*  /mcp/*  /oauth/*  /.well-known/*  ──►  ALB  ──►  EC2 nginx  ──►  API :8000
   │                                                                         ──►  Agents :8001
@@ -18,7 +18,7 @@ CloudFront  (adel-intelligence.com)
 
 **Why this layout:**
 - The Vue app is a bunch of static files — S3 + CloudFront is the cheapest and fastest way to serve them globally.
-- Everything stays on `adel-intelligence.com` (no subdomains), so no CORS configuration is needed.
+- Everything stays on `app.private-internet.io` (no subdomains), so no CORS configuration is needed.
 - Your existing services (openclaw, banking, etc.) are not touched — CloudFront just forwards those paths to the ALB the same way it does now.
 
 ---
@@ -28,7 +28,7 @@ CloudFront  (adel-intelligence.com)
 - AWS CLI installed and configured on your local machine (`aws configure` with your IAM credentials)
 - SSH access to the EC2 instance
 - Node.js installed locally (to build the frontend)
-- The domain `adel-intelligence.com` already in Route 53 ✓
+- The domain `app.private-internet.io` already in Route 53 ✓
 - An ALB already set up ✓
 - EC2 with nginx already running ✓
 
@@ -44,8 +44,8 @@ CloudFront only accepts certificates from the **us-east-1** region, even though 
 2. Open **Certificate Manager** → **Request certificate**.
 3. Choose **Request a public certificate** → **Next**.
 4. Under *Fully qualified domain name*, enter:
-   - `adel-intelligence.com`
-   - Click **Add another name** → `*.adel-intelligence.com`
+   - `app.private-internet.io`
+   - Click **Add another name** → `*.app.private-internet.io`
 5. Validation method: **DNS validation** (recommended).
 6. Click **Request**.
 7. On the certificate detail page, click **Create records in Route 53**. AWS adds the required DNS records automatically.
@@ -68,7 +68,7 @@ CloudFront only accepts certificates from the **us-east-1** region, even though 
 
 ### Step 3: Create the CloudFront distribution
 
-CloudFront is the single entry point for `adel-intelligence.com`. It decides whether a request goes to S3 (frontend) or the ALB (API).
+CloudFront is the single entry point for `app.private-internet.io`. It decides whether a request goes to S3 (frontend) or the ALB (API).
 
 #### 3a. Open CloudFront → Create distribution
 
@@ -94,7 +94,7 @@ Leave everything else on the origin at default.
 
 | Setting | Value |
 |---|---|
-| Alternate domain names | `adel-intelligence.com` |
+| Alternate domain names | `app.private-internet.io` |
 | Custom SSL certificate | Select the certificate you created in Step 1 |
 | Default root object | `index.html` |
 
@@ -186,8 +186,8 @@ From this point, only CloudFront can reach your ALB on that port.
 
 Switch the domain from pointing at the ALB to pointing at CloudFront.
 
-1. Go to **Route 53** → **Hosted zones** → `adel-intelligence.com`.
-2. Find the `A` record for `adel-intelligence.com` (the root record).
+1. Go to **Route 53** → **Hosted zones** → `app.private-internet.io`.
+2. Find the `A` record for `app.private-internet.io` (the root record).
 3. Click **Edit record**.
 4. Make sure **Alias** is toggled on.
 5. Route traffic to: **Alias to CloudFront distribution**.
@@ -301,7 +301,7 @@ Common causes of failure: a missing or misspelled value in `.env`, or the wrong 
 
 ### Step 13: Update nginx
 
-Open your existing nginx config for `adel-intelligence.com`:
+Open your existing nginx config for `app.private-internet.io`:
 
 ```bash
 sudo nano /etc/nginx/conf.d/adel-intelligence.conf
@@ -420,30 +420,30 @@ Run these from your local machine after completing all steps above.
 
 **Frontend loads:**
 ```bash
-curl -I https://adel-intelligence.com
+curl -I https://app.private-internet.io
 # Expect: HTTP/2 200
 # Expect header: x-cache: Miss from cloudfront (first hit) or Hit from cloudfront (cached)
 ```
 
 **OAuth discovery:**
 ```bash
-curl https://adel-intelligence.com/.well-known/oauth-authorization-server
+curl https://app.private-internet.io/.well-known/oauth-authorization-server
 # Expect: JSON with issuer, authorization_endpoint, token_endpoint
 ```
 
 **API reachable (will return 401 without a token — that's correct):**
 ```bash
-curl -i https://adel-intelligence.com/api/memory
+curl -i https://app.private-internet.io/api/memory
 # Expect: HTTP 401 Unauthorized
 ```
 
 **MCP endpoint reachable:**
 ```bash
-curl -i https://adel-intelligence.com/mcp/mcp
+curl -i https://app.private-internet.io/mcp/mcp
 # Expect: an MCP protocol response, not a 404
 ```
 
-Also open `https://adel-intelligence.com` in a browser, navigate to a few pages, and hard-refresh (Ctrl+Shift+R) — it should load correctly every time.
+Also open `https://app.private-internet.io` in a browser, navigate to a few pages, and hard-refresh (Ctrl+Shift+R) — it should load correctly every time.
 
 ---
 

@@ -11,7 +11,7 @@
  *   1. Fill Secrets Manager values — see infra/README.md
  *   2. Ensure CDK_DEFAULT_ACCOUNT is set to the target AWS account
  *   3. npx cdk bootstrap aws://<account>/eu-central-1
- *   4. npx cdk deploy --context domainName=adel-intelligence.com
+ *   4. npx cdk deploy --context domainName=app.private-internet.io
  */
 
 import * as cdk from 'aws-cdk-lib';
@@ -21,7 +21,7 @@ const app = new cdk.App();
 
 // domainName can be overridden via --context domainName=... on the CLI.
 // Default matches the current production domain.
-const domainName = app.node.tryGetContext('domainName') ?? 'adel-intelligence.com';
+const domainName = app.node.tryGetContext('domainName') ?? 'app.private-internet.io';
 
 new PrivateInternetStack(app, 'PrivateInternetStack', {
   domainName,

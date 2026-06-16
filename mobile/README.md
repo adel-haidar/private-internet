@@ -2,7 +2,7 @@
 
 A full-featured mobile client for the **Private Internet** platform (repo dir
 `personal-intelligence`). It talks **only** to the existing FastAPI backend at
-`https://adel-intelligence.com/api/*` — there is no new backend.
+`https://app.private-internet.io/api/*` — there is no new backend.
 
 - **Design system:** Calm Intelligence (matches the Vue web frontend).
 - **State:** Riverpod (manual API — see [Codegen note](#codegen-note)).
@@ -124,12 +124,12 @@ Add inside the top-level `<dict>`:
 <key>NSCameraUsageDescription</key>
 <string>Used to take a profile photo.</string>
 
-<!-- OAuth deep link for cloud wearables: adel-intelligence://health/callback -->
+<!-- OAuth deep link for cloud wearables: private-internet://health/callback -->
 <key>CFBundleURLTypes</key>
 <array>
   <dict>
     <key>CFBundleURLSchemes</key>
-    <array><string>adel-intelligence</string></array>
+    <array><string>private-internet</string></array>
   </dict>
 </array>
 ```
@@ -153,12 +153,12 @@ Set the deployment target to **16.0** in `ios/Podfile`
 
 <application android:usesCleartextTraffic="false" ...>
   <activity ...>
-    <!-- OAuth deep link: adel-intelligence://health/callback -->
+    <!-- OAuth deep link: private-internet://health/callback -->
     <intent-filter android:autoVerify="false">
       <action android:name="android.intent.action.VIEW"/>
       <category android:name="android.intent.category.DEFAULT"/>
       <category android:name="android.intent.category.BROWSABLE"/>
-      <data android:scheme="adel-intelligence" android:host="health"/>
+      <data android:scheme="private-internet" android:host="health"/>
     </intent-filter>
   </activity>
 </application>
@@ -177,7 +177,7 @@ android {
 ```
 
 > **Deep-link routing:** GoRouter maps `https`/path links directly. The custom
-> scheme `adel-intelligence://health/callback` (host `health`, path `/callback`)
+> scheme `private-internet://health/callback` (host `health`, path `/callback`)
 > is captured by the intent filter / `CFBundleURLTypes`; route it to
 > `/health/devices/callback` with `app_links` or `uni_links` when you enable
 > cloud-device OAuth. The handler screen already exists

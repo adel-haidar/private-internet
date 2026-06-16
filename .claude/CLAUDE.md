@@ -15,8 +15,9 @@ AWS Bedrock for inference.
 - **Infra pointers that KEEP the old name** (renaming breaks deploys): GitHub repo
   `personal-intelligence`, EC2 dir `~/personal-intelligence`, systemd units
   `personal-intelligence-api` / `personal-intelligence-agents`, nginx conf
-  `personal-intelligence.conf`, prod domain `adel-intelligence.com` (override per-instance
-  with `APP_DOMAIN`).
+  `personal-intelligence.conf`.
+- **Prod domain:** `app.private-internet.io` (platform), `private-internet.io` (marketing
+  site); override per-instance with `APP_DOMAIN`.
 
 ## Tech Stack
 | Layer | Technology |

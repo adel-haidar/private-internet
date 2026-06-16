@@ -311,7 +311,7 @@ the JSON output. Your actual analytical work is:
         else:
             ground_truth_section = ""
 
-        prompt = f"""You are Adel's personal financial analyst embedded in his adel-intelligence system.
+        prompt = f"""You are Adel's personal financial analyst embedded in his Private Internet system.
 Your job is to analyse his bank statement and memory context and return a single, valid JSON object — no prose, no markdown fences, no commentary outside the JSON.
 
 ══════════════════════════════════════════

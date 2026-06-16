@@ -1,5 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Network: required for the app to reach https://adel-intelligence.com/api/*.
+    <!-- Network: required for the app to reach https://app.private-internet.io/api/*.
          Release builds do NOT add INTERNET automatically, so it must be declared here. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
@@ -38,12 +38,12 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
-            <!-- OAuth deep link: adel-intelligence://health/callback -->
+            <!-- OAuth deep link: private-internet://health/callback -->
             <intent-filter android:autoVerify="false">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
-                <data android:scheme="adel-intelligence" android:host="health"/>
+                <data android:scheme="private-internet" android:host="health"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

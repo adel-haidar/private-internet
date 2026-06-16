@@ -32,6 +32,6 @@
     "@aws-cdk/aws-ecs:disableExplicitDeploymentControllerForCircuitBreaker": true,
     "@aws-cdk/aws-iam:importedRoleStackSafeDefaultPolicyName": true,
     "@aws-cdk/aws-s3-notifications:addEventNotificationDestinationToSelfUniqueDependencyId": true,
-    "domainName": "adel-intelligence.com"
+    "domainName": "app.private-internet.io"
   }
 }

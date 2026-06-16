@@ -9,7 +9,7 @@ import '../../core/widgets/app_button.dart';
 import '../../core/widgets/brain_pulse.dart';
 
 /// Landing screen for the wearable OAuth deep link
-/// (`adel-intelligence://health/callback`).
+/// (`private-internet://health/callback`).
 ///
 /// When cloud-device connection lands on the backend, this screen would POST
 /// the returned `code`/`state` to complete the link. For now it confirms the

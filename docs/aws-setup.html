@@ -327,7 +327,7 @@ systemctl is-active personal-intelligence-api personal-intelligence-agents</pre>
            <code>copy(sessionStorage.getItem('pi_access_token'))</code>, then:</p>
         <pre><button class="copy">Copy</button>TOK='&lt;paste real token&gt;'
 curl -s -o /dev/null -w "health: %{http_code}\n" -H "Authorization: Bearer $TOK" \
-  https://adel-intelligence.com/api/health/daily/$(date +%F)</pre>
+  https://app.private-internet.io/api/health/daily/$(date +%F)</pre>
         <p><strong>200</strong> = the health &amp; finance agents work. A 503 mentioning
            <code>INTERNAL_SECRET</code> means it isn't set/loaded — recheck section 1 and restart.</p>
       </div>

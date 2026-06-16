@@ -1,7 +1,7 @@
 # Personal Intelligence — AI Content Platform
 ## Master Development Plan
 
-> **Project:** personal-intelligence (adel-intelligence)
+> **Project:** personal-intelligence
 > **Stack:** Python (FastAPI) + TypeScript (Vue 3) + PostgreSQL + AWS
 > **Agent Assignments:** Claude Code · OpenAI Codex · Gemini
 > **Goal:** A self-contained AI-driven media platform — social posts and videos auto-generated from topics extracted from the MCP memory brain, with a reinforcement learning feedback loop.

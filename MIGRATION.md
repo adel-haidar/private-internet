@@ -223,12 +223,12 @@ curl -s http://localhost:8001/email/sync
 
 ### 18. Verify MCP connection (Claude Desktop)
 
-The Claude Desktop config still points to `https://adel-intelligence.com/mcp/mcp`.
+The Claude Desktop config still points to `https://app.private-internet.io/mcp/mcp`.
 No changes needed — the new Service A mounts FastMCP at the same path.
 
 Test:
 ```bash
-curl -s https://adel-intelligence.com/mcp/mcp
+curl -s https://app.private-internet.io/mcp/mcp
 # Should return MCP protocol response (not 404)
 ```
 
@@ -238,7 +238,7 @@ curl -s https://adel-intelligence.com/mcp/mcp
 # First get a token (or use an existing one from localStorage in the dashboard)
 TOKEN="your-access-token"
 
-curl -s -X POST https://adel-intelligence.com/api/memory/text \
+curl -s -X POST https://app.private-internet.io/api/memory/text \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title":"Migration test","content":"This memory was saved via the new API.","tags":["test","migration"]}'
@@ -248,7 +248,7 @@ curl -s -X POST https://adel-intelligence.com/api/memory/text \
 ### 20. Verify file upload
 
 ```bash
-curl -s -X POST https://adel-intelligence.com/api/file \
+curl -s -X POST https://app.private-internet.io/api/file \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@/tmp/test.txt"
 # Expected: {"status":"ok","memory_id":"...","filename":"...","size":...}
@@ -257,7 +257,7 @@ curl -s -X POST https://adel-intelligence.com/api/file \
 ### 21. Verify memory list
 
 ```bash
-curl -s "https://adel-intelligence.com/api/memory?page=1&page_size=5" \
+curl -s "https://app.private-internet.io/api/memory?page=1&page_size=5" \
   -H "Authorization: Bearer $TOKEN"
 # Expected: {"items":[...],"total":...,"page":1,"pages":...}
 ```
@@ -265,7 +265,7 @@ curl -s "https://adel-intelligence.com/api/memory?page=1&page_size=5" \
 ### 22. Verify OAuth flow (Claude.ai custom connector)
 
 1. Open Claude.ai → Settings → Integrations
-2. Find the existing `adel-intelligence.com` connector
+2. Find the existing `app.private-internet.io` connector
 3. Confirm it still shows as "Connected" — no token invalidation should occur because the same DB tables are in use
 4. If disconnected, re-authorize through the existing OAuth flow
 

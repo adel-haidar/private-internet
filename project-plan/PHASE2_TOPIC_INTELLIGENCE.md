@@ -10,7 +10,7 @@ Build the service that continuously monitors the MCP memory brain, detects inter
 ---
 
 ## Context
-- MCP memory server: `https://adel-intelligence.com/mcp/mcp`
+- MCP memory server: `https://app.private-internet.io/mcp/mcp`
 - MCP tools available: `save`, `search`, `fetch`
 - Backend: FastAPI, Python
 - DB models from Phase 1 are available
