@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { RouterLink } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import BrandMark from './ui/BrandMark.vue'
 import BrainPulse from './ui/BrainPulse.vue'
 import PIIcon from './ui/PIIcon.vue'
@@ -12,8 +12,11 @@ import { useBrainOrganiser } from '../composables/useBrainOrganiser'
 import { logout, requireAuth } from '../composables/useAuth'
 import { API_BASE } from '../config/env'
 import { useI18n } from '../i18n'
+import { useBilling } from '../composables/useBilling'
 
 const { t } = useI18n()
+const router = useRouter()
+const { status: billingStatus, meetsPlan } = useBilling()
 
 // The signed-in user (fetched, not hardcoded).
 const meName = ref('')
@@ -80,20 +83,36 @@ interface NavItem {
   to: string
   icon: string
   brain?: boolean
+  requiresPlan?: 'pro' | 'max'
 }
 
 const NAV_MAIN: NavItem[] = [
   { key: 'dashboard', to: '/overview',  icon: 'dashboard' },
   { key: 'brain',     to: '/memory',    icon: 'brain',    brain: true },
-  { key: 'signal',    to: '/signal',    icon: 'signal' },
-  { key: 'stories',   to: '/stories',   icon: 'stories' },
-  { key: 'aria',      to: '/aria',      icon: 'aria' },
+  { key: 'signal',    to: '/signal',    icon: 'signal',   requiresPlan: 'pro' },
+  { key: 'stories',   to: '/stories',   icon: 'stories',  requiresPlan: 'max' },
+  { key: 'aria',      to: '/aria',      icon: 'aria',     requiresPlan: 'pro' },
   { key: 'pulse',     to: '/pulse',     icon: 'pulse' },
   { key: 'health',    to: '/health',    icon: 'health' },
   { key: 'finances',  to: '/finances',  icon: 'finances' },
   // Email assistant deactivated for the first release — re-add when EMAIL_ENABLED is on.
   { key: 'jobs',      to: '/job',       icon: 'job' },
 ]
+
+/** True when the item is gated and the user's plan doesn't meet the requirement. */
+function isLocked(item: NavItem): boolean {
+  if (!item.requiresPlan) return false
+  if (!billingStatus.value?.billing_enabled) return false
+  return !meetsPlan(item.requiresPlan)
+}
+
+function handleNavClick(item: NavItem, navigate: () => void) {
+  if (isLocked(item)) {
+    router.push(`/subscribe?feature=${encodeURIComponent(item.to)}`)
+    return
+  }
+  navigate()
+}
 
 const NAV_SYS: NavItem[] = [
   { key: 'settings',   to: '/settings',  icon: 'settings' },
@@ -119,8 +138,8 @@ const NAV_SYS: NavItem[] = [
         v-slot="{ isActive, navigate }"
       >
         <button
-          :class="['pi-nav__item', item.brain ? 'pi-nav__item--brain' : '', isActive ? 'pi-nav__item--active' : '']"
-          @click="navigate"
+          :class="['pi-nav__item', item.brain ? 'pi-nav__item--brain' : '', isActive ? 'pi-nav__item--active' : '', isLocked(item) ? 'pi-nav__item--locked' : '']"
+          @click="handleNavClick(item, navigate)"
         >
           <!-- Brain item: animated BrainPulse normally; a static 💤 while the
                Brain Organiser is running ("your brain is sleeping"). -->
@@ -142,6 +161,13 @@ const NAV_SYS: NavItem[] = [
             </template>
             <template v-else>{{ t('nav.' + item.key) }}</template>
           </span>
+
+          <!-- Tier lock badge (billing enabled + plan insufficient) -->
+          <span
+            v-if="isLocked(item)"
+            class="pi-nav__lock-badge"
+            aria-hidden="true"
+          >{{ item.requiresPlan?.toUpperCase() }}</span>
         </button>
       </RouterLink>
 

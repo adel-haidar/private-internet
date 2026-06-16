@@ -6,6 +6,7 @@
  * single-column news feed.
  */
 import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { usePulseFeed, useCreators, logInteraction, type Post, type Tone } from '../composables/useContent'
 import { useToast } from '../components/ui/useToast'
 import FeedChip from '../components/feed/FeedChip.vue'
@@ -19,10 +20,20 @@ import PersonaRail from '../components/feed/PersonaRail.vue'
 import PersonaHeader from '../components/feed/PersonaHeader.vue'
 import { headline, readMinutes } from '../components/feed/post-format'
 import BrainBanner from '../components/BrainBanner.vue'
+import { useBilling } from '../composables/useBilling'
 
 const { posts, loading, error, hasMore, loadMore, creator, setCreator } = usePulseFeed()
 const { creators, load: loadCreators } = useCreators()
 const toast = useToast()
+const router = useRouter()
+const { hasFeature, status: billingStatus } = useBilling()
+
+// True when the user can see images/video in the feed.
+const canSeeMedia = computed(() => hasFeature('pulse_media'))
+// Show the upgrade hint only when billing is actually enabled (current prod: no hint).
+const showMediaUpgradeHint = computed(() =>
+  billingStatus.value?.billing_enabled === true && !canSeeMedia.value,
+)
 
 const TONES: (Tone | 'all')[] = ['all', 'informative', 'satirical', 'critical', 'supportive']
 const TONE_COLOR: Record<string, string> = {
@@ -130,6 +141,13 @@ async function vote(post: Post, like: boolean) {
                 <template #topLeft><TonePill v-if="featured.tone" :tone="featured.tone" /></template>
                 <template #topRight><ScoreText :score="featured.score" on-dark /></template>
               </FeaturedCard>
+
+              <!-- Inline upgrade hint when image is null due to free tier -->
+              <div v-if="showMediaUpgradeHint && !featured.image_url" class="pulse__media-gate">
+                <span>Images &amp; video require</span>
+                <button class="pulse__media-gate__link" @click="router.push('/subscribe?feature=pulse_media')">Pro</button>
+              </div>
+
               <div class="pulse__featactions">
                 <FeedVoteButton :label="`${featured.score.toFixed(2)} Like`" color="var(--success)" icon="up" :active="votes[featured.id] === 'up'" @click="vote(featured, true)" />
                 <FeedVoteButton label="Dislike" color="var(--danger)" icon="down" :active="votes[featured.id] === 'down'" @click="vote(featured, false)" />
@@ -141,7 +159,11 @@ async function vote(post: Post, like: boolean) {
             <div class="pulse__column">
               <PulsePostCard
                 v-for="p in rest" :key="p.id" :post="p"
-                :vote="votes[p.id] ?? null" @vote="(l) => vote(p, l)" @open="reading = p"
+                :vote="votes[p.id] ?? null"
+                :show-media-upgrade-hint="showMediaUpgradeHint"
+                @vote="(l) => vote(p, l)"
+                @open="reading = p"
+                @upgrade="router.push('/subscribe?feature=pulse_media')"
               />
             </div>
 
@@ -197,4 +219,6 @@ async function vote(post: Post, like: boolean) {
 .pulse__error, .pulse__empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); font-family: var(--font-serif); }
 .pulse__retry { margin-top: 12px; height: 36px; padding: 0 16px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); cursor: pointer; }
 .pulse__more { align-self: center; margin-top: 8px; height: 40px; padding: 0 24px; border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); cursor: pointer; font-size: var(--text-sm); }
+.pulse__media-gate { display: flex; align-items: center; gap: 4px; font-size: var(--text-xs); color: var(--text-tertiary); padding: 6px 4px 2px; }
+.pulse__media-gate__link { background: none; border: none; cursor: pointer; color: var(--accent-primary); font-size: var(--text-xs); font-weight: 600; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
 </style>

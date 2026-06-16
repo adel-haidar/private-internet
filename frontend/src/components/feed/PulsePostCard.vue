@@ -11,10 +11,19 @@ import { seededThumb } from './seeded'
 import { headline, readMinutes, postFormat, age, toneTint, firstUrl, linkHost } from './post-format'
 
 const props = withDefaults(
-  defineProps<{ post: Post; vote?: 'up' | 'down' | null; compact?: boolean }>(),
-  { vote: null, compact: false },
+  defineProps<{
+    post: Post
+    vote?: 'up' | 'down' | null
+    compact?: boolean
+    showMediaUpgradeHint?: boolean
+  }>(),
+  { vote: null, compact: false, showMediaUpgradeHint: false },
 )
-const emit = defineEmits<{ (e: 'vote', like: boolean): void; (e: 'open'): void }>()
+const emit = defineEmits<{
+  (e: 'vote', like: boolean): void
+  (e: 'open'): void
+  (e: 'upgrade'): void
+}>()
 
 const fmt = computed(() => postFormat(props.post))
 const handle = computed(() => props.post.creator_slug || props.post.creator_name.toLowerCase().replace(/\s+/g, '-'))
@@ -57,9 +66,25 @@ const url = computed(() => firstUrl(props.post.body))
     <h3 class="pc__topic" @click="emit('open')">{{ headline(post.body) }}</h3>
 
     <div
-      v-if="fmt === 'A'"
+      v-if="fmt === 'A' && post.image_url"
       class="pc__img"
-      :style="post.image_url ? { backgroundImage: `url(${post.image_url})` } : seededThumb(post.creator_name)"
+      :style="{ backgroundImage: `url(${post.image_url})` }"
+      @click="emit('open')"
+    />
+    <div
+      v-else-if="fmt === 'A' && showMediaUpgradeHint"
+      class="pc__img-gate"
+      role="button"
+      tabindex="0"
+      @click="emit('upgrade')"
+      @keydown.enter="emit('upgrade')"
+    >
+      <span class="pc__img-gate__text">Upgrade to Pro for images &amp; video</span>
+    </div>
+    <div
+      v-else-if="fmt === 'A'"
+      class="pc__img"
+      :style="seededThumb(post.creator_name)"
       @click="emit('open')"
     />
 
@@ -107,6 +132,23 @@ const url = computed(() => firstUrl(props.post.body))
 .pc__handle { font-size: var(--text-xs); color: var(--text-tertiary); }
 .pc__topic { font-family: var(--font-display); font-weight: 600; font-size: 16px; line-height: 1.3; color: var(--text-primary); margin: 10px 0 8px; cursor: pointer; }
 .pc__img { aspect-ratio: 16/9; border-radius: var(--radius-sm); background-size: cover; background-position: center; margin-bottom: 10px; cursor: pointer; }
+.pc__img-gate {
+  aspect-ratio: 16/9;
+  border-radius: var(--radius-sm);
+  background: var(--background-raised);
+  border: 1px dashed var(--border-medium);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 10px;
+  cursor: pointer;
+}
+.pc__img-gate__text {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 0 var(--space-4);
+}
 .pc__more { padding: 2px 0; margin-top: 2px; border: 0; background: none; color: var(--accent-primary); font-size: var(--text-sm); cursor: pointer; }
 .pc__src { display: flex; gap: 10px; align-items: center; padding: 10px; margin: 4px 0 0; border-radius: var(--radius-sm); background: var(--background-raised); border: 1px solid var(--border-medium); text-decoration: none; }
 .pc__fav { width: 18px; height: 18px; border-radius: 4px; flex: 0 0 auto; }

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import BrainPulse from '../components/ui/BrainPulse.vue'
 import PIIcon from '../components/ui/PIIcon.vue'
 import ModeToggle from '../components/ui/ModeToggle.vue'
+import { PLANS } from '../config/plans'
 
 const router = useRouter()
 const mobileMenuOpen = ref(false)
@@ -48,50 +49,6 @@ const MODULES = [
   },
 ]
 
-const PLANS = [
-  {
-    key: 'free',
-    name: 'Free',
-    price: '€0',
-    period: '',
-    cta: 'Get started free',
-    highlight: false,
-    features: [
-      '50 memories',
-      '5 posts per week',
-      '2 videos per week',
-      '500 MB storage',
-    ],
-  },
-  {
-    key: 'personal',
-    name: 'Personal',
-    price: '€9',
-    period: '/mo',
-    cta: 'Start Personal',
-    highlight: true,
-    features: [
-      'Unlimited memories',
-      '20 posts per week',
-      '7 videos per week',
-      '5 GB storage',
-    ],
-  },
-  {
-    key: 'pro',
-    name: 'Pro',
-    price: '€19',
-    period: '/mo',
-    cta: 'Start Pro',
-    highlight: false,
-    features: [
-      'Unlimited memories',
-      'Unlimited posts',
-      'Unlimited videos',
-      '20 GB storage',
-    ],
-  },
-]
 </script>
 
 <template>

@@ -59,9 +59,9 @@ const router = createRouter({
     { path: '/health', component: () => import('../views/HealthView.vue') },
     { path: '/job', name: 'jobs', component: () => import('../views/JobsView.vue'), meta: { title: 'Job Hunt' } },
     { path: '/pulse',      component: () => import('../views/PulseFeed.vue'), meta: { title: 'Pulse' } },
-    { path: '/signal',     component: () => import('../views/SignalPlayer.vue'), meta: { title: 'Signal' } },
-    { path: '/stories',    component: () => import('../views/StoriesView.vue'), meta: { title: 'Stories' } },
-    { path: '/aria',       component: () => import('../views/AriaView.vue'), meta: { title: 'Aria' } },
+    { path: '/signal',     component: () => import('../views/SignalPlayer.vue'), meta: { title: 'Signal', requiresPlan: 'pro' } },
+    { path: '/stories',    component: () => import('../views/StoriesView.vue'), meta: { title: 'Stories', requiresPlan: 'max' } },
+    { path: '/aria',       component: () => import('../views/AriaView.vue'), meta: { title: 'Aria', requiresPlan: 'pro' } },
     { path: '/settings',   component: () => import('../views/SettingsView.vue') },
     // Finances — Calm-Intelligence redesign. Tabbed: Overview (plain-language
     // summary) + Spending & budget + Investments + Day trading, all wired to the
@@ -92,23 +92,32 @@ router.beforeEach(async (to) => {
   }
   if (!authed) return `/login?redirect=${encodeURIComponent(to.fullPath)}`
 
-  // 2. Billing gate (inert until BILLING_ENABLED on the server). Onboarding and
-  //    the subscribe page itself are always reachable.
+  // 2. Billing gate. Onboarding and the subscribe page are always reachable.
   if (to.path === '/subscribe' || to.path === '/onboarding') return true
 
   const billing = await fetchBillingStatus()
-  if (billing?.billing_enabled && !billing.entitled) {
-    // Just returned from Stripe Checkout — wait briefly for the webhook to land.
-    if (to.query.checkout === 'success') {
-      for (let i = 0; i < 5; i++) {
-        const b = await fetchBillingStatus(true)
-        if (b?.entitled) break
-        await sleep(1000)
-      }
-      return true
+
+  // Handle Stripe checkout success — wait briefly for webhook to land.
+  if (billing?.billing_enabled && to.query.checkout === 'success') {
+    for (let i = 0; i < 5; i++) {
+      const b = await fetchBillingStatus(true)
+      if (b?.entitled) break
+      await sleep(1000)
     }
-    return '/subscribe'
+    return true
   }
+
+  // 3. Plan-level gate. Free users can access everything except paid routes.
+  //    Only applies when billing is enabled on the server.
+  const requiresPlan = to.meta?.requiresPlan as 'pro' | 'max' | undefined
+  if (requiresPlan && billing?.billing_enabled) {
+    const requiredRank = billing.plan_ranks[requiresPlan] ?? 0
+    if (billing.plan_rank < requiredRank) {
+      // Encode which feature they tried to reach so SubscribeView can highlight it.
+      return `/subscribe?feature=${encodeURIComponent(to.path)}`
+    }
+  }
+
   return true
 })
 

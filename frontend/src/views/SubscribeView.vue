@@ -8,83 +8,162 @@ import PIIcon from '../components/ui/PIIcon.vue'
 import ModeToggle from '../components/ui/ModeToggle.vue'
 import { useBilling } from '../composables/useBilling'
 import { logout } from '../composables/useAuth'
+import { PLANS } from '../config/plans'
 
 const route = useRoute()
 const router = useRouter()
-const { status, fetchStatus, startCheckout } = useBilling()
+const { status, fetchStatus, startCheckout, openPortal } = useBilling()
 
-const loading = ref(false)
+const loading = ref<string | null>(null) // stores which plan key is loading
 const error = ref('')
 const canceled = computed(() => route.query.checkout === 'cancel')
 
-const trialDays = computed(() => status.value?.trial_days ?? 0)
+const currentPlan = computed(() => status.value?.plan ?? 'free')
 
-const VALUE_PROPS = [
-  'Your private AI brain — memory, health, finances, and a feed that learns from you',
-  'No ads, no tracking, nothing sold. Your data stays on your server',
-  'Cancel anytime from your account',
-]
+const hasCustomer = computed(() => {
+  const s = status.value
+  return s ? (s.subscription_status !== 'inactive' && s.subscription_status !== '') : false
+})
 
 onMounted(async () => {
   const s = await fetchStatus(true)
-  // Already subscribed? Don't strand them here.
-  if (s && (!s.billing_enabled || s.entitled)) {
+  // If billing is entirely disabled, nothing to buy — go to the app.
+  if (s && !s.billing_enabled) {
     router.replace('/overview')
   }
 })
 
-async function subscribe() {
-  loading.value = true
+async function subscribe(plan: 'pro' | 'max') {
+  loading.value = plan
   error.value = ''
   try {
-    await startCheckout() // redirects to Stripe on success
+    await startCheckout(plan) // redirects to Stripe on success
   } catch (e) {
     error.value = (e as Error).message
-    loading.value = false
+    loading.value = null
+  }
+}
+
+async function managePortal() {
+  loading.value = 'portal'
+  error.value = ''
+  try {
+    await openPortal()
+  } catch (e) {
+    error.value = (e as Error).message
+    loading.value = null
   }
 }
 </script>
 
 <template>
-  <div class="pi-auth pi-auth--single">
+  <div class="pi-auth pi-auth--wide">
     <div style="position: absolute; top: var(--space-6); right: var(--space-6);"><ModeToggle /></div>
 
-    <div style="width: 100%; max-width: 460px;">
-      <div style="text-align: center; margin-bottom: var(--space-6);">
+    <div class="sub__inner">
+      <!-- Header -->
+      <div class="sub__hero">
         <div style="display: flex; justify-content: center; margin-bottom: var(--space-4);">
           <BrainPulse :size="48" :slow="true" aria-hidden="true" />
         </div>
-        <h1 style="font-size: var(--text-xl);">Activate your membership</h1>
-        <p class="t-secondary" style="font-size: var(--text-base); margin-top: var(--space-2);">
-          One subscription unlocks everything in Private Internet.
+        <h1 style="font-size: var(--text-xl); text-align: center;">Choose your plan</h1>
+        <p class="t-secondary" style="font-size: var(--text-base); margin-top: var(--space-2); text-align: center;">
+          Start free. Upgrade when you want more.
         </p>
       </div>
 
-      <PiCard>
-        <div
-          v-if="canceled"
-          style="font-size: var(--text-sm); color: var(--text-secondary); background: var(--background-raised); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4);"
+      <!-- Canceled notice -->
+      <div
+        v-if="canceled"
+        class="sub__notice"
+      >
+        Checkout canceled — you can subscribe whenever you're ready.
+      </div>
+
+      <!-- Error -->
+      <p v-if="error" class="pi-field__error" role="alert" style="text-align: center; margin-bottom: var(--space-4);">{{ error }}</p>
+
+      <!-- Pricing grid -->
+      <div class="sub__grid">
+        <PiCard
+          v-for="plan in PLANS"
+          :key="plan.key"
+          class="sub__card"
+          :class="{ 'sub__card--highlight': plan.highlight, 'sub__card--current': currentPlan === plan.key }"
         >
-          Checkout canceled — you can subscribe whenever you're ready.
-        </div>
+          <!-- Highlight badge -->
+          <div v-if="plan.highlight" class="sub__badge">Most popular</div>
 
-        <ul style="list-style: none; display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-5);">
-          <li v-for="(p, i) in VALUE_PROPS" :key="i" style="display: flex; gap: var(--space-3); align-items: flex-start;">
-            <span style="color: var(--brain-amber); display: flex; flex: 0 0 auto; margin-top: 1px;"><PIIcon name="check" :size="16" /></span>
-            <span style="font-size: var(--text-sm); line-height: 1.55;">{{ p }}</span>
-          </li>
-        </ul>
+          <!-- Current plan badge -->
+          <div v-if="currentPlan === plan.key" class="sub__current-badge">Current plan</div>
 
-        <PiButton variant="cta" block :loading="loading" @click="subscribe">
-          {{ trialDays > 0 ? `Start ${trialDays}-day free trial` : 'Subscribe' }}
-        </PiButton>
+          <div class="sub__card-header">
+            <span class="sub__plan-name">{{ plan.name }}</span>
+            <div class="sub__price-row">
+              <span class="sub__amount">{{ plan.price }}</span>
+              <span v-if="plan.period" class="sub__period t-tertiary">{{ plan.period }}</span>
+            </div>
+          </div>
 
-        <p v-if="error" class="pi-field__error" role="alert" style="text-align: center; margin-top: var(--space-3);">{{ error }}</p>
+          <ul class="sub__features">
+            <li v-for="feat in plan.features" :key="feat" class="sub__feature">
+              <span class="sub__check"><PIIcon name="check" :size="14" /></span>
+              <span>{{ feat }}</span>
+            </li>
+          </ul>
 
-        <p class="t-tertiary" style="font-size: var(--text-xs); text-align: center; margin-top: var(--space-4); line-height: 1.5;">
-          Secure checkout by Stripe. {{ trialDays > 0 ? 'No charge until your trial ends. ' : '' }}Cancel anytime.
-        </p>
-      </PiCard>
+          <!-- CTA -->
+          <div class="sub__cta-wrap">
+            <!-- Free: already on it or go to app -->
+            <template v-if="plan.key === 'free'">
+              <PiButton
+                :variant="currentPlan === 'free' ? 'secondary' : 'ghost'"
+                block
+                :disabled="true"
+              >
+                {{ currentPlan === 'free' ? 'Current plan' : 'Included' }}
+              </PiButton>
+            </template>
+
+            <!-- Paid plans -->
+            <template v-else>
+              <PiButton
+                v-if="currentPlan === plan.key"
+                variant="secondary"
+                block
+                :disabled="true"
+              >
+                Current plan
+              </PiButton>
+              <PiButton
+                v-else
+                :variant="plan.highlight ? 'cta' : 'primary'"
+                block
+                :loading="loading === plan.key"
+                :disabled="loading !== null"
+                @click="subscribe(plan.key as 'pro' | 'max')"
+              >
+                {{ plan.cta }}
+              </PiButton>
+            </template>
+          </div>
+        </PiCard>
+      </div>
+
+      <!-- Manage billing link (visible once user has an active subscription) -->
+      <div v-if="hasCustomer" style="text-align: center; margin-top: var(--space-6);">
+        <button
+          class="sub__portal-link t-secondary"
+          :disabled="loading === 'portal'"
+          @click="managePortal"
+        >
+          {{ loading === 'portal' ? 'Opening portal…' : 'Manage billing' }}
+        </button>
+      </div>
+
+      <p class="t-tertiary" style="font-size: var(--text-xs); text-align: center; margin-top: var(--space-5); line-height: 1.5;">
+        Secure checkout by Stripe. Cancel anytime.
+      </p>
 
       <div style="text-align: center; margin-top: var(--space-4); font-size: var(--text-sm);">
         <a href="#" class="t-secondary" @click.prevent="logout(); router.replace('/login')">Sign out</a>
@@ -92,3 +171,169 @@ async function subscribe() {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Override pi-auth to allow wider content for the 3-column grid */
+.pi-auth--wide {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-12) var(--space-6);
+  background: var(--background-page);
+  position: relative;
+}
+
+.sub__inner {
+  width: 100%;
+  max-width: 860px;
+}
+
+.sub__hero {
+  margin-bottom: var(--space-8);
+}
+
+.sub__notice {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: var(--background-raised);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-6);
+  text-align: center;
+}
+
+.sub__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.sub__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+
+.sub__card--highlight {
+  border-color: var(--accent-primary) !important;
+  background: var(--accent-surface) !important;
+}
+
+.sub__card--current {
+  border-color: var(--brain-amber) !important;
+}
+
+.sub__badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 3px 12px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.sub__current-badge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--brain-amber);
+  color: #fff;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: 3px 12px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.sub__card-header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.sub__plan-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sub__price-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.sub__amount {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.sub__period {
+  font-size: var(--text-sm);
+}
+
+.sub__features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 1;
+}
+
+.sub__feature {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.sub__check {
+  color: var(--success);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.sub__cta-wrap {
+  margin-top: auto;
+}
+
+.sub__portal-link {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  padding: 0;
+}
+.sub__portal-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.sub__portal-link:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+@media (max-width: 600px) {
+  .sub__grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
