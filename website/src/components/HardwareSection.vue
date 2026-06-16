@@ -11,7 +11,7 @@ const llms = ['ollama', 'lm', 'llama']
 const vdbs = ['pg', 'qdrant', 'chroma']
 
 function openInstallGuide() {
-  window.open('https://github.com/private-internet/private-internet#self-hosting', '_blank')
+  window.open('https://github.com/adel-haidar/personal-intelligence#self-hosting', '_blank')
 }
 </script>
 

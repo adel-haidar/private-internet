@@ -58,12 +58,12 @@ const m = props.t.modal.self
         </div>
         <div class="mk-hw-note" style="margin-top:0">
           <p class="mk-hw-note__text" style="font-size:14px">{{ m.callout }}</p>
-          <a href="https://github.com/private-internet/private-internet#self-hosting" target="_blank" rel="noopener" style="font-size:14px;display:inline-block;margin-top:8px">{{ m.guide }} →</a>
+          <a href="https://github.com/adel-haidar/personal-intelligence#self-hosting" target="_blank" rel="noopener" style="font-size:14px;display:inline-block;margin-top:8px">{{ m.guide }} →</a>
         </div>
         <PiButton variant="cta" :block="true" type="submit" :loading="loading" icon="arrowRight">{{ m.cta }}</PiButton>
       </form>
       <div class="mk-modal__foot">
-        <a href="https://github.com/private-internet/private-internet" target="_blank" rel="noopener">{{ m.help }} →</a>
+        <a href="https://github.com/adel-haidar/personal-intelligence" target="_blank" rel="noopener">{{ m.help }} →</a>
       </div>
     </div>
   </div>

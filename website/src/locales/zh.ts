@@ -61,7 +61,7 @@ export default {
     c1: { name: '云端托管', sub: '托管在我们的基础设施上', chip: '现已推出', desc: '在我们安全的云服务器上运行 Private Internet。你的数据隔离在你专属的数据库实例中并加密存储。更新、备份与可用性由我们负责，你只需专注使用平台。', items: ['完全托管的欧盟服务器', '你专属的私有数据库', '自动更新', '99.9% 可用性保障', '内含 Claude AI'], cta: '开始使用' },
     c2: { name: '自托管', sub: '运行在你自己的硬件上', chip: '面向技术用户', desc: '在你拥有并掌控的硬件上运行整个平台。你的数据绝不触及我们的服务器，完全自主。需要一台符合下方硬件要求的机器。', items: ['开源安装脚本', '包含所有模块的完整平台', '任选本地 LLM', 'pgvector 向量数据库', '通过 GitHub 获得社区支持'], cta: '开始使用', cta2: '查看硬件要求' },
     c3: { name: '托管专用服务器', sub: '运行在我们的硬件上，专为你', chip: '即将推出', desc: '一台由我们托管、专门为你运行的专用服务器。没有共享基础设施。一台物理机器，位于你选定的数据中心。适合需要有保障的隔离、但不想自行管理硬件的组织。', cta: '提醒我' },
-    dev: { eyebrow: '面向开发者', name: '从头到尾，自己构建。', desc: '整个平台都是开源的。克隆仓库，使用你自己的模型和 API 密钥，运行一个完全独立的实例——无需账户，不依赖我们。', items: ['GitHub 上的 MIT 许可源码', '使用你自己的 API 密钥', '自行托管整个技术栈'], cta: '在 GitHub 上查看', cta2: '阅读文档', url: 'https://github.com/private-internet/private-internet', docsUrl: 'https://github.com/private-internet/private-internet#self-hosting' },
+    dev: { eyebrow: '面向开发者', name: '从头到尾，自己构建。', desc: '整个平台都是开源的。克隆仓库，使用你自己的模型和 API 密钥，运行一个完全独立的实例——无需账户，不依赖我们。', items: ['GitHub 上的 MIT 许可源码', '使用你自己的 API 密钥', '自行托管整个技术栈'], cta: '在 GitHub 上查看', cta2: '阅读文档', url: 'https://github.com/adel-haidar/personal-intelligence', docsUrl: 'https://github.com/adel-haidar/personal-intelligence#self-hosting' },
   },
   pricing: {
     label: '价格',
