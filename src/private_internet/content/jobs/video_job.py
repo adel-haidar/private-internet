@@ -21,6 +21,7 @@ from private_internet.content.video_generator import (
 from private_internet.content.elevenlabs_engine import ElevenLabsEngine, get_tts_engine
 from private_internet.content.fal_video import generate_video_clip
 from private_internet.content.voice_config import get_voice_id
+from private_internet.content.user_language import resolve_user_language
 from private_internet.content.ffmpeg_assembler import VideoAssembler
 from private_internet.content.video_assembler import assemble_video
 from private_internet.content.asset_store import AssetStore
@@ -192,8 +193,12 @@ async def generate_video(topic_id: str | None = None, *, user_id: str) -> str:
         topic = _select_topic(conn, topic_id, user_id=user_id)
         creator = CreatorSelector().select_for_topic(conn, topic)
         research = _fetch_research(conn, topic["id"], user_id=user_id)
+
+        # Resolve user language once per video; all downstream steps share it.
+        language_code = resolve_user_language(user_id)
         logger.info(
-            f"Generating video {video_id} — topic='{topic['name']}', creator='{creator['slug']}'"
+            f"Generating video {video_id} — topic='{topic['name']}', "
+            f"creator='{creator['slug']}', language={language_code}"
         )
 
         # 3. Create the record up-front so the dashboard can show 'processing'
@@ -207,8 +212,8 @@ async def generate_video(topic_id: str | None = None, *, user_id: str) -> str:
         conn.commit()
         cur.close()
 
-        # 4. Script
-        script = await script_generator.generate(topic, creator, research)
+        # 4. Script — generated in the user's resolved language.
+        script = await script_generator.generate(topic, creator, research, language_code=language_code)
         os.makedirs(work_dir, exist_ok=True)
 
         # 4b. Visual scene translation (NEW). Convert the abstract topic/script
@@ -231,13 +236,17 @@ async def generate_video(topic_id: str | None = None, *, user_id: str) -> str:
         visual_paths, thumbnail_bytes = list(visual_results[:-1]), visual_results[-1]
 
         # 8/9. Narration via the configured TTS engine (sequential — TTS + ffprobe
-        # are blocking, so run off the event loop). Script is English today, so
-        # ElevenLabs uses the English voice; per-language routing arrives with the
-        # multilingual pipeline. Polly falls back to the creator's voice.
+        # are blocking, so run off the event loop).
+        # ElevenLabs: pick the voice for the user's resolved language.
+        # Polly: use the creator's configured voice when available; otherwise
+        #   fall back to a language-matched voice (ElevenLabs _POLLY_VOICES map).
         loop = asyncio.get_event_loop()
         if isinstance(tts, ElevenLabsEngine):
-            voice_id, lang_code = get_voice_id("en"), "en"
+            voice_id, lang_code = get_voice_id(language_code), language_code
         else:
+            # Prefer the creator's native voice; it was auditioned for this creator.
+            # If the creator was configured for a different language, the Polly
+            # engine's engine-retry logic will still produce valid audio.
             voice_id, lang_code = creator["polly_voice_id"], creator["polly_language_code"]
         audio_paths = []
         for i, section in enumerate(script.sections):
@@ -357,8 +366,12 @@ async def generate_long_video(
         topic = _select_topic(conn, topic_id, user_id=user_id)
         creator = CreatorSelector().select_for_topic(conn, topic)
         research = _fetch_research(conn, topic["id"], user_id=user_id)
+
+        # Resolve user language once per video; all downstream steps share it.
+        language_code = resolve_user_language(user_id)
         logger.info(
-            f"Generating long video {video_id} — topic='{topic['name']}', creator='{creator['slug']}'"
+            f"Generating long video {video_id} — topic='{topic['name']}', "
+            f"creator='{creator['slug']}', language={language_code}"
         )
 
         cur = conn.cursor()
@@ -371,12 +384,14 @@ async def generate_long_video(
         conn.commit()
         cur.close()
 
-        # Scene-by-scene script targeting the requested SIGNAL duration band.
+        # Scene-by-scene script targeting the requested SIGNAL duration band,
+        # narrated in the user's resolved language.
         duration_min, duration_max = SIGNAL_DURATION_TARGETS[duration_band]
         script = await SceneScriptGenerator().generate(
             topic, creator, research,
             duration_min=duration_min, duration_max=duration_max,
             content_label="short video",
+            language_code=language_code,
         )
 
         def _on_progress(patch: dict) -> None:
@@ -386,7 +401,7 @@ async def generate_long_video(
         await assemble_video(
             scenes=script.scenes,
             narration_text=script.narration_text,
-            language_code="en",
+            language_code=language_code,
             output_s3_key=video_key,
             content_type="signal",
             topic_name=topic["name"],

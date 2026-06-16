@@ -12,6 +12,7 @@ import boto3
 from private_internet.config import get_settings
 from private_internet.memory.service import list_memories
 from private_internet.content.topic_clustering import build_keyword_candidates
+from private_internet.content.user_language import resolve_user_language
 
 logger = logging.getLogger(__name__)
 
@@ -156,9 +157,14 @@ class MCPMemoryReader:
         locally, then send ONLY keyword sets (never memory text) to Bedrock for
         naming. Surfaces emergent cross-topics (e.g. cars + Japan -> Japanese
         cars) and prevents any single upload batch from dominating.
+
+        Topic names are produced in the user's own language so non-English users
+        get topics like "東京の交通" not "Tokyo transportation".
         # MUST SCOPE BY USER
         """
         assert user_id is not None, "user_id must be set before any content operation"
+        language_code = resolve_user_language(user_id)
+
         loop = asyncio.get_event_loop()
         candidate_sets = await loop.run_in_executor(None, lambda: build_keyword_candidates(user_id))
         if not candidate_sets:
@@ -166,26 +172,44 @@ class MCPMemoryReader:
             return []
 
         results = await asyncio.gather(
-            *(loop.run_in_executor(None, lambda c=c: self._label_keyword_set(c)) for c in candidate_sets)
+            *(
+                loop.run_in_executor(
+                    None, lambda c=c: self._label_keyword_set(c, language_code=language_code)
+                )
+                for c in candidate_sets
+            )
         )
         return [r for r in results if r is not None]
 
-    def _label_keyword_set(self, candidate: dict) -> Optional[TopicCandidate]:
+    def _label_keyword_set(
+        self, candidate: dict, *, language_code: str = "en"
+    ) -> Optional[TopicCandidate]:
         """Turn a keyword set into a named TopicCandidate via Bedrock. The model
-        receives ONLY keywords — no memory content ever leaves the host."""
+        receives ONLY keywords — no memory content ever leaves the host.
+
+        Topic names are produced in `language_code` so the generated topic list
+        feels natural for the user (e.g. Japanese keywords -> Japanese topic name).
+        Topic naming stays deterministic (temperature=0).
+        """
+        from private_internet.content.voice_config import language_name as _lang_name
         keywords = candidate.get("keywords") or []
         if not keywords:
             return None
         kind = candidate.get("kind", "cluster")
         source_ids = candidate.get("source_ids") or []
+        lang_name = _lang_name(language_code)
 
+        lang_directive = (
+            f" Write the topic name and slug in {lang_name}. "
+            f"Not English unless {lang_name} is English."
+        )
         system_prompt = (
             "You name a content topic from a set of keywords extracted from a "
             "person's private knowledge base. The keywords are either a single "
             "theme or the INTERSECTION of two themes — when it's an intersection, "
             "name the specific combined topic (e.g. keywords [toyota, engine, "
             "japan, tokyo, import] -> 'Japanese performance cars'). Produce one "
-            "concrete, engaging topic. Output ONLY JSON: "
+            "concrete, engaging topic." + lang_directive + " Output ONLY JSON: "
             '{ "name": str, "slug": str, "keywords": list[str] }. '
             "No preamble, no explanation, no markdown fences."
         )

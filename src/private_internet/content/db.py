@@ -112,6 +112,16 @@ def init_content_db() -> None:
     cur.execute("CREATE INDEX IF NOT EXISTS idx_interactions_content ON content_interactions(content_id, content_type)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_topics_weight ON content_topics(weight DESC)")
 
+    # Migration 0015: per-user personas — content_creators gains a nullable
+    # user_id column so user-specific AI-generated personas can coexist with
+    # the global shared basics (user_id = NULL).
+    cur.execute(
+        "ALTER TABLE content_creators ADD COLUMN IF NOT EXISTS user_id UUID"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_creators_user_id ON content_creators(user_id)"
+    )
+
     conn.commit()
     cur.close()
     conn.close()

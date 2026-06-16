@@ -1,3 +1,13 @@
+"""Shared global creator personas for the PULSE pipeline.
+
+`content_creators` has an optional `user_id` column added by migration 0015:
+  - NULL  = global basic persona, visible to ALL users as a universal fallback.
+  - non-NULL = persona generated specifically for that user's brain.
+
+`seed_default_creators()` inserts/updates the GLOBAL basics (user_id = NULL).
+These are intentionally language-neutral and topic-neutral — no EU/Swiss bias.
+"""
+
 import uuid
 from datetime import datetime
 
@@ -5,93 +15,103 @@ from psycopg2.extras import RealDictCursor
 
 from private_internet.database import _connect
 
+# Global basics — neutral, universal topics.  No country/region affinities.
+# Each is kept deliberately broad so any user's feed gets reasonable content
+# even before per-user personas are generated.
 _DEFAULT_CREATORS = [
     {
-        "slug": "maksim-volkov",
-        "name": "Maksim Volkov",
-        "bio": "Former Soviet state media editor turned independent analyst. Sees everything through the lens of ideological collapse.",
-        "style_prompt": "Write like a dry, sardonic Soviet-era intellectual who is both nostalgic and self-aware. Use short punchy sentences. Reference historical parallels. Never use emojis. Tone: cold irony.",
+        "slug": "global-science-desk",
+        "name": "Global Science Desk",
+        "bio": "Science communicator. Turns complex research into clear, honest prose.",
+        "style_prompt": (
+            "Write like a seasoned science journalist: precise, curious, "
+            "jargon-free. Lead with the finding, not the methodology. "
+            "One concrete analogy per post. Never sensationalise."
+        ),
         "polly_voice_id": "Arthur",
         "polly_language_code": "en-GB",
-        "topic_affinities": ["USSR", "geopolitics", "Europe", "history", "cold war", "socialism"],
+        "topic_affinities": ["science", "research", "technology", "health", "space", "biology"],
     },
     {
-        "slug": "dr-layla-nasser",
-        "name": "Dr. Layla Nasser",
-        "bio": "Fintech architect and AI engineering researcher. Zero patience for buzzwords.",
-        "style_prompt": "Write like a sharp, no-nonsense technical expert. Dense with insight, sparse with words. Call out hype. Reference real data and standards. Occasionally sarcastic about corporate culture.",
-        "polly_voice_id": "Kajal",
-        "polly_language_code": "en-IN",
-        "topic_affinities": ["AI", "banking", "certifications", "AWS", "fintech", "machine learning", "career"],
-    },
-    {
-        "slug": "felix-bergmann",
-        "name": "Felix Bergmann",
-        "bio": "German software engineer, startup dreamer, professional complainer about German bureaucracy.",
-        "style_prompt": "Write like a frustrated but optimistic German software engineer who is deeply self-aware about his country's contradictions. Mix tech insight with mild existential comedy. Reference Kleinanzeigen, Ämter, and startup culture.",
+        "slug": "world-sport-desk",
+        "name": "World Sport Desk",
+        "bio": "Sports analyst covering the human side of athletic achievement worldwide.",
+        "style_prompt": (
+            "Write like a thoughtful sports commentator who cares about the person "
+            "behind the result. Short punchy sentences. Stats serve the story, "
+            "not the other way around. Avoid clichés like 'gave 110 percent'."
+        ),
         "polly_voice_id": "Matthew",
         "polly_language_code": "en-US",
-        "topic_affinities": ["Germany", "startup", "tech jobs", "Switzerland", "let-it-go", "circular economy", "bureaucracy"],
+        "topic_affinities": ["sport", "fitness", "athletics", "football", "basketball", "tennis", "olympics"],
     },
     {
-        "slug": "nora-chen",
-        "name": "Nora Chen",
-        "bio": "Performance coach obsessed with biometrics, body composition, and turning data into results.",
-        "style_prompt": "Write like an encouraging but evidence-based fitness coach. Specific about numbers (weight, BF%, macros). Not toxic positivity — real talk. Use short motivational punchlines at the end.",
+        "slug": "curious-mind",
+        "name": "Curious Mind",
+        "bio": "Generalist thinker. Finds the unexpected angle on everyday phenomena.",
+        "style_prompt": (
+            "Write like someone who just learned something delightful and cannot "
+            "wait to share it. Warm, conversational, precise. Open with the "
+            "surprising fact; close with an implication. Never preachy."
+        ),
         "polly_voice_id": "Olivia",
         "polly_language_code": "en-AU",
-        "topic_affinities": ["gym", "fitness", "weight loss", "Apple Watch", "health metrics", "nutrition", "body composition"],
-    },
-    {
-        "slug": "viktor-ostrowski",
-        "name": "Viktor Ostrowski",
-        "bio": "Amateur geopolitical theorist. Finds EU conspiracy in every form he has to fill.",
-        "style_prompt": "Write like an Eastern European conspiracy comedy commentator who is always almost right. Paranoid, funny, surprisingly insightful. Mix French expressions occasionally. Never takes himself too seriously.",
-        "polly_voice_id": "Brian",
-        "polly_language_code": "en-GB",
-        "topic_affinities": ["EU", "politics", "Germany", "France", "Switzerland", "migration", "bureaucracy", "Asia"],
+        "topic_affinities": ["culture", "history", "psychology", "economics", "ideas", "trivia", "nature"],
     },
 ]
 
 
 def seed_default_creators() -> int:
+    """Insert or update the global (user_id=NULL) default creator personas.
+
+    Idempotent: existing slugs are kept and their voice settings are patched
+    to match this config (so a redeploy repairs rows seeded with an earlier
+    voice set). Returns the count of newly inserted rows.
+    """
     conn = _connect()
     cur = conn.cursor()
     inserted = 0
-    for c in _DEFAULT_CREATORS:
-        cur.execute("SELECT id FROM content_creators WHERE slug = %s", (c["slug"],))
-        if cur.fetchone() is not None:
-            # Keep the narration voice in sync with this config for existing
-            # creators (e.g. the en-US/en-GB neural voice fix), so a redeploy
-            # repairs rows seeded with an earlier voice set.
+    try:
+        for c in _DEFAULT_CREATORS:
+            cur.execute("SELECT id FROM content_creators WHERE slug = %s", (c["slug"],))
+            if cur.fetchone() is not None:
+                # Repair voice settings on re-deploy; do not overwrite user-
+                # authored fields like bio or style_prompt so admins can customise.
+                cur.execute(
+                    "UPDATE content_creators "
+                    "SET polly_voice_id = %s, polly_language_code = %s "
+                    "WHERE slug = %s",
+                    (c["polly_voice_id"], c["polly_language_code"], c["slug"]),
+                )
+                continue
             cur.execute(
-                "UPDATE content_creators SET polly_voice_id = %s, polly_language_code = %s WHERE slug = %s",
-                (c["polly_voice_id"], c["polly_language_code"], c["slug"]),
+                """INSERT INTO content_creators
+                   (id, slug, name, bio, style_prompt,
+                    polly_voice_id, polly_language_code, topic_affinities,
+                    user_id)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, NULL)""",
+                (
+                    str(uuid.uuid4()),
+                    c["slug"],
+                    c["name"],
+                    c["bio"],
+                    c["style_prompt"],
+                    c["polly_voice_id"],
+                    c["polly_language_code"],
+                    c["topic_affinities"],
+                ),
             )
-            continue
-        cur.execute(
-            """INSERT INTO content_creators
-               (id, slug, name, bio, style_prompt, polly_voice_id, polly_language_code, topic_affinities)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-            (
-                str(uuid.uuid4()),
-                c["slug"],
-                c["name"],
-                c["bio"],
-                c["style_prompt"],
-                c["polly_voice_id"],
-                c["polly_language_code"],
-                c["topic_affinities"],
-            ),
-        )
-        inserted += 1
-    conn.commit()
-    cur.close()
-    conn.close()
+            inserted += 1
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
     return inserted
 
 
 def list_creators(active_only: bool = True) -> list[dict]:
+    """List all creators (global + per-user). Callers that only want a specific
+    user's visible set should query directly with the user_id filter."""
     conn = _connect()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     if active_only:

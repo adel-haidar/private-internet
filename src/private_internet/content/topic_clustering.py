@@ -44,7 +44,25 @@ SAME_TOPIC_MAX = 0.85       # centroids more similar than this are the same topi
 MAX_CANDIDATES = 6          # cap LLM labeling calls per run
 KEYWORDS_PER_CLUSTER = 8
 
-_TOKEN_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9'\-]{2,}")
+# Unicode-aware word token: matches word characters across all scripts (Latin,
+# Cyrillic, Arabic, Kana, Hangul, …) plus embedded apostrophes/hyphens.
+# Minimum length 3 characters is enforced in _tokenize(), not the regex itself,
+# because CJK characters carry meaning even at length 1.
+_TOKEN_RE = re.compile(r"\w[\w'\-]*", re.UNICODE)
+
+# Regex that matches a single CJK ideograph or kana character. We emit each
+# character as an individual token so clustering has signal even when the text
+# has no spaces (Japanese, Chinese, Korean run words together).
+_CJK_RE = re.compile(
+    r"[぀-ゟ"   # hiragana
+    r"゠-ヿ"   # katakana
+    r"一-鿿"   # CJK unified ideographs (common)
+    r"㐀-䶿"   # CJK extension A
+    r"가-힯"   # Hangul syllables
+    r"]",
+    re.UNICODE,
+)
+
 _STOPWORDS = {
     "the", "and", "for", "are", "but", "not", "you", "your", "with", "this", "that",
     "have", "has", "had", "was", "were", "will", "would", "could", "should", "from",
@@ -186,7 +204,32 @@ def _choose_k(n: int) -> int:
 
 # ── Keyword extraction (local, distinctive terms) ────────────────────────────
 def _tokenize(text: str) -> list[str]:
-    return [t.lower() for t in _TOKEN_RE.findall(text) if t.lower() not in _STOPWORDS]
+    """Return a list of meaningful tokens from `text`, Unicode-aware.
+
+    For Latin/Cyrillic/Arabic scripts: split on word boundaries and keep tokens
+    >= 3 characters that are not in the English stopword list.
+
+    For CJK scripts (Japanese, Chinese, Korean): also emit individual characters
+    as tokens, since there are no spaces between words — even single ideographs
+    carry meaning and give the k-means clustering useful signal.
+    """
+    tokens: list[str] = []
+    # 1. General multi-character tokens (applies to all scripts).
+    for t in _TOKEN_RE.findall(text):
+        tl = t.lower()
+        # Apply English stopwords only to ASCII tokens (Latin script).
+        if tl.isascii():
+            if len(tl) < 3 or tl in _STOPWORDS:
+                continue
+        else:
+            if len(tl) < 2:
+                continue
+        tokens.append(tl)
+    # 2. Individual CJK characters as supplementary tokens so zero-space scripts
+    #    are not silent when _TOKEN_RE produces only long multi-char runs.
+    for ch in _CJK_RE.findall(text):
+        tokens.append(ch)
+    return tokens
 
 
 def _cluster_token_counts(member_idxs: list[int], mems: list[dict]) -> Counter:

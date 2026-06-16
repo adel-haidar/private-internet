@@ -13,6 +13,7 @@ from typing import List, Optional
 
 from private_internet.content.llm import converse_text, converse_tool
 from private_internet.content.image_generator import PostImageGenerator
+from private_internet.content.voice_config import language_name
 
 logger = logging.getLogger(__name__)
 
@@ -148,6 +149,7 @@ class SceneScriptGenerator:
         duration_min: int,
         duration_max: int,
         content_label: str = "video",
+        language_code: str = "en",
     ) -> SceneScript:
         research_text = "\n".join(
             f"- {r.get('title') or 'Untitled'}: {r.get('summary') or ''} ({r.get('url')})"
@@ -158,6 +160,12 @@ class SceneScriptGenerator:
         min_scenes = max(1, duration_min // _SCENE_SECONDS)
         max_scenes = max(min_scenes, duration_max // _SCENE_SECONDS)
 
+        lang_name = language_name(language_code)
+        lang_directive = (
+            f"Write the entire narration in {lang_name}. "
+            f"Not English unless {lang_name} is English."
+        )
+
         system_prompt = (
             f"{creator['style_prompt']}\n\n"
             f"You are writing a {content_label} as a scene-by-scene breakdown for "
@@ -166,8 +174,8 @@ class SceneScriptGenerator:
             "Rules:\n"
             f"- Produce between {min_scenes} and {max_scenes} scenes, each about "
             f"{_SCENE_SECONDS} seconds long.\n"
-            "- narration_text is spoken aloud by an English TTS voice — write it "
-            "ENTIRELY in English, in the persona's tone, one or two sentences.\n"
+            f"- narration_text is spoken aloud by a TTS voice — {lang_directive} "
+            "Keep the persona's tone. One or two sentences per scene.\n"
             "- visual_description is an abstract beat (mood, subject, action) — it "
             "is translated into a video prompt separately, so do NOT write camera "
             "directions or text overlays.\n"
@@ -226,24 +234,37 @@ def _strip_markdown_fences(text: str) -> str:
 class VideoScriptGenerator:
     """Generates a structured 5-section narration script via Bedrock Claude Haiku."""
 
-    async def generate(self, topic: dict, creator: dict, research: List[dict]) -> VideoScript:
+    async def generate(
+        self,
+        topic: dict,
+        creator: dict,
+        research: List[dict],
+        *,
+        language_code: str = "en",
+    ) -> VideoScript:
         """
         topic / creator: row dicts from content_topics / content_creators.
         research: row dicts from content_research ({url, title, summary}).
+        language_code: BCP-47 code for narration language (e.g. 'ja', 'en').
         """
         research_text = "\n".join(
             f"- {r.get('title') or 'Untitled'}: {r.get('summary') or ''} ({r.get('url')})"
             for r in research[:5]
         ) or "(no research available)"
 
+        lang_name = language_name(language_code)
+        lang_directive = (
+            f"Write the entire narration in {lang_name}. "
+            f"Not English unless {lang_name} is English."
+        )
+
         system_prompt = (
             f"{creator['style_prompt']}\n\n"
             "You are writing a narration script for a short video "
             "(90–120 seconds spoken at normal pace ≈ 150 words/minute, "
             "so target 225–300 words total).\n\n"
-            "Write the narration ENTIRELY in English — it is read aloud by an "
-            "English text-to-speech voice. Keep the persona's tone, but do not "
-            "include words or phrases in other languages.\n\n"
+            f"{lang_directive} It is read aloud by a TTS voice. "
+            "Keep the persona's tone.\n\n"
             "Structure EXACTLY:\n"
             "- INTRO (1 sentence hook, 15–20 words)\n"
             "- SECTION_1: first key point (60–80 words)\n"

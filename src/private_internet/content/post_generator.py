@@ -215,10 +215,15 @@ class PostTextGenerator:
         creator: dict,
         tone: str,
         research: List[dict],
+        language_code: str = "en",
     ) -> Optional[GeneratedPost]:
         """
         Generate a single social media post in the creator's voice, using one of
         the six research-backed storytelling formats via a forced Bedrock tool.
+
+        `language_code` is a BCP-47 code (e.g. 'ja', 'en'). A language directive
+        is appended to the system prompt — matching the pattern ARIA's podcast
+        generator uses — so the post is written in the user's language.
 
         Validates the output in pure Python. On failure it retries once with the
         rejection reason fed back in. On a second failure it logs and returns
@@ -226,7 +231,13 @@ class PostTextGenerator:
 
         `topic` / `creator` / `research` are DB row dicts.
         """
-        system_prompt = f"{creator['style_prompt']}\n\n{PULSE_SYSTEM_PROMPT}"
+        from private_internet.content.voice_config import language_name as _lang_name
+        lang_name = _lang_name(language_code)
+        language_directive = (
+            f"\n\nWrite the entire post in {lang_name}. "
+            f"Not English unless {lang_name} is English."
+        )
+        system_prompt = f"{creator['style_prompt']}\n\n{PULSE_SYSTEM_PROMPT}{language_directive}"
 
         research_lines = "\n".join(
             f"- {r.get('title')}: {r.get('summary')} ({r.get('url')})"

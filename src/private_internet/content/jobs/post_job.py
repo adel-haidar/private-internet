@@ -11,6 +11,7 @@ from private_internet.content.creator_selector import CreatorSelector
 from private_internet.content.post_generator import PostTextGenerator
 from private_internet.content.image_generator import PostImageGenerator
 from private_internet.content.asset_store import AssetStore
+from private_internet.content.user_language import resolve_user_language
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,10 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
     """
     assert user_id is not None, "user_id must be set before any content operation"
     logger.info(f"[user:{user_id[:8]}] Starting generate_posts_batch (count={count})")
+
+    # Resolve once and pass down — avoids repeated DB lookups per topic.
+    language_code = resolve_user_language(user_id)
+    logger.info(f"[user:{user_id[:8]}] resolved language: {language_code}")
 
     selector = CreatorSelector()
     text_generator = PostTextGenerator()
@@ -62,8 +67,8 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
 
         for topic in topics:
             try:
-                # a/b. Pick creator + tone
-                creator = selector.select_for_topic(conn, topic)
+                # a/b. Pick creator + tone (scoped to this user's visible personas)
+                creator = selector.select_for_topic(conn, topic, user_id=user_id)
                 tone = selector.select_tone(creator, topic)
 
                 # Fetch research for the prompt
@@ -77,9 +82,11 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
                 research = [dict(r) for r in cur.fetchall()]
                 cur.close()
 
-                # c. Generate post text. Returns None if the post failed
-                # validation twice — skip it rather than saving a bad post.
-                post = await text_generator.generate(topic, creator, tone, research)
+                # c. Generate post text in the user's language.
+                # Returns None if the post failed validation twice — skip.
+                post = await text_generator.generate(
+                    topic, creator, tone, research, language_code=language_code
+                )
                 if post is None:
                     failed += 1
                     logger.warning(

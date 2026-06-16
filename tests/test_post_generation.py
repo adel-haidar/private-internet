@@ -44,6 +44,9 @@ def _topic(name="Relocating to Switzerland as a German engineer", keywords=None)
     }
 
 
+_TEST_USER_ID = "test-user-00000000-0000-0000-0000-000000000001"
+
+
 def _mock_db(creators, recent_creator_ids=None):
     """Connection whose cursor returns `creators` then recent-post creator ids."""
     conn = MagicMock()
@@ -65,7 +68,7 @@ class TestCreatorSelector:
         no_match = _creator("nora-chen", score=0.5, affinities=["gym", "nutrition"])
         db = _mock_db([match, no_match])
 
-        result = selector.select_for_topic(db, _topic())
+        result = selector.select_for_topic(db, _topic(), user_id=_TEST_USER_ID)
         assert result["slug"] == "felix-bergmann"
 
     def test_recency_penalty_demotes_recent_poster(self):
@@ -75,7 +78,7 @@ class TestCreatorSelector:
         db = _mock_db([recent, fresh], recent_creator_ids=[recent["id"]])
 
         # Randomness is bounded (0.85–1.0) so the 0.5 penalty always dominates
-        result = selector.select_for_topic(db, _topic())
+        result = selector.select_for_topic(db, _topic(), user_id=_TEST_USER_ID)
         assert result["slug"] == "viktor-ostrowski"
 
     def test_fallback_to_highest_score_when_no_match(self):
@@ -85,7 +88,7 @@ class TestCreatorSelector:
         strong = _creator("dr-layla-nasser", score=0.08, affinities=["banking"])
         db = _mock_db([weak, strong])
 
-        result = selector.select_for_topic(db, _topic(keywords=["unrelated"], name="xyz"))
+        result = selector.select_for_topic(db, _topic(keywords=["unrelated"], name="xyz"), user_id=_TEST_USER_ID)
         assert result["slug"] == "dr-layla-nasser"
 
     def test_select_tone_returns_valid_tone(self):

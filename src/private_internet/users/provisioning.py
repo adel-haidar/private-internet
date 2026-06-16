@@ -75,33 +75,54 @@ def _seed_memory(user: dict) -> None:
 
 
 def _assign_content_creators(user_id: str) -> None:
-    """Subscribe the user to every active shared creator, idempotently."""
-    from private_internet.content.creators import list_creators
+    """Subscribe the user to every active GLOBAL creator (user_id=NULL), idempotently.
 
-    try:
-        creators = list_creators(active_only=True)
-    except Exception as e:
-        logger.warning("%s could not list creators: %s", _log_prefix(user_id), e)
-        return
-
+    Per-user generated personas are wired up separately by _generate_user_personas
+    which is called after the brain is seeded. This function only handles the
+    shared global basics so new users have a feed even before their brain is rich.
+    """
     conn = _connect()
     cur = conn.cursor()
     try:
-        for creator in creators:
+        cur.execute(
+            "SELECT id FROM content_creators WHERE is_active = TRUE AND user_id IS NULL"
+        )
+        global_creators = cur.fetchall()
+    except Exception as e:
+        logger.warning("%s could not list global creators: %s", _log_prefix(user_id), e)
+        cur.close()
+        conn.close()
+        return
+
+    try:
+        for row in global_creators:
             cur.execute(
                 """INSERT INTO user_creator_preferences (user_id, creator_id, weight, is_enabled)
                    VALUES (%s, %s, 1.0, TRUE)
                    ON CONFLICT (user_id, creator_id) DO NOTHING""",
-                (user_id, creator["id"]),
+                (user_id, row[0]),
             )
         conn.commit()
-        logger.info("%s subscribed to %d creators", _log_prefix(user_id), len(creators))
+        logger.info(
+            "%s subscribed to %d global creators", _log_prefix(user_id), len(global_creators)
+        )
     except Exception as e:
         conn.rollback()
         logger.warning("%s creator assignment failed: %s", _log_prefix(user_id), e)
     finally:
         cur.close()
         conn.close()
+
+
+async def _generate_user_personas(user_id: str) -> None:
+    """Generate brain-driven per-user personas (best-effort, never raises)."""
+    try:
+        from private_internet.content.persona_generator import generate_personas_for_user
+
+        n = await generate_personas_for_user(user_id)
+        logger.info("%s generated %d user-specific personas", _log_prefix(user_id), n)
+    except Exception as e:
+        logger.warning("%s persona generation skipped: %s", _log_prefix(user_id), e)
 
 
 # Default seed topics so the very first feed has something to generate from.
@@ -178,6 +199,9 @@ async def provision_user(user: dict) -> None:
         _create_s3_structure(user_id)
         _seed_memory(user)
         _assign_content_creators(user_id)
+        # Generate brain-driven per-user personas after the brain is seeded.
+        # Best-effort: a sparse brain falls back to neutral "international basics".
+        await _generate_user_personas(user_id)
         await _generate_bootstrap_content(user_id)
         _mark_provisioned(user_id)
         logger.info("%s provisioning complete", _log_prefix(user_id))

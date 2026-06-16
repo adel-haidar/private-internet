@@ -1,4 +1,15 @@
-"""Creator persona selection for the PULSE post pipeline (Phase 3, Task 1)."""
+"""Creator persona selection for the PULSE post pipeline.
+
+After migration 0015, `content_creators` has a nullable `user_id` column:
+  - NULL  = global persona, visible to ALL users
+  - non-NULL = persona generated specifically for that user
+
+`select_for_topic` now requires a `user_id` and filters to:
+  WHERE is_active AND (user_id = <caller> OR user_id IS NULL)
+
+so each user sees their own AI-generated personas PLUS the neutral global
+basics, but never another user's personas.
+"""
 
 import random
 import logging
@@ -10,8 +21,15 @@ logger = logging.getLogger(__name__)
 
 ALL_TONES = ["informative", "satirical", "supportive", "critical"]
 
-# Valid tones per creator persona (by slug). Unknown creators get all tones.
-_TONE_MAP = {
+# Valid tones per global creator slug. Used as a fallback when a creator row
+# does not carry a `valid_tones` list (e.g. the old global defaults).
+# Per-user generated personas store their valid_tones in the DB row itself.
+_TONE_MAP: dict[str, list[str]] = {
+    # Global basics
+    "global-science-desk": ["informative", "critical"],
+    "world-sport-desk": ["supportive", "informative"],
+    "curious-mind": ["informative", "supportive"],
+    # Legacy slugs kept so existing DB rows still get sensible tones
     "maksim-volkov": ["satirical", "critical"],
     "dr-layla-nasser": ["informative", "critical"],
     "felix-bergmann": ["satirical", "supportive"],
@@ -26,37 +44,49 @@ _RECENCY_PENALTY = 0.5
 
 
 class CreatorSelector:
-    def select_for_topic(self, db, topic: dict) -> dict:
-        """
-        Pick the best creator (row dict) for a topic (row dict from content_topics).
+    def select_for_topic(self, db, topic: dict, *, user_id: str) -> dict:
+        """Pick the best creator (row dict) for a topic.
 
-        1. Filter active creators (is_active=True, score >= 0.3)
-        2. Score each by affinity match + RL score - recency penalty
-        3. Multiply by random.uniform(0.85, 1.0) for editorial variety
-        4. Fallback: if no creator scores > 0.1, return highest overall score creator
+        Scoped to the caller:
+          1. Filter active creators visible to this user
+             (own user_id OR global user_id=NULL), score >= 0.3
+          2. Score each by affinity match + RL score - recency penalty
+          3. Multiply by random.uniform(0.85, 1.0) for editorial variety
+          4. Fallback: if no creator scores > 0.1, return highest overall score
+
+        # MUST SCOPE BY USER
         """
+        assert user_id is not None, "user_id must be set before any content operation"
         cur = db.cursor(cursor_factory=RealDictCursor)
         try:
             cur.execute(
-                "SELECT * FROM content_creators WHERE is_active = TRUE AND score >= 0.3"
+                """SELECT * FROM content_creators
+                   WHERE is_active = TRUE
+                     AND score >= 0.3
+                     AND (user_id = %s OR user_id IS NULL)""",
+                (user_id,),
             )
             creators = [dict(r) for r in cur.fetchall()]
             if not creators:
-                # All creators retired/low-score — fall back to the best one overall
+                # All visible creators retired/low-score — fall back to best one
                 cur.execute(
-                    "SELECT * FROM content_creators WHERE is_active = TRUE "
-                    "ORDER BY score DESC LIMIT 1"
+                    """SELECT * FROM content_creators
+                       WHERE is_active = TRUE
+                         AND (user_id = %s OR user_id IS NULL)
+                       ORDER BY score DESC LIMIT 1""",
+                    (user_id,),
                 )
                 row = cur.fetchone()
                 if row is None:
-                    raise RuntimeError("No active creators available")
+                    raise RuntimeError("No active creators available for user")
                 return dict(row)
 
-            # Creators that posted about this topic in the last 7 days
+            # Creators that posted about this topic for this user in the last 7 days
             cur.execute(
                 """SELECT DISTINCT creator_id FROM content_posts
-                   WHERE topic_id = %s AND created_at >= now() - INTERVAL '7 days'""",
-                (topic["id"],),
+                   WHERE topic_id = %s AND user_id = %s
+                     AND created_at >= now() - INTERVAL '7 days'""",
+                (topic["id"], user_id),
             )
             recent_creator_ids = {r["creator_id"] for r in cur.fetchall()}
         finally:
@@ -80,22 +110,30 @@ class CreatorSelector:
             # Nothing matched meaningfully — fall back to highest RL score
             best_creator = max(creators, key=lambda c: float(c.get("score") or 0.0))
             logger.info(
-                f"No creator scored > 0.1 for topic '{topic.get('name')}'; "
-                f"falling back to '{best_creator['slug']}'"
+                f"[user:{user_id[:8]}] No creator scored > 0.1 for topic "
+                f"'{topic.get('name')}'; falling back to '{best_creator['slug']}'"
             )
 
         return best_creator
 
     def select_tone(self, creator: dict, topic: dict) -> str:
+        """Pick a tone for the creator, with 20% chance of variety flip.
+
+        Tone source priority:
+          1. `valid_tones` in the creator DB row (set for per-user personas)
+          2. `_TONE_MAP` keyed by slug (legacy / global basics)
+          3. `ALL_TONES` as a last resort
         """
-        Pick a tone from the creator's valid tones, with a 20% chance of
-        flipping to a different tone for variety.
-        """
-        valid = _TONE_MAP.get(creator.get("slug"), ALL_TONES)
+        valid = (
+            creator.get("valid_tones")
+            or _TONE_MAP.get(creator.get("slug", ""), [])
+            or ALL_TONES
+        )
         tone = random.choice(valid)
         if random.random() < 0.2:
             others = [t for t in ALL_TONES if t != tone]
-            tone = random.choice(others)
+            if others:
+                tone = random.choice(others)
         return tone
 
     @staticmethod
