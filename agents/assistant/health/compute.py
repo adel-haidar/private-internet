@@ -150,8 +150,9 @@ async def _compute(pool: asyncpg.Pool, target_date: date, user_id: str) -> Daily
 # Device sources grouped per physical device. apple_health rows are Apple Watch
 # data that arrived via the export.xml route, so both count as the watch.
 _DEVICE_SOURCES: dict[str, list[str]] = {
-    "beurer_scale": ["beurer_scale"],
-    "apple_watch":  ["apple_watch", "apple_health"],
+    "beurer_scale":   ["beurer_scale"],
+    "apple_watch":    ["apple_watch", "apple_health"],
+    "samsung_health": ["samsung_health"],
 }
 
 

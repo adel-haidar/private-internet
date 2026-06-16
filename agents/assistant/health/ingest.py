@@ -223,3 +223,161 @@ def parse_apple_health_export(xml_bytes: bytes) -> list[HealthMetric]:
 
     logger.info("Parsed %d health metrics from Apple Health export", len(metrics))
     return metrics
+
+
+# ── Samsung Health parser ─────────────────────────────────────────────────────
+#
+# Samsung Health JSON export schema (Galaxy Watch / Samsung Health app):
+#
+#   {
+#     "user_info":      { "name": str, "device": str, "export_date": str },
+#     "daily_summary":  [
+#       {
+#         "date":               "YYYY-MM-DD",
+#         "step_count":         int,          → steps
+#         "calories_kcal":      float,        → active_energy_kcal
+#         "heart_rate_avg":     float,        → resting_hr  (daily avg used as proxy)
+#         "sleep_duration_min": float         → sleep_duration_min
+#       },
+#       ...
+#     ]
+#   }
+#
+# All values are already in metric units (kcal, bpm, min) so no conversion needed.
+# Each daily_summary row maps to noon UTC on that calendar day (same convention as
+# the Apple Health daily accumulations).
+
+_SH_FIELD_MAP: dict[str, str] = {
+    "step_count":         "steps",
+    "calories_kcal":      "active_energy_kcal",
+    "heart_rate_avg":     "resting_hr",
+    "sleep_duration_min": "sleep_duration_min",
+    # weight fields may appear in future Samsung exports
+    "weight_kg":          "weight_kg",
+    "body_fat_percent":   "body_fat_percent",
+}
+
+_SH_UNITS: dict[str, str] = {
+    "steps":              "count",
+    "active_energy_kcal": "kcal",
+    "resting_hr":         "count/min",
+    "sleep_duration_min": "min",
+    "weight_kg":          "kg",
+    "body_fat_percent":   "%",
+}
+
+
+def _parse_samsung_date(date_str: str) -> Optional[datetime]:
+    """Parse a YYYY-MM-DD date string into noon UTC on that day."""
+    try:
+        return datetime.fromisoformat(f"{date_str.strip()}T12:00:00+00:00")
+    except (ValueError, AttributeError):
+        return None
+
+
+def parse_samsung_health_export(json_bytes: bytes) -> list[HealthMetric]:
+    """Parse a Samsung Health JSON export into HealthMetric rows.
+
+    Supports the JSON structure produced by Samsung Health's "Download personal
+    data" feature (Galaxy Watch 6 and similar).  Each row in ``daily_summary``
+    becomes one HealthMetric per field that is present and non-null.  Values are
+    already in metric units so no conversion is applied.
+
+    Sleep score is derived from ``sleep_duration_min`` using the same 8-hour
+    target used by the Apple Health parser (min(100, duration/480 * 100)).
+    """
+    try:
+        data = json.loads(json_bytes.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        logger.warning("Samsung Health JSON parse failed: %s", exc)
+        return []
+
+    if not isinstance(data, dict):
+        logger.warning("Samsung Health export is not a JSON object")
+        return []
+
+    daily_rows = data.get("daily_summary", [])
+    if not isinstance(daily_rows, list):
+        logger.warning("Samsung Health export missing 'daily_summary' array")
+        return []
+
+    metrics: list[HealthMetric] = []
+
+    for row in daily_rows:
+        if not isinstance(row, dict):
+            continue
+        date_str = row.get("date")
+        if not date_str:
+            continue
+        recorded_at = _parse_samsung_date(date_str)
+        if recorded_at is None:
+            logger.debug("Skipping Samsung row with unparseable date: %r", date_str)
+            continue
+
+        sleep_min: Optional[float] = None
+
+        for sh_field, metric_type in _SH_FIELD_MAP.items():
+            raw = row.get(sh_field)
+            if raw is None:
+                continue
+            try:
+                value = float(raw)
+            except (ValueError, TypeError):
+                continue
+            if value < 0:
+                continue
+
+            unit = _SH_UNITS.get(metric_type, "")
+
+            if metric_type == "steps":
+                value = round(value)
+            elif metric_type == "active_energy_kcal":
+                value = round(value, 2)
+            elif metric_type == "sleep_duration_min":
+                sleep_min = value
+                value = round(value, 1)
+            else:
+                value = round(value, 4)
+
+            metrics.append(HealthMetric(
+                recorded_at=recorded_at,
+                metric_type=metric_type,
+                value=value,
+                unit=unit,
+                source="samsung_health",
+            ))
+
+        # Derive sleep score from sleep_duration_min (same formula as Apple parser)
+        if sleep_min is not None and sleep_min > 0:
+            score = min(100.0, (sleep_min / 480.0) * 100.0)
+            metrics.append(HealthMetric(
+                recorded_at=recorded_at,
+                metric_type="sleep_score",
+                value=round(score, 1),
+                unit="score",
+                source="samsung_health",
+            ))
+
+    logger.info(
+        "Parsed %d health metrics from Samsung Health export (%d daily rows)",
+        len(metrics),
+        len(daily_rows),
+    )
+    return metrics
+
+
+def is_samsung_health_json(data: bytes) -> bool:
+    """Return True if ``data`` looks like a Samsung Health JSON export.
+
+    Checks for the presence of the ``daily_summary`` key, which is the
+    distinguishing marker of this format (standard JSON that starts with
+    ``{`` and contains the samsung-specific key).
+    """
+    stripped = data.lstrip()
+    if not stripped.startswith(b"{"):
+        return False
+    try:
+        obj = json.loads(data.decode("utf-8"))
+        return isinstance(obj, dict) and "daily_summary" in obj
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return False

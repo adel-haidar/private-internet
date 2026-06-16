@@ -18,7 +18,11 @@ from assistant.health.db import (
     get_pool,
     init_pool,
 )
-from assistant.health.ingest import parse_apple_health_export
+from assistant.health.ingest import (
+    is_samsung_health_json,
+    parse_apple_health_export,
+    parse_samsung_health_export,
+)
 from assistant.health.models import (
     DailyHealthSummary,
     HealthInsightResponse,
@@ -112,6 +116,71 @@ async def import_apple_health(
         xml_bytes = data
 
     metrics = parse_apple_health_export(xml_bytes)
+    if not metrics:
+        return {"inserted": 0, "date_range": [None, None]}
+
+    inserted = await bulk_insert(pool, metrics, user_id=user_id)
+
+    dates = [m.recorded_at.date().isoformat() for m in metrics]
+    date_range = [min(dates), max(dates)]
+
+    return {"inserted": inserted, "date_range": date_range}
+
+
+# ── Samsung Health import ─────────────────────────────────────────────────────
+
+@router.post("/health/import/samsung-health")
+async def import_samsung_health(
+    file: UploadFile = File(...),
+    ident: dict = Depends(require_user),
+):
+    """Accept a Samsung Health JSON export (or a .zip containing one).
+
+    Samsung Health's "Download personal data" feature produces either a raw JSON
+    file or a .zip archive whose top-level contains the JSON.  The endpoint sniffs
+    the payload: ZIP magic bytes → extract the first .json entry; otherwise treat
+    as raw JSON.  Parses into HealthMetric rows and bulk-inserts for the calling
+    user.  Multi-tenancy: every write is scoped to the caller's user_id.
+    # MUST SCOPE BY USER
+    """
+    pool = await _pool()
+    user_id = await _resolve_user_id(ident, pool)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as tmp:
+        tmp_path = tmp.name
+        chunk_size = 64 * 1024
+        while chunk := await file.read(chunk_size):
+            tmp.write(chunk)
+
+    try:
+        with open(tmp_path, "rb") as f:
+            data = f.read()
+    finally:
+        os.unlink(tmp_path)
+
+    # ZIP archive → extract the first JSON file inside
+    if data[:2] == b"PK":
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as zf:
+                json_names = [n for n in zf.namelist() if n.lower().endswith(".json")]
+                if not json_names:
+                    raise HTTPException(
+                        400, "That .zip doesn't contain a Samsung Health .json file."
+                    )
+                json_bytes = zf.read(json_names[0])
+        except zipfile.BadZipFile:
+            raise HTTPException(400, "Could not read that .zip file.")
+    else:
+        json_bytes = data
+
+    if not is_samsung_health_json(json_bytes):
+        raise HTTPException(
+            400,
+            "File doesn't look like a Samsung Health export "
+            "(expected JSON with a 'daily_summary' key).",
+        )
+
+    metrics = parse_samsung_health_export(json_bytes)
     if not metrics:
         return {"inserted": 0, "date_range": [None, None]}
 

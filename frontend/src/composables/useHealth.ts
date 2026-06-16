@@ -22,7 +22,7 @@ export interface DailyHealthSummary {
 }
 
 export interface SourceAvailability {
-  source: 'beurer_scale' | 'apple_watch'
+  source: 'beurer_scale' | 'apple_watch' | 'samsung_health'
   available: boolean
   last_data_date: string | null
   next_expected_date: string | null
@@ -156,7 +156,7 @@ export function useHealthTrends() {
 // ── Sync status ──────────────────────────────────────────────────────────────
 
 export interface HealthStatusSource {
-  source: 'beurer_scale' | 'apple_watch'
+  source: 'beurer_scale' | 'apple_watch' | 'samsung_health'
   has_data: boolean
   last_data_date: string | null
 }
@@ -187,37 +187,73 @@ export function useHealthStatus() {
   return { status, data, error, fetchStatus }
 }
 
-// ── Apple Health import ────────────────────────────────────────────────────
+// ── Health import shared types ─────────────────────────────────────────────
 
-export interface AppleHealthImportResult {
+export interface HealthImportResult {
   inserted: number
   date_range: [string, string]
+}
+
+/** @deprecated Use HealthImportResult */
+export type AppleHealthImportResult = HealthImportResult
+
+/** Shared upload helper — posts a single file to the given health import endpoint. */
+async function _uploadHealthFile(endpoint: string, file: File): Promise<HealthImportResult> {
+  const token = await requireAuth()
+  const form  = new FormData()
+  form.append('file', file)
+
+  const res = await fetch(`${BASE}${endpoint}`, {
+    method:  'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body:    form,
+  })
+  return parseJson<HealthImportResult>(res)
 }
 
 export function useAppleHealthImport() {
   const status  = ref<'idle' | 'uploading' | 'error' | 'success'>('idle')
   const error   = ref<string | null>(null)
-  const result  = ref<AppleHealthImportResult | null>(null)
+  const result  = ref<HealthImportResult | null>(null)
 
-  async function uploadFile(file: File): Promise<AppleHealthImportResult> {
+  async function uploadFile(file: File): Promise<HealthImportResult> {
     status.value = 'uploading'
     error.value  = null
     result.value = null
+    try {
+      const data = await _uploadHealthFile('/health/import/apple-health', file)
+      result.value = data
+      status.value = 'success'
+      return data
+    } catch (e) {
+      status.value = 'error'
+      error.value  = (e as Error).message
+      throw e
+    }
+  }
 
-    const token = await requireAuth()
-    const form  = new FormData()
-    form.append('file', file)
+  return { status, error, result, uploadFile }
+}
 
-    const res = await fetch(`${BASE}/health/import/apple-health`, {
-      method:  'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body:    form,
-    })
+export function useSamsungHealthImport() {
+  const status  = ref<'idle' | 'uploading' | 'error' | 'success'>('idle')
+  const error   = ref<string | null>(null)
+  const result  = ref<HealthImportResult | null>(null)
 
-    const data = await parseJson<AppleHealthImportResult>(res)
-    result.value = data
-    status.value = 'success'
-    return data
+  async function uploadFile(file: File): Promise<HealthImportResult> {
+    status.value = 'uploading'
+    error.value  = null
+    result.value = null
+    try {
+      const data = await _uploadHealthFile('/health/import/samsung-health', file)
+      result.value = data
+      status.value = 'success'
+      return data
+    } catch (e) {
+      status.value = 'error'
+      error.value  = (e as Error).message
+      throw e
+    }
   }
 
   return { status, error, result, uploadFile }

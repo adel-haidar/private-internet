@@ -49,7 +49,7 @@ class DailyHealthSummary(BaseModel):
 
 class SourceAvailability(BaseModel):
     """Data availability for one device source on the target date."""
-    source: Literal["beurer_scale", "apple_watch"]
+    source: Literal["beurer_scale", "apple_watch", "samsung_health"]
     available: bool
     last_data_date: Optional[date] = None       # most recent day with any data
     next_expected_date: Optional[date] = None   # when new data should arrive (from cadence)

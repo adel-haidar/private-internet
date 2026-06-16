@@ -19,7 +19,7 @@ import InsightLine from '../components/ui/InsightLine.vue'
 import DeviceCard from '../components/ui/DeviceCard.vue'
 import ConfirmModal from '../components/ui/ConfirmModal.vue'
 import HealthExportGuide from '../components/health/HealthExportGuide.vue'
-import { useHealthDaily, useHealthTrends, useAppleHealthImport, useHealthStatus } from '../composables/useHealth'
+import { useHealthDaily, useHealthTrends, useAppleHealthImport, useSamsungHealthImport, useHealthStatus } from '../composables/useHealth'
 import { requireAuth } from '../composables/useAuth'
 import { API_BASE } from '../config/env'
 import { useToast } from '../components/ui/useToast'
@@ -35,6 +35,7 @@ Chart.register(
 const { status: dailyStatus, result: daily, error: dailyError, fetchDaily, runDaily } = useHealthDaily()
 const { trends, error: trendError, status: trendStatus, fetchTrends } = useHealthTrends()
 const { status: importStatus, error: importError, uploadFile } = useAppleHealthImport()
+const { status: samsungImportStatus, error: samsungImportError, uploadFile: uploadSamsungFile } = useSamsungHealthImport()
 const { data: healthStatus, fetchStatus } = useHealthStatus()
 const toast = useToast()
 
@@ -108,7 +109,7 @@ function openGuide(platform: 'ios' | 'android') {
 // ── Devices ─────────────────────────────────────────────────────────────────────
 const addDeviceOpen = ref(false)
 
-function statusSource(source: 'apple_watch' | 'beurer_scale') {
+function statusSource(source: 'apple_watch' | 'beurer_scale' | 'samsung_health') {
   return healthStatus.value?.sources.find(s => s.source === source)
 }
 
@@ -123,6 +124,8 @@ const appleLastSync = computed(() => {
 })
 const scaleSynced = computed(() => !!statusSource('beurer_scale')?.has_data)
 const scaleLastSync = computed(() => statusSource('beurer_scale')?.last_data_date ?? undefined)
+const samsungSynced = computed(() => !!statusSource('samsung_health')?.has_data)
+const samsungLastSync = computed(() => statusSource('samsung_health')?.last_data_date ?? undefined)
 
 interface DeviceDef {
   icon: string; name: string; appleHealth: boolean
@@ -140,7 +143,7 @@ const allDevices = computed<DeviceDef[]>(() => [
     icon: 'watch', name: 'Samsung Health', appleHealth: false,
     acceptHint: 'Accepts .json / .zip',
     instructions: ['Open Samsung Health', 'Settings → Download personal data', 'Upload the archive here'],
-    synced: false,
+    synced: samsungSynced.value, lastSync: samsungLastSync.value,
   },
   {
     icon: 'device', name: 'Garmin', appleHealth: false,
@@ -157,6 +160,21 @@ const allDevices = computed<DeviceDef[]>(() => [
 ])
 const syncedDevices = computed(() => allDevices.value.filter(d => d.synced))
 
+async function doSamsungUpload(file: File) {
+  try {
+    const r = await uploadSamsungFile(file)
+    toast(`Imported ${r.inserted} records (${r.date_range[0]} → ${r.date_range[1]})`, 'success')
+    addDeviceOpen.value = false
+    const target = r.date_range[1] || today
+    activeDate.value = target
+    await fetchStatus()
+    await fetchTrends(trendDays.value, target)
+    await runDaily(target)
+  } catch {
+    toast(samsungImportError.value ?? 'Upload failed', 'error')
+  }
+}
+
 async function onDeviceFiles(device: DeviceDef, files: File[]) {
   const file = files[0]
   if (!file) return
@@ -164,6 +182,11 @@ async function onDeviceFiles(device: DeviceDef, files: File[]) {
     await doUpload(file)
     return
   }
+  if (device.name === 'Samsung Health') {
+    await doSamsungUpload(file)
+    return
+  }
+  // Generic fallback for unsupported devices — store raw file in brain memory
   try {
     const token = await requireAuth()
     const fd = new FormData()
