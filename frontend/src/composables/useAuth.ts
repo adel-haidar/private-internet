@@ -15,7 +15,11 @@ const LS = {
   clientId: 'pi_client_id',
 } as const
 
-// Tokens are sensitive — scope to the browser session only.
+// Tokens live in localStorage so a single sign-in is shared across every tab in
+// the browser. sessionStorage is per-tab: a second tab started empty, appeared
+// logged out, and let the user sign in again as a *different* account while the
+// first tab stayed signed in. One sign-in per browser, not per tab.
+const tokenStore = window.localStorage
 const SS = {
   access:    'pi_access_token',
   refresh:   'pi_refresh_token',
@@ -29,19 +33,19 @@ const PKCE = {
 } as const
 
 function clearTokens(): void {
-  sessionStorage.removeItem(SS.access)
-  sessionStorage.removeItem(SS.refresh)
-  sessionStorage.removeItem(SS.expiresAt)
+  tokenStore.removeItem(SS.access)
+  tokenStore.removeItem(SS.refresh)
+  tokenStore.removeItem(SS.expiresAt)
 }
 
 export function isAuthenticated(): boolean {
-  const token = sessionStorage.getItem(SS.access)
-  const exp   = Number(sessionStorage.getItem(SS.expiresAt) ?? 0)
+  const token = tokenStore.getItem(SS.access)
+  const exp   = Number(tokenStore.getItem(SS.expiresAt) ?? 0)
   return !!token && exp > Date.now() + 60_000
 }
 
 export function hasRefreshToken(): boolean {
-  return !!sessionStorage.getItem(SS.refresh)
+  return !!tokenStore.getItem(SS.refresh)
 }
 
 export function getClientId(): string | null {
@@ -49,7 +53,7 @@ export function getClientId(): string | null {
 }
 
 export async function refreshTokens(): Promise<void> {
-  const refreshToken = sessionStorage.getItem(SS.refresh)
+  const refreshToken = tokenStore.getItem(SS.refresh)
   const clientId     = localStorage.getItem(LS.clientId)
 
   if (!refreshToken || !clientId) {
@@ -79,16 +83,16 @@ export async function refreshTokens(): Promise<void> {
     expires_in:    number
   }
 
-  sessionStorage.setItem(SS.access,    data.access_token)
-  sessionStorage.setItem(SS.refresh,   data.refresh_token)
-  sessionStorage.setItem(SS.expiresAt, String(Date.now() + data.expires_in * 1000))
+  tokenStore.setItem(SS.access,    data.access_token)
+  tokenStore.setItem(SS.refresh,   data.refresh_token)
+  tokenStore.setItem(SS.expiresAt, String(Date.now() + data.expires_in * 1000))
 }
 
 export async function requireAuth(): Promise<string> {
-  if (isAuthenticated()) return sessionStorage.getItem(SS.access)!
+  if (isAuthenticated()) return tokenStore.getItem(SS.access)!
   if (hasRefreshToken()) {
     await refreshTokens()
-    return sessionStorage.getItem(SS.access)!
+    return tokenStore.getItem(SS.access)!
   }
   throw new AuthError('Not authenticated')
 }
@@ -164,10 +168,10 @@ function decodeJwtExp(token: string): number | null {
 /** Store a JWT returned from the password-auth endpoints. */
 function storeJwt(token: string): void {
   const expMs = decodeJwtExp(token) ?? Date.now() + 7 * 24 * 60 * 60 * 1000
-  sessionStorage.setItem(SS.access,    token)
-  sessionStorage.setItem(SS.expiresAt, String(expMs))
+  tokenStore.setItem(SS.access,    token)
+  tokenStore.setItem(SS.expiresAt, String(expMs))
   // No refresh token on this auth path.
-  sessionStorage.removeItem(SS.refresh)
+  tokenStore.removeItem(SS.refresh)
 }
 
 // ── Google sign-in (social IdP) ───────────────────────────────────────────

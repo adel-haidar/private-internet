@@ -53,9 +53,10 @@ onMounted(() => {
         return typeof j.exp === 'number' ? j.exp * 1000 : null
       } catch { return null }
     })() ?? (Date.now() + 7 * 24 * 60 * 60 * 1000)
-    sessionStorage.setItem('pi_access_token', urlToken)
-    sessionStorage.setItem('pi_token_expires_at', String(expMs))
-    sessionStorage.removeItem('pi_refresh_token')
+    // localStorage so the session carries across all browser tabs (matches useAuth).
+    localStorage.setItem('pi_access_token', urlToken)
+    localStorage.setItem('pi_token_expires_at', String(expMs))
+    localStorage.removeItem('pi_refresh_token')
   }
 
   if (verified === '1') {

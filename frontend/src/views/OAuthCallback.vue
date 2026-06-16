@@ -73,9 +73,12 @@ onMounted(async () => {
       expires_in:    number
     }
 
-    sessionStorage.setItem('pi_access_token',     data.access_token)
-    sessionStorage.setItem('pi_refresh_token',    data.refresh_token)
-    sessionStorage.setItem('pi_token_expires_at', String(Date.now() + data.expires_in * 1000))
+    // Tokens go in localStorage so the session is shared across every browser
+    // tab (one sign-in per browser, not per tab). PKCE state below stays in
+    // sessionStorage — it's transient to this single login flow.
+    localStorage.setItem('pi_access_token',     data.access_token)
+    localStorage.setItem('pi_refresh_token',    data.refresh_token)
+    localStorage.setItem('pi_token_expires_at', String(Date.now() + data.expires_in * 1000))
 
     sessionStorage.removeItem('pi_pkce_verifier')
     sessionStorage.removeItem('pi_pkce_state')
