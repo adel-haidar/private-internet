@@ -39,6 +39,15 @@ class Settings(BaseSettings):
 
     aws_region: str = "eu-central-1"
 
+    # ── Transactional email (SES) ───────────────────────────────
+    # "log" (default) just logs the actionable link at INFO — deploying without
+    # SES configured changes nothing. "ses" sends via AWS SESv2 (only when
+    # ses_sender_email is also set). ses_sender_email must be a verified SES
+    # identity; ses_configuration_set is passed only when non-empty.
+    email_backend: str = "log"          # "log" | "ses"
+    ses_sender_email: str = ""          # e.g. "no-reply@private-internet.io"
+    ses_configuration_set: str = ""     # optional SES configuration set name
+
     # ── Brain embeddings (self-hosted, Bedrock-free path) ───────
     # The brain owns its embedding model so the memory store can run on any host
     # (AWS now, user-owned hardware later). "bedrock" keeps the legacy Amazon
