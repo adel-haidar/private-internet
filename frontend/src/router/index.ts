@@ -25,6 +25,11 @@ const router = createRouter({
       meta:      { public: true },
     },
     {
+      path:      '/google-callback',
+      component: () => import('../views/GoogleCallback.vue'),
+      meta:      { public: true },
+    },
+    {
       path:      '/register',
       component: () => import('../views/Register.vue'),
       meta:      { public: true },

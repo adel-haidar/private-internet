@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  initiateLogin,
+  initiateGoogleLogin,
   hasRefreshToken,
   refreshTokens,
   isAuthenticated,
@@ -96,16 +96,11 @@ async function handleResendVerification() {
   }
 }
 
-async function handleOAuth() {
+function handleGoogle() {
   oauthLoading.value = true
   error.value        = ''
-  try {
-    await initiateLogin(intendedRoute.value)
-    // Hard redirect happens inside initiateLogin — never reached.
-  } catch (e) {
-    error.value        = (e as Error).message ?? 'Failed to start login'
-    oauthLoading.value = false
-  }
+  // Hard redirect to the backend → Google → /google-callback. Never returns.
+  initiateGoogleLogin()
 }
 
 async function handleResume() {
@@ -264,9 +259,9 @@ const VALUE_PROPS = [
           :loading="oauthLoading"
           :disabled="resuming"
           type="button"
-          @click="handleOAuth"
+          @click="handleGoogle"
         >
-          Continue with OAuth 2.1
+          Continue with Google
         </PiButton>
 
         <div v-if="hasSession" class="auth-resume">

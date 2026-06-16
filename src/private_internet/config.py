@@ -134,6 +134,13 @@ class Settings(BaseSettings):
     stripe_price_id: str = ""          # price_… (the recurring Price to subscribe to)
     stripe_trial_days: int = 0         # 0 = no trial; >0 = card-required free trial
 
+    # ── Social login (Google OAuth) ─────────────────────────────
+    # Inert until BOTH are set: the dashboard "Continue with Google" button then
+    # issues a platform JWT. Separate from the OAuth 2.1 server in auth/.
+    # Redirect URI to register in Google Cloud: {base_url}/api/auth/google/callback
+    google_client_id: str = ""
+    google_client_secret: str = ""
+
     @property
     def base_url(self) -> str:
         return f"https://{self.app_domain}"

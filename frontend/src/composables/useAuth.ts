@@ -170,6 +170,18 @@ function storeJwt(token: string): void {
   sessionStorage.removeItem(SS.refresh)
 }
 
+// ── Google sign-in (social IdP) ───────────────────────────────────────────
+// Hard-redirect to the backend, which bounces to Google and back to
+// /google-callback#token=<jwt>. Same-origin, so API_BASE ('') keeps it relative.
+export function initiateGoogleLogin(): void {
+  window.location.href = `${API_BASE}/api/auth/google/login`
+}
+
+// Called by GoogleCallback.vue with the JWT delivered in the URL fragment.
+export function completeGoogleLogin(token: string): void {
+  storeJwt(token)
+}
+
 export interface RegisterParams {
   email: string
   display_name: string

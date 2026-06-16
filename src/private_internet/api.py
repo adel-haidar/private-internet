@@ -26,6 +26,7 @@ from private_internet.core.tenancy import migrate_multi_tenancy
 from private_internet.memory.mcp_server import mcp
 from private_internet.memory.routes import router as memory_router
 from private_internet.memory.service import init_db
+from private_internet.users.google_auth import router as google_auth_router
 from private_internet.users.routes import router as users_router
 from private_internet.users.status_routes import router as user_status_router
 
@@ -150,6 +151,7 @@ async def _security_headers(request, call_next):
 
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(google_auth_router)
 app.include_router(user_status_router)
 app.include_router(memory_router)
 app.include_router(content_router)
