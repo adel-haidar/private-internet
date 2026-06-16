@@ -60,8 +60,8 @@ export default {
     recommended: '推荐',
     c1: { name: '云端托管', sub: '托管在我们的基础设施上', chip: '现已推出', desc: '在我们安全的云服务器上运行 Private Internet。你的数据隔离在你专属的数据库实例中并加密存储。更新、备份与可用性由我们负责，你只需专注使用平台。', items: ['完全托管的欧盟服务器', '你专属的私有数据库', '自动更新', '99.9% 可用性保障', '内含 Claude AI'], cta: '开始使用' },
     c2: { name: '自托管', sub: '运行在你自己的硬件上', chip: '面向技术用户', desc: '在你拥有并掌控的硬件上运行整个平台。你的数据绝不触及我们的服务器，完全自主。需要一台符合下方硬件要求的机器。', items: ['开源安装脚本', '包含所有模块的完整平台', '任选本地 LLM', 'pgvector 向量数据库', '通过 GitHub 获得社区支持'], cta: '开始使用', cta2: '查看硬件要求' },
-    c3: { name: '托管专用服务器', sub: '运行在我们的硬件上，专为你', chip: '即将推出', desc: '一台由我们托管、专门为你运行的专用服务器。没有共享基础设施。一台物理机器，位于你选定的数据中心。适合需要有保障的隔离、但不想自行管理硬件的组织。', cta: '提醒我' },
-    dev: { eyebrow: '面向开发者', name: '从头到尾，自己构建。', desc: '整个平台都是开源的。克隆仓库，使用你自己的模型和 API 密钥，运行一个完全独立的实例——无需账户，不依赖我们。', items: ['GitHub 上的 MIT 许可源码', '使用你自己的 API 密钥', '自行托管整个技术栈'], cta: '在 GitHub 上查看', cta2: '阅读文档', url: 'https://github.com/adel-haidar/personal-intelligence', docsUrl: 'https://github.com/adel-haidar/personal-intelligence#self-hosting' },
+    c3: { name: '你的专属硬件', sub: '你的设备，由我们预装好', chip: '即将推出', desc: '一台我们寄送给你、已完整预装 Private Internet 的专用设备。它就放在你家里，因此你对数据拥有完全的物理控制权——任何东西都不会离开你的家门。插上电源即可使用。', cta: '提醒我' },
+    dev: { eyebrow: '面向开发者', name: '从头到尾，自己构建。', desc: '整个平台都是开源的。克隆仓库，使用你自己的模型和 API 密钥，运行一个完全独立的实例——无需账户，不依赖我们。README 的撰写力求真正通俗易懂。', items: ['GitHub 上的 MIT 许可源码', '使用你自己的 API 密钥', '自行托管整个技术栈'], cta: '在 GitHub 上查看', cta2: '阅读文档', url: 'https://github.com/adel-haidar/personal-intelligence', docsUrl: 'https://github.com/adel-haidar/personal-intelligence#self-hosting' },
   },
   pricing: {
     label: '价格',
@@ -72,8 +72,8 @@ export default {
     eur: '价格以欧元（EUR）显示。',
     tiers: {
       free: { name: 'Free', price: '€0', per: '/月', tagline: '从这里开始，无需信用卡。', inc: ['你的大脑（无限记忆）', '健康洞察（连接任意设备）', '财务分析（上传账单）', '求职助手', '每周最多 3 条 PULSE 内容', '每周最多 1 首 ARIA 曲目'], exc: ['PULSE — 完整信息流', 'SIGNAL 视频', 'STORIES 影片与剧集', 'ARIA — 完整音乐与播客'], cta: '免费开始', note: '无需信用卡。' },
-      creator: { name: 'Creator', badge: '最受欢迎', priceM: '€9', priceA: '€7', per: '/月', billed: '按年计费 €84', save: '每年省 €24', tagline: '包含 Free 全部，另加：', inc: ['包含 Free 全部', 'PULSE — 完整信息流（无限内容）', 'ARIA — 每月 20 首曲目', 'ARIA — 每月 4 期播客', '基于心情的音乐生成', '全部 6 种支持语言'], exc: ['SIGNAL 视频', 'STORIES 影片与剧集'], cta: '开始 Creator', note: '自有实例？云端 €7/月 · 自托管 €6/月。' },
-      studio: { name: 'Studio', priceM: '€19', priceA: '€15', per: '/月', billed: '按年计费 €180', save: '每年省 €48', tagline: '包含 Creator 全部，另加：', inc: ['包含 Creator 全部', 'SIGNAL — 每月 5 条视频', 'STORIES — 每月 2 部影片或 1 部剧集', 'ARIA — 无限曲目与播客', '优先生成队列', '抢先体验新功能'], exc: [], cta: '开始 Studio', note: '自托管？按年计费 €12/月。' },
+      creator: { name: 'Pro', badge: '最受欢迎', priceM: '€9', priceA: '€7', per: '/月', billed: '按年计费 €84', save: '每年省 €24', tagline: '包含 Free 全部，另加：', inc: ['包含 Free 全部', 'PULSE — 完整信息流（无限内容）', 'ARIA — 每月 20 首曲目', 'ARIA — 每月 4 期播客', '基于心情的音乐生成', '全部 6 种支持语言'], exc: ['SIGNAL 视频', 'STORIES 影片与剧集'], cta: '开始 Pro', note: '自有实例？云端 €7/月 · 自托管 €6/月。' },
+      studio: { name: 'Max', priceM: '€19', priceA: '€15', per: '/月', billed: '按年计费 €180', save: '每年省 €48', tagline: '包含 Pro 全部，另加：', inc: ['包含 Pro 全部', 'SIGNAL — 每月 5 条视频', 'STORIES — 每月 2 部影片或 1 部剧集', 'ARIA — 无限曲目与播客', '优先生成队列', '抢先体验新功能'], exc: [], cta: '开始 Max', note: '自托管？按年计费 €12/月。' },
     },
     genTitle: '"生成"意味着什么', genBody: '每一份内容——文章、视频、音乐、播客——都根据你大脑中的记忆全新生成。生成会消耗真实算力。上面的额度反映了我们的基础设施在保持价格公平的前提下，能为每个方案生成多少。未使用的生成额度不会累计。',
     selfTitle: '在自己的硬件上运行 Private Internet？', selfBody: '你的数据留在你的机器上——我们的基础设施只负责内容生成。由于分析由你自己的本地 LLM 完成，自托管方案在每个档位都比云端便宜 20%。用你的实例地址注册即可自动获得折扣。',

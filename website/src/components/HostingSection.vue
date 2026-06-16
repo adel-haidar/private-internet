@@ -61,7 +61,7 @@ function openGithub() {
           </div>
         </Reveal>
 
-        <!-- Managed dedicated -->
+        <!-- Private hardware -->
         <Reveal :delay="200">
           <div class="mk-host mk-host--soon">
             <div class="mk-ribbon">{{ t.hosting.c3.chip }}</div>

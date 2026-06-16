@@ -85,7 +85,7 @@ function tierVariant(kind: string, rec: boolean) {
           </div>
         </Reveal>
 
-        <!-- Creator (recommended) -->
+        <!-- Pro (recommended) -->
         <Reveal :delay="80">
           <div class="mk-pr-card mk-pr-card--rec">
             <span class="mk-pr-badge">{{ t.pricing.tiers.creator.badge }}</span>
@@ -117,7 +117,7 @@ function tierVariant(kind: string, rec: boolean) {
           </div>
         </Reveal>
 
-        <!-- Studio -->
+        <!-- Max -->
         <Reveal :delay="160">
           <div class="mk-pr-card">
             <div class="mk-pr-card__name">{{ t.pricing.tiers.studio.name }}</div>
