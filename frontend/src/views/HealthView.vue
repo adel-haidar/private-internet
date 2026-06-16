@@ -379,15 +379,15 @@ onMounted(async () => {
     <input ref="ahInput" type="file" accept=".zip,.xml" hidden @change="onPickFile" />
 
     <!-- Loading -->
-    <PiCard v-if="dailyStatus === 'loading' || importStatus === 'uploading'" style="margin-bottom: var(--space-6);">
+    <PiCard v-if="dailyStatus === 'loading' || importStatus === 'uploading' || samsungImportStatus === 'uploading'" style="margin-bottom: var(--space-6);">
       <div class="pi-progress pi-progress--thin"><div class="pi-progress__track"><div class="pi-progress__fill" style="width: 40%;" /></div></div>
       <p class="t-secondary" style="font-size: var(--text-sm); margin-top: var(--space-3);">
-        {{ importStatus === 'uploading' ? 'Importing your export and generating your analysis — this can take a minute…' : 'Generating your health analysis…' }}
+        {{ importStatus === 'uploading' || samsungImportStatus === 'uploading' ? 'Importing your export and generating your analysis — this can take a minute…' : 'Generating your health analysis…' }}
       </p>
     </PiCard>
 
     <!-- Empty / first-run -->
-    <div v-if="!hasData && dailyStatus !== 'loading' && importStatus !== 'uploading'" style="margin-bottom: var(--space-6);">
+    <div v-if="!hasData && dailyStatus !== 'loading' && importStatus !== 'uploading' && samsungImportStatus !== 'uploading'" style="margin-bottom: var(--space-6);">
       <UploadBanner
         tone="amber" icon="health" title="Get your health analysis"
         intro="Upload any of the following and your brain will generate a plain-language summary of your health — no medical background needed to understand it."
