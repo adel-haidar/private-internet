@@ -15,7 +15,12 @@ class Settings(BaseSettings):
     if they are missing.
     """
 
-    model_config = {"env_file": ".env"}
+    # The .env is SHARED with Service A (and carries keys this service doesn't
+    # use — e.g. the deactivated email assistant's ms_* credentials, Stripe,
+    # Google IdP). Ignore unknown keys instead of the pydantic-settings default
+    # of forbidding them, otherwise every agents request 500s on Settings
+    # validation when a new key is added to the shared .env.
+    model_config = {"env_file": ".env", "extra": "ignore"}
 
     aws_region: str = "eu-central-1"
     """The AWS region where the Bedrock model is available."""
