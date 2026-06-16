@@ -8,7 +8,7 @@ import PIIcon from '../components/ui/PIIcon.vue'
 import ModeToggle from '../components/ui/ModeToggle.vue'
 import { useBilling } from '../composables/useBilling'
 import { logout } from '../composables/useAuth'
-import { PLANS } from '../config/plans'
+import { PLANS, resolveFeature } from '../config/plans'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,6 +17,10 @@ const { status, fetchStatus, startCheckout, openPortal } = useBilling()
 const loading = ref<string | null>(null) // stores which plan key is loading
 const error = ref('')
 const canceled = computed(() => route.query.checkout === 'cancel')
+
+// When the route guard (or a 402) sends the user here, ?feature=… tells us what
+// they were trying to reach so we can explain which plan unlocks it.
+const lockedFeature = computed(() => resolveFeature(route.query.feature as string | undefined))
 
 const currentPlan = computed(() => status.value?.plan ?? 'free')
 
@@ -70,6 +74,16 @@ async function managePortal() {
         <p class="t-secondary" style="font-size: var(--text-base); margin-top: var(--space-2); text-align: center;">
           Start free. Upgrade when you want more.
         </p>
+      </div>
+
+      <!-- Upgrade-context banner (arrived from a locked feature) -->
+      <div v-if="lockedFeature" class="sub__notice sub__notice--upgrade">
+        <span class="sub__notice-icon" aria-hidden="true"><PIIcon name="lock" :size="16" /></span>
+        <span>
+          <strong>{{ lockedFeature.label }}</strong> is part of the
+          <strong>{{ lockedFeature.plan === 'max' ? 'Max' : 'Pro' }}</strong> plan.
+          Upgrade below to unlock it.
+        </span>
       </div>
 
       <!-- Canceled notice -->
@@ -202,6 +216,23 @@ async function managePortal() {
   padding: var(--space-3) var(--space-4);
   margin-bottom: var(--space-6);
   text-align: center;
+}
+
+.sub__notice--upgrade {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  text-align: left;
+  background: var(--accent-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-primary);
+}
+
+.sub__notice-icon {
+  color: var(--accent-primary);
+  display: flex;
+  flex-shrink: 0;
 }
 
 .sub__grid {
