@@ -39,10 +39,6 @@ memories (id UUID, content TEXT, tags TEXT[], embedding vector(1024), created_at
 oauth_tokens (id UUID, client_id TEXT, access_token_hash TEXT, refresh_token_hash TEXT,
               expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ)
 
--- Email agent
-email_agent_state (id INT, delta_link TEXT, last_sync TIMESTAMPTZ)
-email_drafts (id UUID, email_id TEXT, draft_id TEXT, created_at TIMESTAMPTZ)
-
 -- Health module
 health_records (id UUID, source TEXT, recorded_at TIMESTAMPTZ, data JSONB,
                 embedding vector(1024), created_at TIMESTAMPTZ)

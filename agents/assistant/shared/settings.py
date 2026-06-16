@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     Pydantic reads these automatically from environment variables (or a .env file).
     The variable names map directly to the field names in uppercase, e.g.
-    the field `ms_client_id` is read from the environment variable `MS_CLIENT_ID`.
+    the field `rapidapi_key` is read from the environment variable `RAPIDAPI_KEY`.
 
     Fields without a default value are required — the app will refuse to start
     if they are missing.
@@ -17,33 +17,11 @@ class Settings(BaseSettings):
 
     model_config = {"env_file": ".env"}
 
-    email_enabled: bool = False
-    """Master switch for the email assistant. Disabled for the first product
-    release (friends/family). The code stays in place but the /auth/microsoft/*
-    and /api/email/* routes return 404 while this is False. Set EMAIL_ENABLED=true
-    to re-activate. When False, the MS_* credentials below are not required."""
-
-    ms_client_id: str = ""
-    """The client ID of your Microsoft Entra (Azure AD) app registration.
-    Optional while email_enabled is False."""
-
-    ms_client_secret: str = ""
-    """The client secret of your Microsoft Entra app registration.
-    Optional while email_enabled is False."""
-
-    ms_redirect_uri: str = "http://localhost:8000/auth/microsoft/callback"
-    """The URL Microsoft redirects to after the user logs in. Must match what is
-    registered in the Azure portal."""
-
-    ms_tenant: str = "consumers"
-    """The Microsoft tenant to authenticate against. 'consumers' covers personal
-    Microsoft/Outlook accounts."""
-
     aws_region: str = "eu-central-1"
     """The AWS region where the Bedrock model is available."""
 
     bedrock_model_id: str = "eu.amazon.nova-2-lite-v1:0"
-    """The Amazon Bedrock model ID used for email triage and drafting."""
+    """The Amazon Bedrock model ID used for the agents' LLM inference."""
 
     user_name: str = "Adel"
     """The name of the user the assistant is working for. Used in LLM prompts."""
@@ -54,8 +32,8 @@ class Settings(BaseSettings):
 
     mcp_memory_url: str | None = None
     """The SSE endpoint of the MCP memory server, e.g. 'http://ec2-ip:3000/sse'.
-    When set, the agent queries this server for personal context before each
-    email assessment. Leave unset to disable memory lookups."""
+    When set, the agents query this server for personal context. Leave unset to
+    disable memory lookups."""
 
     mcp_memory_client_id: str | None = None
 
@@ -101,9 +79,6 @@ class Settings(BaseSettings):
 
     scraper_max_results_per_query: int = 20
     """Maximum job listings to collect per search query."""
-
-    notification_email: str = "adel.haidar@outlook.com"
-    """Email address to notify when strong matches are found."""
 
 
 @lru_cache

@@ -27,7 +27,6 @@ integration is added or retired, update this file.
 
 | API | Why we need it |
 |-----|----------------|
-| Microsoft Graph API (`graph.microsoft.com`, `login.microsoftonline.com`) | Outlook email delta-sync & draft creation (email agent) + OneDrive file access |
 | RapidAPI / JSearch | Job listings for the job-hunter agent |
 | Yahoo Finance (`query1.finance.yahoo.com`) | Market data quotes for the trading agent |
 | News feeds (Google News, Bloomberg, The Economist) | Financial/market news fetching (trading market_data + research) |

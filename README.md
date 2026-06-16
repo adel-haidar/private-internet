@@ -167,7 +167,6 @@ the ones you need; anything left blank disables (or gracefully degrades) that fe
 | **Music** (ARIA) | Suno (`SUNO_API_KEY`) | [sunoapi.org](https://sunoapi.org) |
 | **Research grounding** (content topics) | Google Gemini (`GEMINI_API_KEY`) | [Google AI Studio](https://aistudio.google.com/apikey) |
 | **Job search** | RapidAPI JSearch (`RAPIDAPI_KEY`, `RAPIDAPI_HOST`) | [RapidAPI JSearch](https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch) |
-| **Email agent** *(optional)* | Microsoft Graph (`MS_CLIENT_ID`, `MS_CLIENT_SECRET`) | [Azure App registrations](https://portal.azure.com) |
 | **Transactional email** *(optional)* | AWS SES (`EMAIL_BACKEND=ses`, `SES_SENDER_EMAIL`) | [AWS SES](https://console.aws.amazon.com/ses/) |
 | **Billing** *(optional)* | Stripe (`BILLING_ENABLED=true`, `STRIPE_*`) | [Stripe](https://dashboard.stripe.com/apikeys) |
 

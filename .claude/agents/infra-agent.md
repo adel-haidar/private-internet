@@ -30,7 +30,7 @@ EC2 t3.large (eu-central-1)
 │   └── /           → S3 (Vue 3 frontend static)
 ├── systemd services
 │   ├── personal-intelligence-api.service   (uvicorn, port 8000)
-│   └── personal-intelligence-agents.service (email agent cron)
+│   └── personal-intelligence-agents.service (banking/health/job/trading agents)
 └── RDS PostgreSQL 15 (db.t3.micro, private subnet)
 
 CloudFront

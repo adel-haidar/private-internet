@@ -6,9 +6,9 @@ logger = logging.getLogger(__name__)
 class BaseLLMService:
     """Base class for any service that needs to talk to an LLM via Amazon Bedrock.
 
-    `EmailAssessor` and `EmailResponseWriter` both extend this class. It handles
-    the low-level details of sending a prompt and getting a text response back,
-    so the subclasses only need to worry about what to ask and how to parse the answer.
+    It handles the low-level details of sending a prompt and getting a text
+    response back, so subclasses only need to worry about what to ask and how to
+    parse the answer.
     """
 
     def __init__(self, bedrock_client, model_id: str):

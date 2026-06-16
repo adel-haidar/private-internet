@@ -36,7 +36,7 @@ AWS Bedrock for inference.
    old file-upload (formerly port 8002) are **merged in here** — there is no separate
    8002 service anymore.
 2. **Service B — `personal-intelligence-agents`** (port **8001**, internal only)
-   Source: top-level `agents/`. Email, banking, trading, job, and health agents.
+   Source: top-level `agents/`. Banking, trading, job, and health agents.
 
 ## Real repository layout
 ```
@@ -54,7 +54,7 @@ personal-intelligence/                  (repo dir; product = "Private Internet")
 │   └── users/                          # NEW: accounts (service.py) + JWT tokens (tokens.py)
 ├── agents/                             # Service B (port 8001)
 │   ├── main.py
-│   └── assistant/{banking,email,health,job,trading,shared}/
+│   └── assistant/{banking,health,job,trading,shared}/
 ├── frontend/src/                       # Vue 3: views/, components/, composables/,
 │   │                                   #   config/env.ts (API_BASE), api/, router/, types/
 ├── migrations/                         # SQL: 0005_multi_tenancy.sql, 001_add_health_metrics.sql

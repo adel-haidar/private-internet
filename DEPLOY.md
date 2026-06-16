@@ -238,7 +238,6 @@ Fill in every blank value. The critical ones:
 | `DB_HOST` | RDS console → your database → Endpoint |
 | `DB_PASSWORD` | The password you set when creating the RDS instance |
 | `SECRET_KEY` | Generate: `python3 -c "import secrets; print(secrets.token_hex(32))"` |
-| `MS_CLIENT_ID` / `MS_CLIENT_SECRET` | Azure portal → App registrations |
 | `MCP_MEMORY_CLIENT_ID` / `MCP_MEMORY_REFRESH_TOKEN` | From the OAuth flow after first login |
 
 ---

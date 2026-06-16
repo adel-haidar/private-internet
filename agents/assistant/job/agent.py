@@ -117,8 +117,6 @@ async def run_agent(
     rapidapi_key: Optional[str],
     rapidapi_host: str,
     memory_client,
-    graph_client,
-    notification_email: str,
     delay_seconds: float,
     max_per_query: int,
     user_id: str,
@@ -128,7 +126,7 @@ async def run_agent(
     pool = await init_pool(database_url)
 
     # `countries` are ISO alpha-2 codes chosen by the user in the dashboard.
-    # Display names are used for scoring context, the report, and the email.
+    # Display names are used for scoring context and the report.
     country_codes = [c.upper() for c in countries if c]
     country_names = [name_for(c) for c in country_codes]
 
@@ -265,12 +263,6 @@ async def run_agent(
                 listing.company,
             )
 
-    if strong_matches and graph_client:
-        try:
-            _send_notification_email(graph_client, strong_matches, notification_email)
-        except Exception:
-            logger.exception("Failed to send job match notification email")
-
     db_total = await count_all(pool)
 
     if memory_client:
@@ -316,24 +308,3 @@ async def run_agent(
     )
     print(format_report(report))
     return report
-
-
-def _send_notification_email(
-    graph_client, strong_matches: list[ScoredListing], recipient: str
-) -> None:
-    lines = [f"Job Hunt Agent — {len(strong_matches)} Strong Match(es) Found\n"]
-    for i, sm in enumerate(strong_matches, 1):
-        flags = ", ".join(sm.result.positive_flags) if sm.result.positive_flags else "—"
-        lines.append(
-            f"[{i}] {sm.listing.title} — {sm.listing.company}\n"
-            f"    Location: {sm.listing.location}, {sm.listing.country} | {sm.result.remote_type}\n"
-            f"    Salary:   {sm.listing.salary_raw or 'not disclosed'}\n"
-            f"    Score:    {sm.result.score}/100 | Flags: {flags}\n"
-            f"    URL:      {sm.listing.job_url}\n"
-            f"    Summary:  {sm.result.ai_summary or 'N/A'}\n"
-        )
-    graph_client.send_mail(
-        subject=f"[Job Hunt] {len(strong_matches)} Strong Match(es) — {strong_matches[0].listing.country}",
-        body="\n".join(lines),
-        recipient=recipient,
-    )

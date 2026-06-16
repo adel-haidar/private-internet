@@ -1,13 +1,11 @@
 import asyncio
 import json
 import logging
-import ast
 import re
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 import httpx
 
-from assistant.email.model import EmailMessage
 from assistant.shared.base_llm_service import BaseLLMService
 
 logger = logging.getLogger(__name__)
@@ -17,9 +15,9 @@ class MemoryClient(BaseLLMService):
     """Queries the MCP memory server for context relevant to a given topic.
 
     The memory server stores knowledge about the user gathered from past AI
-    conversations (Claude, Codex, Antigravity). Before assessing or drafting a
-    reply to an email, we search the memory server using the sender and subject
-    as the query so the LLM has personal context about who is writing and why.
+    conversations (Claude, Codex, Antigravity). Other agents (banking, job,
+    trading) query it for the personal context the LLM needs — bank statements,
+    job profile, prior analyses, and financial notes.
 
     Talks to Service A's per-user memory REST API (/api/memory*), forwarding the
     caller's bearer token so reads/writes are scoped to the right tenant. The
@@ -46,61 +44,6 @@ class MemoryClient(BaseLLMService):
                 "Set MCP_MEMORY_URL to the streamable-HTTP endpoint, e.g. 'http://host:8000/mcp/mcp'.",
                 server_url,
             )
-
-    def search(self, email: EmailMessage) -> str:
-        """Search the MCP memory server for context relevant to an email.
-
-        Asks the LLM to derive a list of search queries from the email, then
-        runs each query against the memory server. Results are concatenated into
-        a single plain-text block suitable for inclusion in an LLM prompt.
-
-        Args:
-            email: The incoming email whose sender, subject, and body preview are
-                used to generate search queries.
-
-        Returns:
-            A multi-line string of memory results, or an empty string if the
-            memory server is unreachable or the search fails.
-        """
-        prompt = f"""
-              You are an email assistant. You read an email and return an array of keywords.
-              These keywords will be used to search an mcp-memory server for all information that could enrich the context be helpful to better respond to this email 
-              please analyse the given email and create the most effective search query that can yield the best results.
-
-              Sender: {email.sender}
-              Subject: {email.subject}
-              Body:
-              {email.body_preview}
-              Rules:
-                - Some APIs are very error prone to some symbol, try to keep your query simple and don't include symbols that may cause errors.
-                - Memories are not always exact match of the words mentioned in the email. Examples:
-                  If you find the word: Resume, the memory server might have a memory called job application, job, changing jobs etc.
-                                        Certificate: Zeugnisse, Zertificate, Abschlusse, exam, etc.
-                                        Dokumente: Documents, Unterlagen, Dateien, Files, folder, case etc.
-                                        Bewerbung: Application, Jobbewerbung, Jobapplication, job application etc.
-              Result:
-                - The result MUST ONLY be a python array containing all recommended quries. No explination, no reasoning, no other string.
-                - If the result contains anything other than pure array in python syntax, the program will fail.
-
-          """
-        try:
-            raw = self._strip_markdown(self._invoke(prompt))
-            queries = ast.literal_eval(raw)
-            logger.debug(
-                "Memory search: %d queries for email from %r",
-                len(queries),
-                email.sender,
-            )
-            result = "Context that might be relevant"
-            for query in queries:
-                result = result + "\n" + asyncio.run(self._search(query))
-            return result
-        except Exception:
-            logger.warning(
-                "Memory search failed for query %r", email.subject, exc_info=True
-            )
-            return ""
-
 
     _BANK_STATEMENT_QUERY = "Konto Auszug bank statement"
 

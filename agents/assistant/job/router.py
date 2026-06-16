@@ -136,7 +136,6 @@ async def _run_job_agent(
 ) -> None:
     bedrock_client = boto3.client("bedrock-runtime", region_name=settings.aws_region)
     memory_client = None
-    graph_client = None
 
     if settings.mcp_memory_url:
         from assistant.shared.memory_client import MemoryClient
@@ -152,16 +151,6 @@ async def _run_job_agent(
         )
 
     try:
-        from assistant.email.auth_service import get_token_store
-        from assistant.shared.graph_client import GraphClient
-
-        token_store = get_token_store()
-        if token_store.is_connected:
-            graph_client = GraphClient(token_store=token_store)
-    except Exception:
-        logger.warning("Microsoft auth not available — email notifications disabled")
-
-    try:
         report = await job_agent.run_agent(
             database_url=settings.database_url,
             bedrock_client=bedrock_client,
@@ -169,8 +158,6 @@ async def _run_job_agent(
             rapidapi_key=settings.rapidapi_key,
             rapidapi_host=settings.rapidapi_host,
             memory_client=memory_client,
-            graph_client=graph_client,
-            notification_email=settings.notification_email,
             delay_seconds=settings.scraper_delay_seconds,
             max_per_query=settings.scraper_max_results_per_query,
             user_id=user_id,

@@ -1,4 +1,4 @@
-"""Auth for the agents service (banking / health / jobs / trading / email).
+"""Auth for the agents service (banking / health / jobs / trading).
 
 These modules still operate on the OWNER's data (seed admin) — sourced from MCP
 memory with the shared INTERNAL_SECRET. They are not per-user yet. So this

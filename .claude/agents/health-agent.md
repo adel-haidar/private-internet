@@ -69,5 +69,5 @@ Stage 5: Summarize
 4. Save schema decisions and stage boundaries to agent memory.
 
 ## Constraints
-- Never touch BankAdviser, email_agent, or frontend.
+- Never touch BankAdviser or frontend.
 - Keep all health data on AWS infrastructure — never log PII to stdout in production.
