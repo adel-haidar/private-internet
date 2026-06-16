@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Header
 from pydantic import BaseModel
 from psycopg2.extras import RealDictCursor
 
+from private_internet.billing.service import require_feature
 from private_internet.content.creators import list_creators
 from private_internet.core.jobs import run_for_all_users
 from private_internet.core.request_context import RequestContext, get_request_context
@@ -118,6 +119,7 @@ async def get_videos(
     page_size: int = 20,
     status: Optional[str] = None,
     ctx: RequestContext = Depends(get_request_context),
+    _signal: RequestContext = Depends(require_feature("signal")),  # SIGNAL is Pro+
 ):
     offset = (page - 1) * page_size
     conn = _connect()

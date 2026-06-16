@@ -209,6 +209,7 @@ def set_subscription(
     status: str,
     stripe_subscription_id: str | None = None,
     current_period_end=None,
+    plan: str | None = None,
 ) -> None:
     """Update a user's subscription state (called from the Stripe webhook)."""
     sets = ["subscription_status = %s"]
@@ -219,6 +220,9 @@ def set_subscription(
     if current_period_end is not None:
         sets.append("subscription_current_period_end = %s")
         params.append(current_period_end)
+    if plan is not None:
+        sets.append("plan = %s")
+        params.append(plan)
     params.append(user_id)
     conn = _connect()
     cur = conn.cursor()

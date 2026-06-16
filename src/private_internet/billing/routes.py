@@ -5,8 +5,16 @@ import logging
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from private_internet.billing import service, stripe_client
+from private_internet.billing.plans import (
+    FEATURE_MIN_PLAN,
+    PLAN_RANK,
+    effective_plan,
+    plan_rank,
+    plan_to_price,
+)
 from private_internet.config import get_settings
 from private_internet.core.request_context import RequestContext, get_request_context
 from private_internet.users.service import get_user_by_id
@@ -24,23 +32,40 @@ def _error(status: int, message: str) -> JSONResponse:
 async def status(ctx: RequestContext = Depends(get_request_context)):
     settings = get_settings()
     user = get_user_by_id(ctx.user_id) or {}
+    plan = effective_plan(user)
     return {
         "billing_enabled": settings.billing_enabled,
         "subscription_status": user.get("subscription_status") or "inactive",
         "entitled": service.is_entitled(user),
+        "plan": plan,
+        "plan_rank": plan_rank(plan),
+        # The frontend mirrors these so feature gating stays defined in one place.
+        "plan_ranks": PLAN_RANK,
+        "feature_min_plan": FEATURE_MIN_PLAN,
         "trial_days": settings.stripe_trial_days,
-        "price_configured": bool(settings.stripe_price_id),
+        "price_configured": bool(settings.stripe_price_pro or settings.stripe_price_id),
         "current_period_end": user.get("subscription_current_period_end"),
     }
 
 
+class CheckoutRequest(BaseModel):
+    plan: str = "pro"
+
+
 @router.post("/checkout")
-async def checkout(ctx: RequestContext = Depends(get_request_context)):
+async def checkout(
+    body: CheckoutRequest | None = None,
+    ctx: RequestContext = Depends(get_request_context),
+):
     settings = get_settings()
     if not settings.billing_enabled:
         return _error(400, "Billing is not enabled on this server.")
-    if not settings.stripe_price_id:
-        return _error(500, "Billing is misconfigured — no price set.")
+    plan = (body.plan if body else "pro").lower()
+    if plan not in ("pro", "max"):
+        return _error(400, "Choose a paid plan (pro or max).")
+    price_id = plan_to_price(plan)
+    if not price_id:
+        return _error(500, f"Billing is misconfigured — no price set for {plan}.")
     user = get_user_by_id(ctx.user_id)
     if not user:
         return _error(404, "User not found.")
@@ -48,7 +73,7 @@ async def checkout(ctx: RequestContext = Depends(get_request_context)):
         customer_id = service.ensure_customer(user)
         url = stripe_client.create_checkout_session(
             customer_id=customer_id,
-            price_id=settings.stripe_price_id,
+            price_id=price_id,
             success_url=f"{settings.base_url}/overview?checkout=success",
             cancel_url=f"{settings.base_url}/subscribe?checkout=cancel",
             client_reference_id=str(user["id"]),

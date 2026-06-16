@@ -3,9 +3,20 @@
 import logging
 from datetime import datetime, timezone
 
+from fastapi import Depends, HTTPException
+
 from private_internet.billing import stripe_client
+from private_internet.billing.plans import (
+    ENTITLED_STATUSES,
+    FEATURE_MIN_PLAN,
+    effective_plan,
+    has_feature,
+    price_to_plan,
+)
 from private_internet.config import get_settings
+from private_internet.core.request_context import RequestContext, get_request_context
 from private_internet.users.service import (
+    get_user_by_id,
     get_user_by_stripe_customer_id,
     set_stripe_customer_id,
     set_subscription,
@@ -13,22 +24,45 @@ from private_internet.users.service import (
 
 logger = logging.getLogger(__name__)
 
-# Stripe subscription statuses that grant access.
-ENTITLED_STATUSES = {"active", "trialing"}
-
 
 def is_entitled(user: dict) -> bool:
-    """Whether a user may use the gated product.
+    """Whether a user may use the platform at all (any tier, incl. free).
 
-    When billing is disabled (default), everyone is entitled — so the current
-    deployment is unaffected until keys + the flag are set. Admins always pass.
+    With three tiers, "free" is itself a valid in-app tier, so every resolved
+    plan is entitled. Kept for back-compat with the old single-tier gate.
     """
     settings = get_settings()
     if not settings.billing_enabled:
         return True
     if user.get("is_admin"):
         return True
-    return (user.get("subscription_status") or "inactive") in ENTITLED_STATUSES
+    # Free is a real tier now — anyone who resolves to a plan may use the app.
+    return True
+
+
+def require_feature(feature: str):
+    """FastAPI dependency factory: 402 if the caller's plan lacks ``feature``.
+
+    Uses 402 (Payment Required) deliberately — NOT 403/404, which CloudFront
+    rewrites into the SPA index.html and would break the dashboard's JSON
+    parsing (see agents/assistant/shared/auth.py).
+    """
+
+    async def _dep(ctx: RequestContext = Depends(get_request_context)) -> RequestContext:
+        user = get_user_by_id(ctx.user_id) or {}
+        if not has_feature(user, feature):
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "upgrade_required",
+                    "feature": feature,
+                    "required_plan": FEATURE_MIN_PLAN[feature],
+                    "current_plan": effective_plan(user),
+                },
+            )
+        return ctx
+
+    return _dep
 
 
 def ensure_customer(user: dict) -> str:
@@ -46,6 +80,14 @@ def _ts_to_dt(ts) -> datetime | None:
         return datetime.fromtimestamp(int(ts), tz=timezone.utc)
     except (TypeError, ValueError):
         return None
+
+
+def _subscription_price_id(sub_obj: dict) -> str | None:
+    """First line item's price id from a Stripe subscription object."""
+    items = ((sub_obj.get("items") or {}).get("data")) or []
+    if not items:
+        return None
+    return ((items[0].get("price") or {}).get("id")) or None
 
 
 def handle_event(event: dict) -> None:
@@ -69,19 +111,35 @@ def handle_event(event: dict) -> None:
         customer = obj.get("customer")
         user = get_user_by_stripe_customer_id(customer) if customer else None
         if user:
+            status = obj.get("status", "active")
+            # Derive the tier from the subscription's price. Plan-change/upgrade
+            # via the Billing Portal arrives here too and re-maps automatically.
+            plan = price_to_plan(_subscription_price_id(obj))
+            # An active sub with an unrecognised price still grants pro (safe
+            # default); a non-active sub drops the user back to free.
+            if status not in ENTITLED_STATUSES:
+                plan = "free"
+            elif plan is None:
+                plan = "pro"
             set_subscription(
                 str(user["id"]),
-                status=obj.get("status", "active"),
+                status=status,
                 stripe_subscription_id=obj.get("id"),
                 current_period_end=_ts_to_dt(obj.get("current_period_end")),
+                plan=plan,
             )
-            logger.info(f"[user:{str(user['id'])[:8]}] subscription -> {obj.get('status')}")
+            logger.info(f"[user:{str(user['id'])[:8]}] subscription -> {status} (plan={plan})")
 
     elif etype == "customer.subscription.deleted":
         customer = obj.get("customer")
         user = get_user_by_stripe_customer_id(customer) if customer else None
         if user:
-            set_subscription(str(user["id"]), status="canceled", stripe_subscription_id=obj.get("id"))
+            set_subscription(
+                str(user["id"]),
+                status="canceled",
+                stripe_subscription_id=obj.get("id"),
+                plan="free",
+            )
             logger.info(f"[user:{str(user['id'])[:8]}] subscription canceled")
 
     else:

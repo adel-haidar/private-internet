@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from psycopg2.extras import RealDictCursor
 
+from private_internet.billing.plans import feature_enabled_for_user
 from private_internet.config import get_settings
 from private_internet.database import _connect
 from private_internet.content.creator_selector import CreatorSelector
@@ -462,6 +463,11 @@ async def generate_videos_batch(count: int = 2, topic_id: str | None = None, *, 
     this path touches neither.
     """
     assert user_id is not None, "user_id must be set before any content operation"
+    # SIGNAL video is a Pro+ feature. The cron fan-out (run_for_all_users) calls
+    # this for every onboarded user, so skip users whose plan doesn't include it.
+    if not feature_enabled_for_user(user_id, "signal"):
+        logger.info(f"[user:{user_id[:8]}] skipping SIGNAL videos — plan lacks 'signal'")
+        return {"created": [], "failed": 0, "skipped": "plan"}
     if topic_id:
         count = 1
     created = []

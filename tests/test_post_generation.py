@@ -366,6 +366,7 @@ class TestGeneratePostsBatch:
         mock_store.upload_post_image.return_value = "https://cdn/content/posts/x/image.png"
 
         with patch("private_internet.content.jobs.post_job._connect", return_value=conn), \
+             patch("private_internet.content.jobs.post_job.feature_enabled_for_user", return_value=True), \
              patch("private_internet.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
              patch("private_internet.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
              patch("private_internet.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
@@ -405,6 +406,7 @@ class TestGeneratePostsBatch:
         mock_image_gen.generate_for_post = AsyncMock(side_effect=RuntimeError("nova down"))
 
         with patch("private_internet.content.jobs.post_job._connect", return_value=conn), \
+             patch("private_internet.content.jobs.post_job.feature_enabled_for_user", return_value=True), \
              patch("private_internet.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
              patch("private_internet.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
              patch("private_internet.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
@@ -424,6 +426,7 @@ class TestGeneratePostsBatch:
         conn.cursor.return_value = cursor
 
         with patch("private_internet.content.jobs.post_job._connect", return_value=conn), \
+             patch("private_internet.content.jobs.post_job.feature_enabled_for_user", return_value=True), \
              patch("private_internet.content.jobs.post_job.AssetStore", return_value=MagicMock()):
             result = await generate_posts_batch(count=3, user_id="u1")
 

@@ -27,6 +27,7 @@ from typing import Optional
 
 import boto3
 
+from private_internet.billing.plans import feature_enabled_for_user
 from private_internet.config import get_settings
 from private_internet.content.aria.db import (
     insert_track,
@@ -440,6 +441,11 @@ async def generate_tracks_batch(count: int = 1, *, user_id: str) -> dict:
     # MUST SCOPE BY USER
     """
     assert user_id is not None, "user_id must be set before any ARIA operation"
+    # ARIA is a Pro+ feature. The cron fan-out (run_for_all_users) calls this for
+    # every onboarded user, so skip users whose plan doesn't include it.
+    if not feature_enabled_for_user(user_id, "aria"):
+        logger.info(f"[user:{user_id[:8]}] skipping ARIA tracks — plan lacks 'aria'")
+        return {"created": [], "failed": 0, "skipped": "plan"}
 
     async def _one():
         async with _SEM:

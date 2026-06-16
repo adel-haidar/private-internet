@@ -24,6 +24,7 @@ Real series generation requires multi-episode scripting (a future sprint).
 import logging
 from typing import Optional
 
+from private_internet.billing.plans import feature_enabled_for_user
 from private_internet.content.asset_store import AssetStore
 from private_internet.content.creator_selector import CreatorSelector
 from private_internet.content.jobs.video_job import _select_topic, _fetch_research
@@ -214,6 +215,11 @@ async def generate_films_batch(count: int = 1, *, user_id: str) -> dict:
     # MUST SCOPE BY USER
     """
     assert user_id is not None, "user_id must be set before any content operation"
+    # STORIES is a Max-only feature. The cron fan-out (run_for_all_users) calls
+    # this for every onboarded user, so skip users whose plan doesn't include it.
+    if not feature_enabled_for_user(user_id, "stories"):
+        logger.info(f"[user:{user_id[:8]}] skipping STORIES films — plan lacks 'stories'")
+        return {"generated": [], "failed": [], "skipped": "plan"}
 
     generated: list[str] = []
     failed: list[str] = []

@@ -131,7 +131,13 @@ class Settings(BaseSettings):
     billing_enabled: bool = False
     stripe_secret_key: str = ""        # sk_test_… / sk_live_…
     stripe_webhook_secret: str = ""    # whsec_… (from the webhook endpoint)
-    stripe_price_id: str = ""          # price_… (the recurring Price to subscribe to)
+    # Legacy single-tier price; still honoured as the "pro" price when
+    # stripe_price_pro is unset, so old configs keep working.
+    stripe_price_id: str = ""          # price_… (recurring Price)
+    # Per-tier recurring prices (Free has no price). Set these to enable the
+    # Pro/Max checkout flows.
+    stripe_price_pro: str = ""         # price_… for the Pro tier
+    stripe_price_max: str = ""         # price_… for the Max tier
     stripe_trial_days: int = 0         # 0 = no trial; >0 = card-required free trial
 
     # ── Social login (Google OAuth) ─────────────────────────────

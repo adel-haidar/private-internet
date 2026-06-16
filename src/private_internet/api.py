@@ -4,11 +4,12 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
 from private_internet.auth.oauth import bootstrap_oauth_user_binding, create_oauth_tables
 from private_internet.auth.routes import router as auth_router
 from private_internet.billing.routes import router as billing_router
+from private_internet.billing.service import require_feature
 from private_internet.brain.db import init_brain_db
 from private_internet.brain.routes import router as brain_router
 from private_internet.config import get_settings
@@ -157,8 +158,10 @@ app.include_router(google_auth_router)
 app.include_router(user_status_router)
 app.include_router(memory_router)
 app.include_router(content_router)
-app.include_router(aria_router)
-app.include_router(stories_router)
+# ARIA (music) is Pro+, STORIES is Max — gate the whole router. Cron/admin
+# callers resolve to the seed admin (effective plan = max), so timers still run.
+app.include_router(aria_router, dependencies=[Depends(require_feature("aria"))])
+app.include_router(stories_router, dependencies=[Depends(require_feature("stories"))])
 app.include_router(billing_router)
 app.include_router(brain_router)
 

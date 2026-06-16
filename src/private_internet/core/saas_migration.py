@@ -41,11 +41,15 @@ _USER_COLUMNS = [
 
 # plan → (max_memories, max_posts_per_week, max_videos_per_week,
 #         max_storage_mb, content_generation_enabled). NULL = unlimited.
+# Tiers: free < pro < max. Feature access is gated in billing/plans.py; these
+# rows are advisory quotas (free has no SIGNAL/video generation → 0 videos).
 _PLAN_LIMITS = [
-    ("free", 500, 10, 2, 1024, True),
-    ("personal", 5000, 50, 10, 10240, True),
-    ("pro", None, None, None, 102400, True),
+    ("free", 500, 10, 0, 1024, True),
+    ("pro", 5000, 50, 10, 10240, True),
+    ("max", None, None, None, None, True),
 ]
+# Plans seeded by an earlier build that no longer exist → migrate forward.
+_RENAMED_PLANS = {"personal": "pro"}
 
 
 def migrate_saas() -> None:
@@ -80,14 +84,25 @@ def migrate_saas() -> None:
             )
         """)
         for row in _PLAN_LIMITS:
+            # Upsert (not DO NOTHING): keeps quotas current when tiers change.
             cur.execute(
                 """INSERT INTO plan_limits
                    (plan, max_memories, max_posts_per_week, max_videos_per_week,
                     max_storage_mb, content_generation_enabled)
                    VALUES (%s, %s, %s, %s, %s, %s)
-                   ON CONFLICT (plan) DO NOTHING""",
+                   ON CONFLICT (plan) DO UPDATE SET
+                     max_memories = EXCLUDED.max_memories,
+                     max_posts_per_week = EXCLUDED.max_posts_per_week,
+                     max_videos_per_week = EXCLUDED.max_videos_per_week,
+                     max_storage_mb = EXCLUDED.max_storage_mb,
+                     content_generation_enabled = EXCLUDED.content_generation_enabled""",
                 row,
             )
+
+        # Forward-migrate users + drop obsolete plan rows (idempotent).
+        for old, new in _RENAMED_PLANS.items():
+            cur.execute("UPDATE users SET plan = %s WHERE plan = %s", (new, old))
+            cur.execute("DELETE FROM plan_limits WHERE plan = %s", (old,))
 
         # ── 0007: user_creator_preferences ───────────────────────────
         cur.execute("""

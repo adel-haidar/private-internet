@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from psycopg2.extras import RealDictCursor
 
+from private_internet.billing.plans import feature_enabled_for_user
 from private_internet.database import _connect
 from private_internet.content.creator_selector import CreatorSelector
 from private_internet.content.post_generator import PostTextGenerator
@@ -35,6 +36,10 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
     # Resolve once and pass down — avoids repeated DB lookups per topic.
     language_code = resolve_user_language(user_id)
     logger.info(f"[user:{user_id[:8]}] resolved language: {language_code}")
+
+    # PULSE images are a Pro+ feature ("pulse_media"). Free users still get a
+    # full text feed — just no AI-generated post images.
+    media_enabled = feature_enabled_for_user(user_id, "pulse_media")
 
     selector = CreatorSelector()
     text_generator = PostTextGenerator()
@@ -99,19 +104,21 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
 
                 post_id = str(uuid.uuid4())
 
-                # d/e. Generate + upload image (non-fatal on failure)
+                # d/e. Generate + upload image (Pro+; non-fatal on failure).
+                # Free users get a text-only post (image_url stays NULL).
                 image_url = None
                 image_prompt = None
-                try:
-                    image_bytes, image_prompt = await image_generator.generate_for_post(
-                        topic, creator, post.body
-                    )
-                    image_url = asset_store.upload_post_image(image_bytes, post_id)
-                except Exception as e:
-                    logger.warning(
-                        f"Image generation failed for topic '{topic['name']}' — "
-                        f"creating post without image: {e}"
-                    )
+                if media_enabled:
+                    try:
+                        image_bytes, image_prompt = await image_generator.generate_for_post(
+                            topic, creator, post.body
+                        )
+                        image_url = asset_store.upload_post_image(image_bytes, post_id)
+                    except Exception as e:
+                        logger.warning(
+                            f"Image generation failed for topic '{topic['name']}' — "
+                            f"creating post without image: {e}"
+                        )
 
                 # f. Insert the post
                 cur = conn.cursor()

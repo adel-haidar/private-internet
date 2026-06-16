@@ -406,6 +406,8 @@ class TestGenerateVideo:
             return f"video-{len(calls)}"
 
         with patch(
+            "private_internet.content.jobs.video_job.feature_enabled_for_user", return_value=True
+        ), patch(
             "private_internet.content.jobs.video_job.generate_long_video",
             side_effect=fake_generate,
         ):
@@ -417,6 +419,8 @@ class TestGenerateVideo:
     async def test_batch_with_pinned_topic_runs_once(self):
         mock_gen = AsyncMock(return_value="video-1")
         with patch(
+            "private_internet.content.jobs.video_job.feature_enabled_for_user", return_value=True
+        ), patch(
             "private_internet.content.jobs.video_job.generate_long_video", new=mock_gen
         ):
             result = await generate_videos_batch(count=3, topic_id="t-1", user_id="u1")
