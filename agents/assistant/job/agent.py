@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import re
 from collections import defaultdict
@@ -14,17 +15,78 @@ from assistant.job.scrapers.rapidapi import RapidApiScraper
 
 logger = logging.getLogger(__name__)
 
-# Country-agnostic default search queries (role-based). These run against every
-# country the user selects in the dashboard. City hints are intentionally absent
-# so the queries generalise to any market. Per-user queries derived from the
-# caller's brain are a documented follow-up.
-_DEFAULT_QUERIES: list[tuple[str, Optional[str]]] = [
-    ("Senior Java Engineer", None),
-    ("Spring Boot Developer", None),
-    ("Senior Backend Developer", None),
-    ("AI Engineer fintech", None),
-    ("Software Engineer banking", None),
+# Neutral fallback queries used ONLY when profile-derived queries cannot be
+# generated (e.g. Bedrock unavailable). Intentionally generic — not tied to
+# any specific profession, stack, or person.
+_FALLBACK_QUERIES: list[tuple[str, Optional[str]]] = [
+    ("professional job opening", None),
+    ("experienced professional position", None),
 ]
+
+_QUERY_GENERATION_PROMPT = """\
+You are a job search assistant. Given a candidate's profile (CV / résumé / skills / \
+job preferences), generate 3 to 5 concise job search queries that would surface \
+relevant job listings on international job boards.
+
+Rules:
+- Each query should be a short phrase (2-5 words) representing the role or skill set.
+- Do NOT include location in the queries — location is handled separately.
+- Derive queries ONLY from what is stated in the profile. Do not invent skills or roles.
+- Return ONLY a valid JSON array of strings, nothing else. Example:
+  ["Middle School Teacher", "Educational Coordinator", "Curriculum Developer"]
+
+=== CANDIDATE PROFILE ===
+{profile}
+
+Return the JSON array now:"""
+
+
+def derive_queries_from_profile(
+    bedrock_client,
+    model_id: str,
+    candidate_profile: str,
+) -> list[tuple[str, Optional[str]]]:
+    """Use the LLM to derive role-based search queries from the candidate's profile.
+
+    Returns a list of (query_string, city_hint) tuples compatible with the
+    scraper interface. City hints are always None — location is handled at
+    the country-code level in run_agent.
+
+    Falls back to _FALLBACK_QUERIES if the LLM call fails or returns an empty list.
+    """
+    if not candidate_profile or not candidate_profile.strip():
+        return list(_FALLBACK_QUERIES)
+
+    prompt = _QUERY_GENERATION_PROMPT.format(profile=candidate_profile[:4000])
+    try:
+        response = bedrock_client.converse(
+            modelId=model_id,
+            messages=[{"role": "user", "content": [{"text": prompt}]}],
+            inferenceConfig={"maxTokens": 512, "temperature": 0},
+        )
+        raw = response["output"]["message"]["content"][0]["text"].strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[-1]
+            raw = raw.rsplit("```", 1)[0].strip()
+        # Find the JSON array
+        start = raw.find("[")
+        end = raw.rfind("]")
+        if start == -1 or end == -1 or end <= start:
+            logger.warning("Query-generation LLM returned no JSON array: %r", raw[:200])
+            return list(_FALLBACK_QUERIES)
+        queries_raw = json.loads(raw[start:end + 1])
+        if not isinstance(queries_raw, list) or not queries_raw:
+            logger.warning("Query-generation returned empty or non-list: %r", queries_raw)
+            return list(_FALLBACK_QUERIES)
+        queries = [(str(q).strip(), None) for q in queries_raw if str(q).strip()]
+        if not queries:
+            return list(_FALLBACK_QUERIES)
+        logger.info("Profile-derived queries (%d): %s", len(queries), [q for q, _ in queries])
+        return queries
+    except Exception:
+        logger.warning("Failed to derive queries from profile — using fallback", exc_info=True)
+        return list(_FALLBACK_QUERIES)
 
 
 def _dedup_key(listing: JobListing) -> str:
@@ -42,32 +104,10 @@ _SEARCH_PAGE_TITLE_PATTERNS = [
     re.compile(r"job offer[s]? in\s+", re.I),
 ]
 
-_HARD_REJECT_DOMAINS = [
-    "quantitative finance", "portfolio construction", "factor models",
-    "backtesting", "covariance estimation", "cvxpy", "mosek",
-]
-
 
 def is_search_results_page(listing: JobListing) -> bool:
     title_lower = listing.title.lower().strip()
     return any(p.search(title_lower) for p in _SEARCH_PAGE_TITLE_PATTERNS)
-
-
-def pre_filter_technology_mismatch(listing: JobListing) -> bool:
-    text = (listing.description + " " + listing.title).lower()
-    if "java" not in text:
-        return True
-    java_idx = text.index("java")
-    python_primary = sum([
-        "python" in text and text.index("python") < java_idx,
-        "python developer" in text,
-        "python engineer" in text,
-        "quantitative developer" in text,
-        "quant developer" in text,
-    ])
-    if python_primary >= 2:
-        return True
-    return any(domain in text for domain in _HARD_REJECT_DOMAINS)
 
 
 async def run_agent(
@@ -94,8 +134,7 @@ async def run_agent(
 
     # Per-user job profile from the CALLER's brain. Score against it; if the user
     # has no profile (no résumé/skills/preferences in their brain), skip the scrape
-    # entirely so they never receive the owner's matches. (Per-user search queries
-    # are a follow-up — _DEFAULT_QUERIES is still the shared default below.)
+    # entirely so they never receive another user's matches.
     candidate_profile = ""
     if memory_client is not None:
         try:
@@ -130,11 +169,24 @@ async def run_agent(
         logger.info("No job profile in brain for user %s — skipping scrape", user_id)
         scrapers = []
 
+    # Derive search queries from the caller's own profile so Yuki gets teaching
+    # queries, an engineer gets engineering queries, etc. Falls back to generic
+    # neutral queries only if derivation fails.
+    search_queries: list[tuple[str, Optional[str]]]
+    if candidate_profile.strip() and scrapers:
+        search_queries = derive_queries_from_profile(
+            bedrock_client=bedrock_client,
+            model_id=model_id,
+            candidate_profile=candidate_profile,
+        )
+    else:
+        search_queries = []
+
     all_raw: list[JobListing] = []
     platforms_used: set[str] = set()
 
     for code in country_codes:
-        for query, city in _DEFAULT_QUERIES:
+        for query, city in search_queries:
             for scraper in scrapers:
                 try:
                     results = await scraper.search(query, code, city)
@@ -180,14 +232,6 @@ async def run_agent(
             hard_rejected_count += 1
             hard_rejected_by_reason["SEARCH_RESULTS_PAGE"] += 1
             rejection_log["SEARCH_RESULTS_PAGE"].append(
-                f"{listing.company} — {listing.title}"
-            )
-            continue
-
-        if pre_filter_technology_mismatch(listing):
-            hard_rejected_count += 1
-            hard_rejected_by_reason["TECHNOLOGY_MISMATCH"] += 1
-            rejection_log["TECHNOLOGY_MISMATCH"].append(
                 f"{listing.company} — {listing.title}"
             )
             continue

@@ -27,13 +27,16 @@ Hard disqualifiers (auto-reject, no scoring):
                         candidate's profile shows no matching citizenship or work rights.
   NO_SPONSORSHIP        Role is in a country where the candidate needs sponsorship
                         (per their profile) and none is mentioned.
-  TECHNOLOGY_MISMATCH   Primary stack has no overlap with the candidate's core stack.
-                        If the candidate's main language is listed only as a 'bonus' or
-                        'nice to have' while the primary language is different, or the role
-                        title is a clear mismatch → HARD REJECT with TECHNOLOGY_MISMATCH.
+  CLEAR_FIELD_MISMATCH  The role's field or profession has no meaningful overlap with
+                        the candidate's background, experience, or stated goals — e.g.
+                        a teacher receiving a pure software engineering role, or a surgeon
+                        receiving a marketing role. Use this conservatively: only reject
+                        when there is zero transferable overlap.
   ALREADY_APPLIED       Company is in the candidate's active applications list.
-  JUNIOR_ROLE           <3 years expected, entry-level, graduate, or trainee.
-  PURE_MANAGEMENT       CTO/VP/Head with no individual-contributor track.
+  JUNIOR_ROLE           <3 years expected, entry-level, graduate, or trainee, where the
+                        candidate clearly has more experience.
+  PURE_MANAGEMENT       Senior leadership (C-suite/VP/Head) with no individual-contributor
+                        track, and the candidate's profile shows no management background.
 
 Soft disqualifiers (include with note):
   EXPERIENCE_GAP        Role requires significantly more experience than the candidate has.
@@ -44,17 +47,19 @@ Soft disqualifiers (include with note):
 def _scoring_model(target_countries: list[str]) -> str:
     countries = ", ".join(target_countries) if target_countries else "a target country"
     return f"""\
-Technical fit (0-35): score against the candidate's core stack from their profile.
-  35 = Full overlap with the candidate's primary stack (incl. their key frameworks)
-  25 = Strong overlap, missing one or two secondary technologies
-  15 = Partial overlap (adjacent language/framework)
-   5 = Other backend with some clear overlap
+Profile fit (0-40): How well the role matches the candidate's experience, skills, \
+and stated preferences as described in their profile.
+  40 = Role is a near-exact match for the candidate's background and stated goals
+  30 = Strong match — most core requirements align with the candidate's experience
+  20 = Moderate match — meaningful overlap but some gaps or peripheral requirements
+  10 = Weak match — tangentially related or requires skills the candidate is still developing
+   0 = No meaningful overlap with the candidate's background
 
-Domain fit (0-25): score against the candidate's domain from their profile.
-  25 = Candidate's target domain explicitly required
-  15 = Adjacent / broader version of that domain
-  10 = General enterprise backend
-   5 = Unrelated domain
+Domain fit (0-20): How well the job's industry / function matches the candidate's domain.
+  20 = Candidate's primary domain explicitly required
+  12 = Adjacent or broader version of that domain
+   5 = Different domain but transferable skills apply
+   0 = Unrelated domain
 
 Location / work mode (0-20):
   20 = On-site or hybrid in one of: {countries}
@@ -62,30 +67,30 @@ Location / work mode (0-20):
    0 = Outside the target countries
 
 Salary fit (0-10):
-  10 = At or above the candidate's stated target
+  10 = At or above the candidate's stated target (or not stated)
    7 = Within 10% below target
    3 = 10-20% below target
-   0 = >20% below, or not disclosed
+   0 = >20% below target
 
-AI / growth signal (0-10):
-  10 = LLM/GenAI/Agentic/Bedrock/RAG/embeddings in JD
-   7 = "Building AI capabilities" in JD
-   3 = Traditional stack, no AI signal
-   0 = Legacy only (COBOL, mainframe)
+Growth / opportunity signal (0-10):
+  10 = Role offers clear development aligned with candidate's stated goals
+   7 = Some growth potential in line with the candidate's direction
+   3 = Stable but lateral move with limited new opportunity
+   0 = Explicitly a downgrade or dead-end relative to the candidate's profile
 
 Tiers: >=70 STRONG_MATCH | 50-69 GOOD_MATCH | 30-49 WEAK_MATCH | <30 REJECT"""
 
 _JSON_SCHEMA = """\
 {
   "disqualified": true | false,
-  "disqualifier_code": "TECHNOLOGY_MISMATCH" | null,
+  "disqualifier_code": "WRONG_COUNTRY" | "CITIZENSHIP_RESTRICTED" | "NO_SPONSORSHIP" | "CLEAR_FIELD_MISMATCH" | "ALREADY_APPLIED" | "JUNIOR_ROLE" | "PURE_MANAGEMENT" | null,
   "rejection_reason": "string" | null,
   "score": 0-100 | null,
   "match_tier": "STRONG_MATCH" | "GOOD_MATCH" | "WEAK_MATCH" | "REJECT" | null,
-  "tech_flags": ["Java", "Spring Boot", ...],
-  "domain_flags": ["banking", "fintech", ...],
-  "positive_flags": ["BANKING_DOMAIN", "KAFKA_REQUIRED", ...],
-  "soft_flags": ["EXPERIENCE_GAP", ...],
+  "tech_flags": ["relevant skill or tool mentioned in JD", ...],
+  "domain_flags": ["domain / field of the role", ...],
+  "positive_flags": ["alignment point between candidate and role", ...],
+  "soft_flags": ["EXPERIENCE_GAP" | "SALARY_BELOW" | "RELOCATION_URGENT", ...],
   "ai_summary": "2-3 sentences on fit",
   "salary_min_local": 120000 | null,
   "salary_max_local": 150000 | null,
