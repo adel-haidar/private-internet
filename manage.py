@@ -11,6 +11,7 @@ If --password is omitted a strong one is generated and printed once.
 """
 
 import argparse
+import asyncio
 import secrets
 import sys
 
@@ -56,6 +57,31 @@ def cmd_create_user(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backfill_covers(args: argparse.Namespace) -> int:
+    """Generate covers/thumbnails for a user's existing content (demo prep).
+
+    Scope: fills missing PULSE/ARIA covers and refreshes SIGNAL/STORIES
+    thumbnails. Idempotent — safe to re-run.
+    """
+    from private_internet.content.jobs.cover_backfill import backfill_covers
+
+    email = args.email.strip().lower()
+    user = get_user_by_email(email)
+    if user is None:
+        print(f"error: no account with email {email!r}", file=sys.stderr)
+        return 1
+
+    print(f"backfilling covers for {email} (user {user['id']}) …")
+    summary = asyncio.run(backfill_covers(user["id"]))
+    for module, counts in summary.items():
+        print(
+            f"  {module:8s} candidates={counts['candidates']:<4d} "
+            f"done={counts['done']:<4d} failed={counts['failed']}"
+        )
+    total_failed = sum(c["failed"] for c in summary.values())
+    return 1 if total_failed else 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="manage.py", description="Private Internet admin CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -66,6 +92,13 @@ def main() -> int:
     p.add_argument("--password", default=None, help="omit to auto-generate")
     p.add_argument("--admin", action="store_true", help="grant admin rights")
     p.set_defaults(func=cmd_create_user)
+
+    p = sub.add_parser(
+        "backfill-covers",
+        help="generate covers/thumbnails for a user's existing content",
+    )
+    p.add_argument("--email", required=True, help="account to backfill")
+    p.set_defaults(func=cmd_backfill_covers)
 
     args = parser.parse_args()
     return args.func(args)
