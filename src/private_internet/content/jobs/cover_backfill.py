@@ -120,10 +120,12 @@ async def _backfill_pulse(conn, store: AssetStore, user_id: str) -> dict:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT * FROM content_creators WHERE id = %s", (post["creator_id"],))
         creator = dict(cur.fetchone() or {})
-        cur.execute(
-            "SELECT * FROM content_topics WHERE id = %s AND user_id = %s",
-            (post["topic_id"], user_id),
-        )
+        # topic_id is a NOT NULL FK on a post we've ALREADY scoped to this user, so
+        # the topic is trusted regardless of its own user_id. Don't re-scope by
+        # user_id here: a little legacy data (posts from before per-user topics)
+        # points at another tenant's topic, and the user-scoped filter would skip
+        # those posts entirely. We only read the topic to build the image prompt.
+        cur.execute("SELECT * FROM content_topics WHERE id = %s", (post["topic_id"],))
         topic = dict(cur.fetchone() or {})
         cur.close()
         if not creator or not topic:
