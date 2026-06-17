@@ -128,14 +128,23 @@ async function managePortal() {
 
           <!-- CTA -->
           <div class="sub__cta-wrap">
-            <!-- Free: already on it or go to app -->
+            <!-- Free: already on it — let the user into the app's free features -->
             <template v-if="plan.key === 'free'">
               <PiButton
-                :variant="currentPlan === 'free' ? 'secondary' : 'ghost'"
+                v-if="currentPlan === 'free'"
+                variant="secondary"
+                block
+                @click="router.replace('/overview')"
+              >
+                Continue with Free
+              </PiButton>
+              <PiButton
+                v-else
+                variant="ghost"
                 block
                 :disabled="true"
               >
-                {{ currentPlan === 'free' ? 'Current plan' : 'Included' }}
+                Included
               </PiButton>
             </template>
 
