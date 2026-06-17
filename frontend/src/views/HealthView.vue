@@ -116,14 +116,18 @@ function statusSource(source: 'apple_watch' | 'beurer_scale' | 'samsung_health')
   return healthStatus.value?.sources.find(s => s.source === source)
 }
 
+// Apple sync state must come from Apple-attributed signals ONLY. Trends
+// (hasTrendData / latestTrendDate) aggregate across every source, so falling
+// back to them lit up the Apple Watch card — with the wrong date — whenever any
+// other device (e.g. a Samsung export) had data. # see bug: phantom apple sync
 const appleSynced = computed(() => {
   if (statusSource('apple_watch')?.has_data) return true
   const avail = (daily.value?.data_availability ?? []).find(a => a.source === 'apple_watch')
-  return !!(avail?.available || avail?.last_data_date) || hasTrendData.value
+  return !!(avail?.available || avail?.last_data_date)
 })
 const appleLastSync = computed(() => {
   const avail = (daily.value?.data_availability ?? []).find(a => a.source === 'apple_watch')
-  return statusSource('apple_watch')?.last_data_date ?? avail?.last_data_date ?? latestTrendDate.value ?? undefined
+  return statusSource('apple_watch')?.last_data_date ?? avail?.last_data_date ?? undefined
 })
 const scaleSynced = computed(() => !!statusSource('beurer_scale')?.has_data)
 const scaleLastSync = computed(() => statusSource('beurer_scale')?.last_data_date ?? undefined)
