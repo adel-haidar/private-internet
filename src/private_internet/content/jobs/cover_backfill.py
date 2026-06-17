@@ -24,6 +24,7 @@ import asyncio
 import logging
 from typing import Awaitable, Callable, Optional, TypeVar
 
+from psycopg2 import errors as pg_errors
 from psycopg2.extras import RealDictCursor
 
 from private_internet.database import _connect
@@ -40,6 +41,41 @@ logger = logging.getLogger(__name__)
 _CONCURRENCY = 5
 
 _T = TypeVar("_T")
+
+# A single-row UPDATE here can deadlock against the live API/ARIA service taking
+# an AccessExclusiveLock on the same table (its idempotent CREATE/ALTER … IF NOT
+# EXISTS bootstrap). Such conflicts are transient, so we retry with backoff
+# rather than let one row fail the whole (CI-gated) job.
+_DB_RETRYABLE = (
+    pg_errors.DeadlockDetected,
+    pg_errors.SerializationFailure,
+    pg_errors.LockNotAvailable,
+)
+_DB_MAX_RETRIES = 4
+_DB_RETRY_BASE = 0.5  # seconds; doubled each attempt
+
+
+async def _write(conn, sql: str, params: tuple) -> None:
+    """Run one UPDATE + commit, retrying transient lock conflicts with backoff.
+
+    Raises the last error if it is non-retryable or still failing after the
+    retry budget — the caller logs it and counts the item as failed.
+    """
+    for attempt in range(_DB_MAX_RETRIES + 1):
+        try:
+            cur = conn.cursor()
+            cur.execute(sql, params)
+            conn.commit()
+            cur.close()
+            return
+        except _DB_RETRYABLE:
+            conn.rollback()
+            if attempt == _DB_MAX_RETRIES:
+                raise
+            await asyncio.sleep(_DB_RETRY_BASE * (2 ** attempt))
+        except Exception:
+            conn.rollback()
+            raise
 
 
 async def _render_all(
@@ -111,18 +147,15 @@ async def _backfill_pulse(conn, store: AssetStore, user_id: str) -> dict:
             logger.error("PULSE post %s — backfill failed: %s", post["id"], exc, exc_info=exc)
             continue
         try:
-            cur = conn.cursor()
-            cur.execute(
+            await _write(
+                conn,
                 "UPDATE content_posts SET image_url = %s, image_prompt = %s "
                 "WHERE id = %s AND user_id = %s",
                 (url, post.get("_image_prompt"), post["id"], user_id),
             )
-            conn.commit()
-            cur.close()
             done += 1
             logger.info("PULSE post %s — cover set (%s)", post["id"], url)
         except Exception as exc:
-            conn.rollback()
             failed += 1
             logger.error("PULSE post %s — db update failed: %s", post["id"], exc, exc_info=True)
 
@@ -165,18 +198,15 @@ async def _backfill_aria(conn, store: AssetStore, user_id: str) -> dict:
             logger.error("ARIA track %s — backfill failed: %s", track["id"], exc, exc_info=exc)
             continue
         try:
-            cur = conn.cursor()
-            cur.execute(
+            await _write(
+                conn,
                 "UPDATE aria_tracks SET art_s3_key = %s, updated_at = now() "
                 "WHERE id = %s AND user_id = %s",
                 (art_key, track["id"], user_id),
             )
-            conn.commit()
-            cur.close()
             done += 1
             logger.info("ARIA track %s — art set (%s)", track["id"], art_key)
         except Exception as exc:
-            conn.rollback()
             failed += 1
             logger.error("ARIA track %s — db update failed: %s", track["id"], exc, exc_info=True)
 
@@ -218,17 +248,14 @@ async def _backfill_signal(conn, store: AssetStore, user_id: str) -> dict:
             logger.error("SIGNAL video %s — backfill failed: %s", video["id"], exc, exc_info=exc)
             continue
         try:
-            cur = conn.cursor()
-            cur.execute(
+            await _write(
+                conn,
                 "UPDATE content_videos SET thumbnail_url = %s WHERE id = %s AND user_id = %s",
                 (url, video["id"], user_id),
             )
-            conn.commit()
-            cur.close()
             done += 1
             logger.info("SIGNAL video %s — thumbnail refreshed (%s)", video["id"], url)
         except Exception as exc:
-            conn.rollback()
             failed += 1
             logger.error("SIGNAL video %s — db update failed: %s", video["id"], exc, exc_info=True)
 
@@ -261,18 +288,15 @@ async def _backfill_stories(conn, store: AssetStore, user_id: str) -> dict:
             logger.error("STORIES film %s — backfill failed: %s", film["id"], exc, exc_info=exc)
             continue
         try:
-            cur = conn.cursor()
-            cur.execute(
+            await _write(
+                conn,
                 "UPDATE stories_films SET thumbnail_url = %s, poster_url = %s, updated_at = now() "
                 "WHERE id = %s AND user_id = %s",
                 (url, url, film["id"], user_id),
             )
-            conn.commit()
-            cur.close()
             done += 1
             logger.info("STORIES film %s — poster refreshed (%s)", film["id"], url)
         except Exception as exc:
-            conn.rollback()
             failed += 1
             logger.error("STORIES film %s — db update failed: %s", film["id"], exc, exc_info=True)
 
@@ -284,6 +308,11 @@ async def backfill_covers(user_id: str) -> dict:
     assert user_id, "user_id is required"
     store = AssetStore()
     conn = _connect()
+    # Don't wait indefinitely behind another process's table lock — fail fast so
+    # _write() can retry the row, rather than block the whole backfill.
+    with conn.cursor() as _c:
+        _c.execute("SET lock_timeout = '15s'")
+    conn.commit()
     results = []
     try:
         results.append(await _backfill_pulse(conn, store, user_id))
