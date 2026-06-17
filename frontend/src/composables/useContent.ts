@@ -240,13 +240,18 @@ export function useSignalLibrary() {
       const data = await authedGet<Paged<Video>>(
         `/videos?page=${next}&page_size=${VIDEO_PAGE_SIZE}`,
       )
-      videos.value = next === 1 ? data.items : [...videos.value, ...data.items]
+      // Drop failed renders: they carry no video_url and no thumbnail_url, so
+      // they'd surface in Recent/by-category rows as empty gradient cards that
+      // can't be played. ready + processing/pending stay (the latter show the
+      // "Rendering…" pulse). The API still returns them; we hide them here.
+      const items = data.items.filter(v => v.status !== 'failed')
+      videos.value = next === 1 ? items : [...videos.value, ...items]
       page.value = data.page
       pages.value = data.pages
       total.value = data.total
       // Auto-select the first playable video on initial load
       if (!selected.value) {
-        selected.value = data.items.find(v => v.status === 'ready' && v.video_url) ?? null
+        selected.value = items.find(v => v.status === 'ready' && v.video_url) ?? null
       }
     } catch (e) {
       error.value = e instanceof Error ? e.message : String(e)
