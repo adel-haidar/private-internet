@@ -11,10 +11,18 @@ Scope = "fill missing + refresh video/film":
   - SIGNAL videos: every video with a video_url      -> REGENERATE thumbnail
   - STORIES films: every ready film                  -> REGENERATE poster/thumbnail
 
+Each item's slow part is the fal.ai render (an awaited HTTP call). Those run
+CONCURRENTLY, bounded by ``_CONCURRENCY`` — a fully-sequential run overran the
+backfill workflow's poll window. DB reads happen up front and DB writes happen
+after the renders complete, both on the single shared connection, so the
+connection is never touched from inside the concurrent workers.
+
 Per-item failures are logged and skipped (one bad item never aborts the run).
 """
 
+import asyncio
 import logging
+from typing import Awaitable, Callable, Optional, TypeVar
 
 from psycopg2.extras import RealDictCursor
 
@@ -25,6 +33,34 @@ from private_internet.content.image_generator import PostImageGenerator
 from private_internet.content.video_generator import VIDEO_WIDTH, VIDEO_HEIGHT
 
 logger = logging.getLogger(__name__)
+
+# How many fal renders to run at once. The renders are the bottleneck (a few
+# seconds each); rendering them serially overran the 12-minute backfill workflow.
+# Kept modest so we don't trip fal rate limits or open too many sockets.
+_CONCURRENCY = 5
+
+_T = TypeVar("_T")
+
+
+async def _render_all(
+    items: list[_T], render: Callable[[_T], Awaitable[Optional[str]]]
+) -> list[tuple[_T, Optional[str], Optional[Exception]]]:
+    """Run ``render`` over ``items`` with bounded concurrency.
+
+    ``render`` does only the fal call + S3 upload (no DB) and returns the asset
+    URL. Returns one (item, url, error) tuple per item; the caller applies the DB
+    writes sequentially afterwards.
+    """
+    sem = asyncio.Semaphore(_CONCURRENCY)
+
+    async def _guarded(item: _T) -> tuple[_T, Optional[str], Optional[Exception]]:
+        async with sem:
+            try:
+                return item, await render(item), None
+            except Exception as exc:  # noqa: BLE001 — one bad item must not abort the run
+                return item, None, exc
+
+    return await asyncio.gather(*(_guarded(it) for it in items))
 
 
 async def _backfill_pulse(conn, store: AssetStore, user_id: str) -> dict:
@@ -40,33 +76,46 @@ async def _backfill_pulse(conn, store: AssetStore, user_id: str) -> dict:
     posts = [dict(r) for r in cur.fetchall()]
     cur.close()
 
-    done, failed = 0, 0
+    # Resolve each post's creator + topic up front (sequential DB reads), so the
+    # concurrent render workers never touch the shared connection.
+    renderable: list[dict] = []
+    failed = 0
     for post in posts:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT * FROM content_creators WHERE id = %s", (post["creator_id"],))
+        creator = dict(cur.fetchone() or {})
+        cur.execute(
+            "SELECT * FROM content_topics WHERE id = %s AND user_id = %s",
+            (post["topic_id"], user_id),
+        )
+        topic = dict(cur.fetchone() or {})
+        cur.close()
+        if not creator or not topic:
+            logger.warning("PULSE post %s — missing creator/topic, skipping", post["id"])
+            failed += 1
+            continue
+        post["_creator"], post["_topic"] = creator, topic
+        renderable.append(post)
+
+    async def _render(post: dict) -> str:
+        image_bytes, image_prompt = await image_gen.generate_for_post(
+            post["_topic"], post["_creator"], post["body"]
+        )
+        post["_image_prompt"] = image_prompt
+        return store.upload_post_image(image_bytes, post["id"])
+
+    done = 0
+    for post, url, exc in await _render_all(renderable, _render):
+        if exc is not None or url is None:
+            failed += 1
+            logger.error("PULSE post %s — backfill failed: %s", post["id"], exc, exc_info=exc)
+            continue
         try:
-            cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute("SELECT * FROM content_creators WHERE id = %s", (post["creator_id"],))
-            creator = dict(cur.fetchone() or {})
-            cur.execute(
-                "SELECT * FROM content_topics WHERE id = %s AND user_id = %s",
-                (post["topic_id"], user_id),
-            )
-            topic = dict(cur.fetchone() or {})
-            cur.close()
-            if not creator or not topic:
-                logger.warning("PULSE post %s — missing creator/topic, skipping", post["id"])
-                failed += 1
-                continue
-
-            image_bytes, image_prompt = await image_gen.generate_for_post(
-                topic, creator, post["body"]
-            )
-            url = store.upload_post_image(image_bytes, post["id"])
-
             cur = conn.cursor()
             cur.execute(
                 "UPDATE content_posts SET image_url = %s, image_prompt = %s "
                 "WHERE id = %s AND user_id = %s",
-                (url, image_prompt, post["id"], user_id),
+                (url, post.get("_image_prompt"), post["id"], user_id),
             )
             conn.commit()
             cur.close()
@@ -75,7 +124,7 @@ async def _backfill_pulse(conn, store: AssetStore, user_id: str) -> dict:
         except Exception as exc:
             conn.rollback()
             failed += 1
-            logger.error("PULSE post %s — backfill failed: %s", post["id"], exc, exc_info=True)
+            logger.error("PULSE post %s — db update failed: %s", post["id"], exc, exc_info=True)
 
     return {"module": "pulse", "candidates": len(posts), "done": done, "failed": failed}
 
@@ -94,23 +143,28 @@ async def _backfill_aria(conn, store: AssetStore, user_id: str) -> dict:
     tracks = [dict(r) for r in cur.fetchall()]
     cur.close()
 
-    done, failed = 0, 0
-    for track in tracks:
-        try:
-            tid = str(track["id"])
-            mood = str(track.get("mood") or "")
-            genre = track.get("genre") or "ambient"
-            art_prompt = f"abstract album art, {mood} mood, {genre}, no text"
-            art_bytes = await generate_cover(
-                art_prompt, 1024, 1024,
-                fallback_title=track.get("title", "Untitled"),
-                kicker="ARIA",
-                fallback_subtitle=mood.capitalize(),
-                seed=tid,
-            )
-            art_cdn = _upload_aria_art(store, art_bytes, tid)
-            art_key = _s3_key_from_cdn(art_cdn, store)
+    async def _render(track: dict) -> str:
+        tid = str(track["id"])
+        mood = str(track.get("mood") or "")
+        genre = track.get("genre") or "ambient"
+        art_prompt = f"abstract album art, {mood} mood, {genre}, no text"
+        art_bytes = await generate_cover(
+            art_prompt, 1024, 1024,
+            fallback_title=track.get("title", "Untitled"),
+            kicker="ARIA",
+            fallback_subtitle=mood.capitalize(),
+            seed=tid,
+        )
+        art_cdn = _upload_aria_art(store, art_bytes, tid)
+        return _s3_key_from_cdn(art_cdn, store)
 
+    done, failed = 0, 0
+    for track, art_key, exc in await _render_all(tracks, _render):
+        if exc is not None or art_key is None:
+            failed += 1
+            logger.error("ARIA track %s — backfill failed: %s", track["id"], exc, exc_info=exc)
+            continue
+        try:
             cur = conn.cursor()
             cur.execute(
                 "UPDATE aria_tracks SET art_s3_key = %s, updated_at = now() "
@@ -120,11 +174,11 @@ async def _backfill_aria(conn, store: AssetStore, user_id: str) -> dict:
             conn.commit()
             cur.close()
             done += 1
-            logger.info("ARIA track %s — art set (%s)", tid, art_key)
+            logger.info("ARIA track %s — art set (%s)", track["id"], art_key)
         except Exception as exc:
             conn.rollback()
             failed += 1
-            logger.error("ARIA track %s — backfill failed: %s", track["id"], exc, exc_info=True)
+            logger.error("ARIA track %s — db update failed: %s", track["id"], exc, exc_info=True)
 
     return {"module": "aria", "candidates": len(tracks), "done": done, "failed": failed}
 
@@ -142,23 +196,28 @@ async def _backfill_signal(conn, store: AssetStore, user_id: str) -> dict:
     videos = [dict(r) for r in cur.fetchall()]
     cur.close()
 
-    done, failed = 0, 0
-    for video in videos:
-        try:
-            title = video.get("title") or ""
-            prompt = (
-                f"{title}. cinematic, 16:9, dark editorial style, "
-                "high contrast, dramatic lighting, no text"
-            )
-            thumb = await generate_cover(
-                prompt, VIDEO_WIDTH, VIDEO_HEIGHT,
-                fallback_title=title,
-                kicker="SIGNAL",
-                fallback_subtitle=video.get("creator_name") or "",
-                seed=str(video["id"]),
-            )
-            url = store.upload_thumbnail(thumb, video["id"])
+    async def _render(video: dict) -> str:
+        title = video.get("title") or ""
+        prompt = (
+            f"{title}. cinematic, 16:9, dark editorial style, "
+            "high contrast, dramatic lighting, no text"
+        )
+        thumb = await generate_cover(
+            prompt, VIDEO_WIDTH, VIDEO_HEIGHT,
+            fallback_title=title,
+            kicker="SIGNAL",
+            fallback_subtitle=video.get("creator_name") or "",
+            seed=str(video["id"]),
+        )
+        return store.upload_thumbnail(thumb, video["id"])
 
+    done, failed = 0, 0
+    for video, url, exc in await _render_all(videos, _render):
+        if exc is not None or url is None:
+            failed += 1
+            logger.error("SIGNAL video %s — backfill failed: %s", video["id"], exc, exc_info=exc)
+            continue
+        try:
             cur = conn.cursor()
             cur.execute(
                 "UPDATE content_videos SET thumbnail_url = %s WHERE id = %s AND user_id = %s",
@@ -171,7 +230,7 @@ async def _backfill_signal(conn, store: AssetStore, user_id: str) -> dict:
         except Exception as exc:
             conn.rollback()
             failed += 1
-            logger.error("SIGNAL video %s — backfill failed: %s", video["id"], exc, exc_info=True)
+            logger.error("SIGNAL video %s — db update failed: %s", video["id"], exc, exc_info=True)
 
     return {"module": "signal", "candidates": len(videos), "done": done, "failed": failed}
 
@@ -190,13 +249,18 @@ async def _backfill_stories(conn, store: AssetStore, user_id: str) -> dict:
     films = [dict(r) for r in cur.fetchall()]
     cur.close()
 
-    done, failed = 0, 0
-    for film in films:
-        try:
-            fid = str(film["id"])
-            poster = await _generate_poster(film.get("title", ""), film.get("premise"))
-            url = store._upload(f"stories/{fid}/poster.png", poster, "image/png")
+    async def _render(film: dict) -> str:
+        fid = str(film["id"])
+        poster = await _generate_poster(film.get("title", ""), film.get("premise"))
+        return store._upload(f"stories/{fid}/poster.png", poster, "image/png")
 
+    done, failed = 0, 0
+    for film, url, exc in await _render_all(films, _render):
+        if exc is not None or url is None:
+            failed += 1
+            logger.error("STORIES film %s — backfill failed: %s", film["id"], exc, exc_info=exc)
+            continue
+        try:
             cur = conn.cursor()
             cur.execute(
                 "UPDATE stories_films SET thumbnail_url = %s, poster_url = %s, updated_at = now() "
@@ -206,11 +270,11 @@ async def _backfill_stories(conn, store: AssetStore, user_id: str) -> dict:
             conn.commit()
             cur.close()
             done += 1
-            logger.info("STORIES film %s — poster refreshed (%s)", fid, url)
+            logger.info("STORIES film %s — poster refreshed (%s)", film["id"], url)
         except Exception as exc:
             conn.rollback()
             failed += 1
-            logger.error("STORIES film %s — backfill failed: %s", film["id"], exc, exc_info=True)
+            logger.error("STORIES film %s — db update failed: %s", film["id"], exc, exc_info=True)
 
     return {"module": "stories", "candidates": len(films), "done": done, "failed": failed}
 

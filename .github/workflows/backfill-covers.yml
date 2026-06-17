@@ -42,8 +42,11 @@ jobs:
 
           echo "SSM Command ID: $COMMAND_ID"
 
-          # Poll until complete (max ~12 min — fal renders are a few seconds each).
-          for i in $(seq 1 72); do
+          # Poll until complete (max ~30 min). Renders run concurrently now, so a
+          # run normally finishes in a few minutes; the wide budget is headroom
+          # for a large content set so we never report a false timeout while the
+          # backfill is still making progress on the host.
+          for i in $(seq 1 180); do
             sleep 10
             STATUS=$(aws ssm get-command-invocation \
               --command-id "$COMMAND_ID" \
