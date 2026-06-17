@@ -6,6 +6,8 @@ const PI_ICON_PATHS: Record<string, string> = {
   dashboard:   'M3 13h8V3H3v10zm10 8h8V3h-8v18zM3 21h8v-6H3v6z',
   brain:       '', // brain uses BrainPulse, not a path
   signal:      'M8 5v14l11-7z',
+  share:       'M18 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M6 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M18 22a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M8.6 13.5l6.8 3.9 M15.4 6.6l-6.8 3.9',
+  link:        'M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7 M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7',
   pulse:       'M3 12h4l2-7 4 14 2-7h6',
   stories:     'M3 8h18v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8z M3 8l2-4h4l-2 4 M9 8l2-4h4l-2 4 M15 8l2-4h3l-1.5 4',
   aria:        'M9 18V5l12-2v13 M6 21a3 3 0 1 0 6 0 3 3 0 0 0-6 0z M18 19a3 3 0 1 0 6 0 3 3 0 0 0-6 0z',

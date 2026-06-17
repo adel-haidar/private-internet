@@ -28,6 +28,8 @@ from private_internet.core.tenancy import migrate_multi_tenancy
 from private_internet.memory.mcp_server import mcp
 from private_internet.memory.routes import router as memory_router
 from private_internet.memory.service import init_db
+from private_internet.sharing.db import init_shares_db
+from private_internet.sharing.router import router as sharing_router
 from private_internet.users.google_auth import router as google_auth_router
 from private_internet.users.routes import router as users_router
 from private_internet.users.status_routes import router as user_status_router
@@ -110,6 +112,7 @@ async def lifespan(app: FastAPI):
     _bootstrap_step("init_aria_db", init_aria_db)
     _bootstrap_step("init_aria_podcast_db", init_aria_podcast_db)
     _bootstrap_step("init_stories_db", init_stories_db)
+    _bootstrap_step("init_shares_db", init_shares_db)
     _bootstrap_step("seed_default_creators", seed_default_creators)
     _bootstrap_step("migrate_multi_tenancy", migrate_multi_tenancy)
     # SaaS columns/tables depend on users + content_creators already existing.
@@ -168,5 +171,8 @@ app.include_router(aria_router, dependencies=[Depends(require_feature("aria"))])
 app.include_router(stories_router, dependencies=[Depends(require_feature("stories"))])
 app.include_router(billing_router)
 app.include_router(brain_router)
+# Global sharing. The public GET /api/share/{token} carries no auth dependency
+# (it serves only a denormalised snapshot); POST/list/DELETE are per-route auth'd.
+app.include_router(sharing_router)
 
 app.mount("/mcp", _mcp_app)

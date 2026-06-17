@@ -18,6 +18,7 @@ import InsightCard from '../components/ui/InsightCard.vue'
 import InsightLine from '../components/ui/InsightLine.vue'
 import DeviceCard from '../components/ui/DeviceCard.vue'
 import ConfirmModal from '../components/ui/ConfirmModal.vue'
+import ShareButton from '../components/ui/ShareButton.vue'
 import HealthExportGuide from '../components/health/HealthExportGuide.vue'
 import { useHealthDaily, useHealthTrends, useAppleHealthImport, useSamsungHealthImport, useHealthStatus } from '../composables/useHealth'
 import { requireAuth } from '../composables/useAuth'
@@ -274,6 +275,21 @@ const numberLines = computed<Line[]>(() => {
 })
 
 const dataSuggests = computed(() => daily.value?.analysis || daily.value?.coach_insight || daily.value?.reasoning || '')
+
+// Privacy-preserving share card: a qualitative headline derived from the glance
+// status — never raw weight / heart-rate / sleep numbers.
+const healthHighlight = computed(() => {
+  const map: Record<string, string> = {
+    'Goal reached': 'I reached my health goal 🎯',
+    'On track': 'Staying on track with my health 💪',
+    'Steady': 'Keeping my health steady 🌿',
+    'Losing too fast': 'Fine-tuning my health plan 🔄',
+  }
+  return {
+    headline: map[glanceStatus.value.text] ?? 'My health check-in',
+    caption: 'Tracked privately with my own AI brain',
+  }
+})
 
 // ── Detailed charts (collapsed) ──────────────────────────────────────────────
 const chartsOpen = ref(false)
@@ -590,6 +606,9 @@ onMounted(async () => {
 
     <!-- Populated insights -->
     <template v-if="hasAnalysis">
+      <div style="display: flex; justify-content: flex-end; margin-bottom: var(--space-3);">
+        <ShareButton kind="health_card" :highlight="healthHighlight" label="Share snapshot" />
+      </div>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4); margin-bottom: var(--space-6);">
         <PiCard v-for="stat in statRow" :key="stat.label">
           <div style="font-family: var(--font-display); font-weight: 600; font-size: 24px; letter-spacing: -0.01em;">{{ stat.value }}</div>

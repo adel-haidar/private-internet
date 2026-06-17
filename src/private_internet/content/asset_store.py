@@ -48,6 +48,12 @@ class AssetStore:
         key = f"content/videos/{video_id}/thumbnail.png"
         return self._upload(key, image_bytes, "image/png")
 
+    def upload_share_card(self, image_bytes: bytes, token: str) -> str:
+        """Privacy-preserving HEALTH/FINANCE highlight card for a public share.
+        Keyed by the share token so it is unguessable and 1:1 with the share."""
+        key = f"content/shares/{token}/card.png"
+        return self._upload(key, image_bytes, "image/png")
+
     def upload_avatar(self, image_bytes: bytes, user_id: str, content_type: str) -> str:
         """Profile photo. Stable key per user (overwrites on re-upload); callers
         should cache-bust with a query string since the CDN caches aggressively."""

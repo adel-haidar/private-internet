@@ -10,6 +10,7 @@ import FeedChip from './FeedChip.vue'
 import ScoreText from './ScoreText.vue'
 import FeedVoteButton from './FeedVoteButton.vue'
 import SignalVideoCard from './SignalVideoCard.vue'
+import { ShareButton } from '../ui'
 import { seededHero } from './seeded'
 import { fmtSecs } from './video-util'
 
@@ -137,6 +138,7 @@ onBeforeUnmount(() => {
         <div class="sp__actions">
           <FeedVoteButton label="Like" color="var(--success)" icon="up" :active="vote === 'up'" @click="doVote(true)" />
           <FeedVoteButton label="Dislike" color="var(--danger)" icon="down" :active="vote === 'down'" @click="doVote(false)" />
+          <ShareButton kind="signal_video" :ref-id="video.id" :text="video.title" />
         </div>
         <button class="sp__srctoggle" @click="showSources = !showSources">Sources {{ showSources ? '▴' : '▾' }}</button>
         <p v-if="showSources" class="sp__srcnote">Sources aren't listed for this video yet.</p>

@@ -11,6 +11,7 @@ import StatusPill from '../components/ui/StatusPill.vue'
 import SpendBar, { type SpendSegment } from '../components/ui/SpendBar.vue'
 import ProgressBar from '../components/ui/ProgressBar.vue'
 import ConfirmModal from '../components/ui/ConfirmModal.vue'
+import ShareButton from '../components/ui/ShareButton.vue'
 import PeriodControls from '../components/finances/PeriodControls.vue'
 import SpendingBudgetPanel from '../components/finances/SpendingBudgetPanel.vue'
 import InvestingPanel from '../components/finances/InvestingPanel.vue'
@@ -94,6 +95,22 @@ const suggestText = computed(() => {
 })
 const lastRunLabel = computed(() => lastRun.value ? lastRun.value.toLocaleDateString() : null)
 
+// Privacy-preserving share card: a qualitative headline from the savings
+// trajectory and rate band — never euro amounts, balances, or income figures.
+const financeHighlight = computed(() => {
+  const map: Record<string, string> = {
+    'Ahead': 'Ahead on my money goals 📈',
+    'Behind': 'Refocusing my money goals 🎯',
+    'On track': 'On track with my finances 💸',
+  }
+  const rate = savingsRate.value
+  const band = rate == null ? '' : rate >= 20 ? 'strong saver' : rate >= 10 ? 'steady saver' : 'building the habit'
+  return {
+    headline: map[savingsStatus.value.text] ?? 'My money check-in',
+    caption: band ? `A ${band} this period` : 'Tracked privately with my own AI brain',
+  }
+})
+
 // ── Run / upload ──────────────────────────────────────────────────────────────
 const fileInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
@@ -170,8 +187,9 @@ async function deleteAll() {
     <input ref="fileInput" type="file" accept=".pdf,.csv,.xlsx,.xls" multiple hidden @change="onPickFile" />
 
     <!-- Tabs -->
-    <div style="margin-bottom: var(--space-6);">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-6);">
       <Pills :options="TABS" :modelValue="activeTab" @update:modelValue="(v) => (activeTab = v as typeof activeTab)" />
+      <ShareButton v-if="populated" kind="finance_card" :highlight="financeHighlight" label="Share snapshot" />
     </div>
 
     <!-- ══ OVERVIEW ══ -->

@@ -8,6 +8,7 @@ import { ref, computed, watch } from 'vue'
 import {
   useAria, arArtBackground, arBars, arFmt, arSecs, AR_MOOD_COLOR,
 } from '../../composables/useAria'
+import { ShareButton } from '../ui'
 
 const {
   track, playing, progress, nowOpen, shuffle, repeat, queue,
@@ -76,6 +77,12 @@ function seekBy(secs: number) {
           <button class="np__like" :class="{ 'np__like--on': isLiked(track.id) }" aria-label="Like" @click="toggleLike(track.id)">
             <svg width="26" height="26" viewBox="0 0 24 24" :fill="isLiked(track.id) ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.7"><path d="M20.8 5.6a5.5 5.5 0 0 0-7.8 0L12 6.6l-1-1a5.5 5.5 0 1 0-7.8 7.8l1 1L12 21l7.8-7.8 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
           </button>
+          <ShareButton
+            variant="icon"
+            :kind="isPodcast ? 'aria_podcast' : 'aria_track'"
+            :ref-id="track.id"
+            :text="track.title"
+          />
         </div>
         <div class="np__chips">
           <span

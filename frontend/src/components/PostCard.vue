@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import CreatorBadge from './CreatorBadge.vue'
+import { ShareButton } from './ui'
 import { logInteraction, type Post } from '../composables/useContent'
 
 const props = defineProps<{
@@ -54,19 +55,9 @@ async function vote(action: 'like' | 'dislike') {
   }
 }
 
-const copied = ref(false)
-async function share() {
-  try {
-    await navigator.clipboard.writeText(
-      `${window.location.origin}/pulse?post=${props.post.id}`,
-    )
-    copied.value = true
-    emit('feedback', 'LINK COPIED')
-    setTimeout(() => (copied.value = false), 1500)
-  } catch {
-    emit('feedback', 'CLIPBOARD DENIED')
-  }
-}
+const shareText = computed(
+  () => `${props.post.creator_name ?? 'Pulse'} on Pulse`,
+)
 </script>
 
 <template>
@@ -113,7 +104,7 @@ async function share() {
         :disabled="sending"
         @click="vote('dislike')"
       >▼ Dislike</button>
-      <button class="action" @click="share">{{ copied ? 'Copied!' : 'Share' }}</button>
+      <ShareButton kind="pulse_post" :ref-id="post.id" :text="shareText" />
       <span class="post-score">{{ localScore.toFixed(2) }}</span>
     </footer>
   </article>

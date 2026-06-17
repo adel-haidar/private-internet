@@ -7,6 +7,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { StoryItem, StoryEpisode } from '../../composables/useStories'
 import { stFmt, postProgress } from '../../composables/useStories'
+import { ShareButton } from '../ui'
 
 const props = defineProps<{ item: StoryItem; ep?: number }>()
 const emit = defineEmits<{ (e: 'close'): void; (e: 'play', item: StoryItem, ep?: number): void }>()
@@ -39,6 +40,12 @@ const leftLabel = computed(() => `${stFmt(totalSecs.value - curSecs.value)} left
 
 // Determine video URL
 const videoUrl = computed(() => episode.value?.video_url ?? props.item.video_url ?? null)
+
+// Share targets the episode when playing one, else the film.
+const shareKind = computed<'stories_episode' | 'stories_film'>(() =>
+  episode.value ? 'stories_episode' : 'stories_film',
+)
+const shareRefId = computed(() => episode.value?.id ?? props.item.id)
 
 // Next episode in a series, if any.
 const nextEp = computed<StoryEpisode | undefined>(() => {
@@ -132,6 +139,13 @@ onBeforeUnmount(() => {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M15 18l-6-6 6-6" /></svg>
           </button>
           <span class="stp__title">{{ title }}</span>
+          <ShareButton
+            class="stp__share"
+            :kind="shareKind"
+            :ref-id="shareRefId"
+            :text="title"
+            @click.stop
+          />
         </div>
 
         <!-- center transport (only shown for simulated playback) -->
@@ -187,6 +201,7 @@ onBeforeUnmount(() => {
 .stp__controls > * { pointer-events: auto; }
 .stp__top { display: flex; align-items: center; gap: 12px; }
 .stp__title { font-family: var(--font-display); font-weight: 600; font-size: 15px; }
+.stp__share { margin-left: auto; color: rgba(255,255,255,0.85); }
 .stp__icon { background: none; border: 0; color: #fff; cursor: pointer; display: flex; }
 .stp__center { display: flex; align-items: center; justify-content: center; gap: 40px; }
 .stp__seek { background: none; border: 0; color: #fff; cursor: pointer; display: flex; }
