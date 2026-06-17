@@ -358,6 +358,17 @@ def _fmt_optional(value: float | None, decimals: int = 1, suffix: str = "") -> s
     return f"{value:.{decimals}f}{suffix}"
 
 
+def _esc(text: str) -> str:
+    """Escape &, <, > for reportlab's Paragraph mini-XML parser.
+
+    LLM-generated analysis text routinely contains characters like '<60 bpm' or
+    'rest & recover' that reportlab interprets as markup — an unclosed '<tag'
+    raises 'paraparser: syntax error' and 500s the whole report. Escaping the
+    dynamic text (never the literal <b> labels we add ourselves) prevents that."""
+    from xml.sax.saxutils import escape
+    return escape(text or "")
+
+
 # Human-readable wording for each flag — mirrors the frontend's numberLines switch.
 _FLAG_DESCRIPTIONS: dict[str, tuple[str, str]] = {
     "low_hrv_3_days": (
@@ -665,17 +676,17 @@ def _build_pdf(
 
         if coach_insight:
             story.append(Paragraph("<b>Coach insight</b>", style_body))
-            story.append(Paragraph(coach_insight, style_body))
+            story.append(Paragraph(_esc(coach_insight), style_body))
 
         if analysis:
             story.append(Spacer(1, 4))
             story.append(Paragraph("<b>Analysis</b>", style_body))
-            story.append(Paragraph(analysis, style_body))
+            story.append(Paragraph(_esc(analysis), style_body))
 
         if reasoning:
             story.append(Spacer(1, 4))
             story.append(Paragraph("<b>Clinical reasoning</b>", style_body))
-            story.append(Paragraph(reasoning, style_body))
+            story.append(Paragraph(_esc(reasoning), style_body))
 
     # ── 5. Footer ─────────────────────────────────────────────────────────────
     story.append(Spacer(1, 16))
