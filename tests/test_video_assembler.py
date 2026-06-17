@@ -37,7 +37,7 @@ class TestFallbackCard:
     def test_command_embeds_mood_color_and_dimensions(self, mood, hex_color):
         args = fallback_card_command(hex_color, 8, "/tmp/clip.mp4")
         joined = " ".join(args)
-        assert f"color=c={hex_color}:size=1920x1080:duration=8" in joined
+        assert f"color=c={hex_color}:size=1280x720:duration=8" in joined
         assert args[0] == "ffmpeg"
         assert "libx264" in args
         assert args[-1] == "/tmp/clip.mp4"
@@ -119,9 +119,22 @@ def _patch_pipeline(clip_side_effect):
             prompt, duration=duration_seconds, aspect_ratio="16:9"
         )
 
+    def fake_scene_narrations(scenes, language_code, work_dir):
+        # Per-scene audio mock (Section 4): write a real (empty) mp3 per scene so
+        # the assembler's `Path(audio_path).exists()` check passes and it never
+        # falls into the lavfi-silence branch. Each scene reports an 8s narration.
+        out = []
+        for s in scenes:
+            n = s["scene_number"]
+            p = Path(work_dir) / f"scene_audio_{n:04d}.mp3"
+            p.write_bytes(b"")
+            out.append({"scene_number": n, "audio_path": str(p), "duration_ms": 8000})
+        return out
+
     def fake_run_ffmpeg(args):
-        # Track fallback-card invocations by their lavfi color source.
-        if any("lavfi" in a for a in args):
+        # Track colour-card invocations by their solid-colour lavfi source
+        # (`color=c=...`), distinct from the anullsrc silence source.
+        if any("color=c=" in a for a in args):
             recorded["fallback_cards"] += 1
         # Create the output file (last arg) so downstream open()/probe succeeds.
         Path(args[-1]).write_bytes(b"")
@@ -144,7 +157,8 @@ def _patch_pipeline(clip_side_effect):
         patch.object(va, "translate_scenes", new=AsyncMock(return_value=[])),
         patch.object(va, "generate_video_clip", new=AsyncMock(side_effect=clip_side_effect)),
         patch.object(va._wan_client, "generate_clip", new=AsyncMock(side_effect=wan_side_effect)),
-        patch.object(va, "_synthesize_narration", lambda *a, **k: None),
+        patch.object(va, "generate_slide_clip", new=AsyncMock()),
+        patch.object(va, "synthesize_scene_narrations", side_effect=fake_scene_narrations),
         patch.object(va, "AssetStore", FakeStore),
     ]
     return patches, recorded

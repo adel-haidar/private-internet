@@ -90,13 +90,28 @@ class Settings(BaseSettings):
 
     # ── SIGNAL/PULSE video (Wan2.1 via Replicate) ───────────────
     # Video clips are routed by content type in content/video_provider.py:
-    # SIGNAL + PULSE use Wan2.1 on Replicate (high volume, cost-efficient);
+    # SIGNAL + PULSE use Wan2.1 on Replicate (high volume, cost-efficient 720p);
     # STORIES stays on Kling (fal, above). Key comes from the environment only.
-    # A failed SIGNAL/PULSE clip degrades to a colour card — never to Kling.
+    #
+    # A failed SIGNAL/PULSE clip degrades through the fallback hierarchy:
+    #   1. Wan2.1 (Replicate) — primary
+    #   2. Image-slide (fal FLUX + Ken Burns FFmpeg) — motion without video model
+    #   3. Colour card — last resort
+    # A failed SIGNAL/PULSE clip must NEVER trigger a Kling call (cost model).
     replicate_api_key: str = ""
-    # Verified Replicate model slug. wan-video/wan-2.1-1.3b → ~5s 480p clips.
-    # Override per instance for a higher-res / duration-configurable Wan variant.
-    wan2_model: str = "wan-video/wan-2.1-1.3b"
+    # Verified Replicate model slug. wavespeedai/wan-2.1-t2v-720p is the
+    # accelerated 720p variant with configurable duration (num_frames + fps).
+    # Replaces wan-video/wan-2.1-1.3b which produced fixed ~5s 480p clips with
+    # no duration control. Pricing: ~$0.07/second of output video.
+    # fal.ai was evaluated (2026-06-17) but has no publicly documented WAN model
+    # with verifiable input fields; Replicate is kept as the WAN provider.
+    wan2_model: str = "wavespeedai/wan-2.1-t2v-720p"
+    # Supported target durations (seconds) for the WAN model. The client picks
+    # (num_frames, fps) pairs that land on these values given the model's
+    # num_frames range 81–100 and fps range 5–24. Comma-separated so it is
+    # overridable per instance. The default set covers typical SIGNAL scene
+    # lengths. See replicate_wan_client._DURATION_PARAMS for the exact pairs.
+    wan2_durations: str = "5,6,8,10,16"
 
     upload_dir: str = "/uploads"
 

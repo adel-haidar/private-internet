@@ -453,14 +453,15 @@ async def generate_long_video(
 
 async def generate_videos_batch(count: int = 2, topic_id: str | None = None, *, user_id: str) -> dict:
     """
-    Run the short-form WAN scene-stitching pipeline `count` times sequentially
-    (not parallel — FFmpeg is CPU-bound) for a single user. A pinned topic_id
-    only makes sense for a single video.  # MUST SCOPE BY USER
+    Run the standard-length WAN scene-stitching pipeline `count` times
+    sequentially (not parallel — FFmpeg is CPU-bound) for a single user.
+    A pinned topic_id only makes sense for a single video.  # MUST SCOPE BY USER
 
-    Uses generate_long_video(duration_band="short") → real Wan2.1 clips
-    (~€1/video) instead of the legacy fal/Kling+slide pipeline (generate_video,
-    kept for pinned single-shot use). Wan2.1 is funded; fal/Gemini are not, and
-    this path touches neither.
+    Uses generate_long_video(duration_band="standard") → 3–5 min Wan2.1 clips
+    (~€10–20/video, ~22–38 scenes) instead of the legacy fal/Kling+slide
+    pipeline (generate_video, kept for pinned single-shot use).
+    NOTE: "standard" is more expensive than the old "short" band (~5 clips).
+    Use generate_long_video(duration_band="short") for cheap one-off tests.
     """
     assert user_id is not None, "user_id must be set before any content operation"
     # SIGNAL video is a Pro+ feature. The cron fan-out (run_for_all_users) calls
@@ -476,7 +477,7 @@ async def generate_videos_batch(count: int = 2, topic_id: str | None = None, *, 
         try:
             created.append(
                 await generate_long_video(
-                    topic_id, user_id=user_id, duration_band="short"
+                    topic_id, user_id=user_id, duration_band="standard"
                 )
             )
         except Exception:

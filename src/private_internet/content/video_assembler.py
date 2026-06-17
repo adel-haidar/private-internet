@@ -5,11 +5,21 @@ No video model (Kling, Veo3, …) generates more than ~2 minutes of coherent
 video per call, but STORIES needs 6–45 minutes and SIGNAL needs 3–5. This
 module stitches many short clips into one long video:
 
-    translate visuals → generate N clips (parallel, semaphored)
-                      → narration (ElevenLabs/Polly)
-                      → FFmpeg concat + mux → upload to S3
+    translate visuals → generate N clips (per-scene audio budgeted)
+                      → per-scene: fit clip to narration duration → mux audio
+                      → FFmpeg concat (copy — all clips already uniform)
+                      → upload to S3
 
-Used by both SIGNAL and STORIES — the scene-stitching logic lives here once.
+Per-scene approach (Section 4 rewrite)
+---------------------------------------
+Each scene's narration is synthesized first so its real duration (ms) is
+known before any clip is generated. The video clip for that scene is then
+fitted to the narration:
+  - If the generated clip is SHORTER than the narration, it is looped.
+  - If it is LONGER, it is trimmed to the narration length.
+The per-scene clip is then muxed with that scene's audio track. Every clip
+leaves assembly in an identical format (1280×720, 24 fps, yuv420p, AAC 192 k)
+so the final concat-demuxer step is a lossless copy — no re-encode, no glitch.
 
 Per-clip provider routing + fallback hierarchy
 ----------------------------------------------
@@ -17,15 +27,17 @@ Which provider generates a clip is decided ONLY by content/video_provider.py
 (get_provider). The per-provider fallback hierarchy is:
 
     SIGNAL / PULSE:
-      Primary:  Wan2.1 (Replicate)
-      Fallback: Colour card (FFmpeg)
-      Never:    Kling — too expensive for high-volume content. A failed
-                SIGNAL/PULSE clip must NEVER trigger a Kling API call.
+      1. Wan2.1 (Replicate)         — primary
+      2. Image-slide (Ken Burns)    — fal FLUX image + FFmpeg (new)
+      3. Colour card (FFmpeg)       — last resort, no motion
+      Never: Kling — too expensive for high-volume content. A failed
+             SIGNAL/PULSE clip must NEVER trigger a Kling API call.
 
     STORIES:
-      Primary:  Kling (fal.ai)
-      Fallback: Wan2.1 (Replicate)
-      Last:     Colour card (FFmpeg)
+      1. Kling (fal.ai)             — primary
+      2. Wan2.1 (Replicate)         — first fallback
+      3. Image-slide (Ken Burns)    — fal FLUX image + FFmpeg (new)
+      4. Colour card (FFmpeg)       — last resort
 
 "Kling" here is the existing fal.ai client (content/fal_video.generate_video_clip,
 configured with a Kling model). It is not modified by the routing.
@@ -34,6 +46,7 @@ configured with a Kling model). It is not modified by the routing.
 import asyncio
 import inspect
 import logging
+import math
 import shutil
 import subprocess
 import tempfile
@@ -41,12 +54,16 @@ from pathlib import Path
 from typing import Awaitable, Callable, List, Optional, Union
 
 from private_internet.content.asset_store import AssetStore
-from private_internet.content.elevenlabs_engine import synthesize_narration
+from private_internet.content.elevenlabs_engine import (
+    synthesize_narration,
+    synthesize_scene_narrations,
+)
 from private_internet.content.fal_video import generate_video_clip
 from private_internet.content.replicate_wan_client import (
     ReplicateWanClient,
     Wan2GenerationError,
 )
+from private_internet.content.slide_clip import SlideClipError, generate_slide_clip
 from private_internet.content.video_provider import get_provider, log_generation_cost
 from private_internet.content.visual_translator import (
     build_final_prompt,
@@ -57,6 +74,13 @@ from private_internet.content.visual_translator import (
 logger = logging.getLogger(__name__)
 
 MAX_CONCURRENT_KLING_CALLS = 4  # semaphore limit — never exceed (Kling rate limits)
+
+# Normalised output parameters — every per-scene clip must match exactly so the
+# concat-demuxer can use stream copy without glitch or re-encode.
+_OUT_WIDTH  = 1280
+_OUT_HEIGHT = 720
+_OUT_FPS    = 24
+_OUT_PIX_FMT = "yuv420p"
 
 # Wan2.1 (Replicate) client — module singleton, lazy under the hood (it builds no
 # replicate.Client and reads no key until a clip is actually requested), so
@@ -149,12 +173,15 @@ def _run_ffmpeg(args: List[str]) -> None:
 
 
 def fallback_card_command(hex_color: str, duration: int, out_path: str) -> List[str]:
-    """FFmpeg argv for a solid-colour 1920x1080 card of `duration` seconds."""
+    """FFmpeg argv for a solid-colour 1280x720 card of `duration` seconds.
+    Matches the normalised output format (_OUT_WIDTH × _OUT_HEIGHT, yuv420p)
+    so it concatenates cleanly with real clips."""
     return [
         "ffmpeg", "-y",
         "-f", "lavfi",
-        "-i", f"color=c={hex_color}:size=1920x1080:duration={duration}",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-i", f"color=c={hex_color}:size={_OUT_WIDTH}x{_OUT_HEIGHT}:duration={duration}",
+        "-r", str(_OUT_FPS),
+        "-c:v", "libx264", "-pix_fmt", _OUT_PIX_FMT,
         str(out_path),
     ]
 
@@ -188,7 +215,11 @@ async def _emit(on_progress: ProgressCb, patch: dict) -> None:
 
 
 def _synthesize_narration(narration_text: str, language_code: str, out_path: str) -> None:
-    """Generate the full narration mp3 (ElevenLabs → Amazon Polly fallback)."""
+    """Generate the full narration mp3 (ElevenLabs → Amazon Polly fallback).
+
+    Kept for callers that still use the monolithic narration path. Within
+    assemble_video the per-scene synthesizer is used instead.
+    """
     synthesize_narration(narration_text, language_code, out_path)
 
 
@@ -224,56 +255,169 @@ async def _generate_clip_with_fallback(
     provider: str,
     prompt: str,
     duration: int,
+    clip_path: str,
+    scene_number: int,
+    content_type: str,
+    mood: str,
     aspect_ratio: str = "16:9",
-) -> tuple[Optional[bytes], Optional[str], bool]:
-    """Generate one clip via the routed provider, applying the per-provider
-    fallback hierarchy (see the module docstring). Returns
-    ``(mp4_bytes, used_provider, is_fallback)``:
+) -> None:
+    """Generate one raw clip (video bytes only, no audio) for the scene,
+    writing it to ``clip_path``. Applies the per-provider fallback hierarchy:
 
-    - ``mp4_bytes`` is None when every model in the hierarchy failed and the
-      caller must render a colour card (``used_provider`` is then None too).
-    - ``used_provider`` is the provider that actually produced the bytes, so the
-      cost log reflects reality — e.g. a Kling failure served by Wan2.1 logs
-      ``"wan2"``, not ``"kling"``.
-    - ``is_fallback`` is True when the clip did NOT come from the content type's
-      primary provider (a secondary model OR, via the caller, a colour card).
+    ``wan2``  (SIGNAL/PULSE): Wan2.1 → image-slide (Ken Burns) → colour card.
+              NEVER Kling (cost model).
+    ``kling`` (STORIES):      Kling  → Wan2.1 → image-slide (Ken Burns) → colour card.
 
-    Hierarchy:
-      ``wan2``  (SIGNAL/PULSE): Wan2.1 → colour card. NEVER Kling (cost model).
-      ``kling`` (STORIES):      Kling  → Wan2.1 → colour card.
+    The clip written here is NOT yet the final scene clip — the caller is
+    responsible for normalising resolution/fps and muxing the scene audio.
+    Cost is logged here so the logged provider reflects whichever tier actually
+    produced the bytes (e.g. a Kling failure served by Wan2.1 logs "wan2").
     """
     if provider == "wan2":
+        # --- SIGNAL / PULSE path (Wan2.1 → slide → colour card; never Kling) ---
         try:
-            data = await _wan_client.generate_clip(prompt=prompt, duration_seconds=duration)
-            return data, "wan2", False
+            data = await _wan_client.generate_clip(
+                prompt=prompt, duration_seconds=duration,
+            )
+            Path(clip_path).write_bytes(data)
+            log_generation_cost("wan2", content_type, scene_number, False)
+            return
         except Wan2GenerationError as exc:
-            # A failed SIGNAL/PULSE clip NEVER triggers a Kling call — the caller
-            # renders a colour card instead. This protects the cost model.
-            logger.warning("Wan2.1 failed (%s); using colour card.", exc)
-            return None, None, True
+            logger.warning(
+                "Wan2.1 failed for scene %d (%s); trying image-slide fallback.",
+                scene_number, exc,
+            )
+
+        # Slide tier: fal FLUX image rendered as Ken Burns mp4.
+        try:
+            await generate_slide_clip(prompt, duration, clip_path, aspect_ratio=aspect_ratio)
+            log_generation_cost("slide", content_type, scene_number, True)
+            return
+        except SlideClipError as exc:
+            logger.warning(
+                "Image-slide fallback failed for scene %d (%s); using colour card.",
+                scene_number, exc,
+            )
+
+        # Colour card — last resort; no motion but always succeeds.
+        generate_fallback_card(mood, duration, clip_path)
+        log_generation_cost("colour_card", content_type, scene_number, True)
+        return
 
     if provider == "kling":
+        # --- STORIES path (Kling → Wan2.1 → slide → colour card) ---
         try:
-            data = await generate_video_clip(prompt, duration=duration, aspect_ratio=aspect_ratio)
-            return data, "kling", False
+            data = await generate_video_clip(
+                prompt, duration=duration, aspect_ratio=aspect_ratio,
+            )
+            Path(clip_path).write_bytes(data)
+            log_generation_cost("kling", content_type, scene_number, False)
+            return
         except Exception as exc:
-            # STORIES quality matters — try Wan2.1 before the colour card.
-            logger.warning("Kling failed (%s); falling back to Wan2.1.", exc)
-            try:
-                data = await _wan_client.generate_clip(prompt=prompt, duration_seconds=duration)
-                return data, "wan2", True
-            except Wan2GenerationError as exc2:
-                logger.error(
-                    "Wan2.1 fallback also failed (%s); using colour card.", exc2
-                )
-                return None, None, True
+            # STORIES quality matters — try Wan2.1 before degrading further.
+            logger.warning(
+                "Kling failed for scene %d (%s); falling back to Wan2.1.", scene_number, exc,
+            )
 
-    raise ValueError(f"Unknown provider: {provider}")
+        try:
+            data = await _wan_client.generate_clip(
+                prompt=prompt, duration_seconds=duration,
+            )
+            Path(clip_path).write_bytes(data)
+            log_generation_cost("wan2", content_type, scene_number, True)
+            return
+        except Wan2GenerationError as exc:
+            logger.warning(
+                "Wan2.1 fallback failed for scene %d (%s); trying image-slide.",
+                scene_number, exc,
+            )
+
+        # Slide tier: fal FLUX image rendered as Ken Burns mp4.
+        try:
+            await generate_slide_clip(prompt, duration, clip_path, aspect_ratio=aspect_ratio)
+            log_generation_cost("slide", content_type, scene_number, True)
+            return
+        except SlideClipError as exc:
+            logger.warning(
+                "Image-slide fallback failed for scene %d (%s); using colour card.",
+                scene_number, exc,
+            )
+
+        # Colour card — last resort.
+        generate_fallback_card(mood, duration, clip_path)
+        log_generation_cost("colour_card", content_type, scene_number, True)
+        return
+
+    raise ValueError(f"Unknown provider: {provider!r}")
+
+
+def _normalize_and_fit_clip(
+    raw_clip_path: str,
+    audio_path: str,
+    narration_duration_s: float,
+    out_path: str,
+) -> None:
+    """Normalize a raw video clip to the standard output format, fit it to the
+    narration duration, and mux the scene audio as the audio track.
+
+    Fitting strategy:
+      - If the raw clip is SHORTER than the narration, ``-stream_loop -1``
+        loops it until the audio ends (``-shortest`` trims to audio length).
+      - If the raw clip is LONGER, it is trimmed to the narration duration.
+
+    Normalisation filter applied to every clip regardless of source:
+      scale={W}:{H}:force_original_aspect_ratio=decrease,
+      pad={W}:{H}:(ow-iw)/2:(oh-ih)/2,
+      setsar=1,
+      fps={FPS},
+      format={PIX_FMT}
+
+    Using force_original_aspect_ratio=decrease + pad keeps aspect-ratio intact
+    and letter/pillar-boxes any off-ratio source (e.g. a 9:16 Kling clip or a
+    4:3 Nova Canvas slide). setsar=1 fixes the sample-aspect-ratio so the
+    concat-demuxer sees identical stream headers on every clip.
+
+    All per-scene clips share the same codec settings (libx264 / AAC 192k) so
+    the final concat-demuxer pass is a lossless stream copy.
+    """
+    vf = (
+        f"scale={_OUT_WIDTH}:{_OUT_HEIGHT}:"
+        f"force_original_aspect_ratio=decrease,"
+        f"pad={_OUT_WIDTH}:{_OUT_HEIGHT}:(ow-iw)/2:(oh-ih)/2,"
+        f"setsar=1,"
+        f"fps={_OUT_FPS},"
+        f"format={_OUT_PIX_FMT}"
+    )
+    # duration_s rounded UP to the nearest whole second ensures the video clip
+    # is never shorter than the audio (which is already narration_duration_s).
+    target_s = math.ceil(narration_duration_s)
+
+    _run_ffmpeg([
+        "ffmpeg", "-y",
+        # -stream_loop -1: infinite loop of the raw clip — trimmed by -t.
+        # If the raw clip is already long enough, FFmpeg just stops reading once
+        # -t is reached; there is no penalty for looping a long clip.
+        "-stream_loop", "-1",
+        "-i", raw_clip_path,
+        "-i", audio_path,
+        "-t", str(target_s),
+        "-vf", vf,
+        "-map", "0:v:0",
+        "-map", "1:a:0",
+        "-c:v", "libx264", "-crf", "20", "-preset", "medium",
+        "-r", str(_OUT_FPS),
+        "-c:a", "aac", "-b:a", "192k",
+        # -shortest: the audio is authoritative — trim video to match it exactly.
+        # Combined with -t (the ceiling), this ensures the scene clip is as long
+        # as the narration and never longer.
+        "-shortest",
+        out_path,
+    ])
 
 
 async def assemble_video(
     scenes: List[dict],          # from the script tool output
-    narration_text: str,         # full narration for ElevenLabs
+    narration_text: str,         # full narration text (used only as translator hint)
     language_code: str,          # for voice routing
     output_s3_key: str,          # where to upload the final MP4
     content_type: str,           # 'signal' or 'stories'
@@ -282,16 +426,37 @@ async def assemble_video(
     on_progress: ProgressCb = None,
 ) -> str:
     """
-    Full pipeline: translate → generate clips → narration → stitch → upload.
+    Full pipeline: translate → per-scene narration → generate + fit clips → stitch → upload.
     Returns the S3 key of the assembled video.
 
+    Per-scene assembly flow (Section 4 rewrite)
+    --------------------------------------------
+    1. Translate all scenes to concrete video prompts (visual_translator).
+    2. Synthesize per-scene narration audio (ElevenLabs → Polly fallback) via
+       ``synthesize_scene_narrations``; each scene gets a real ``duration_ms``.
+    3. For each scene (sequentially, respecting the semaphore):
+       a. Generate a raw clip via the provider fallback chain. The target
+          ``clip_duration`` fed to the video model is taken from the translated
+          plan (model-snapped), not from the narration (which might be shorter).
+       b. Normalize the raw clip (scale / SAR / fps / pix_fmt) AND fit it to the
+          scene's narration duration (loop if clip < narration; trim if clip >
+          narration), then mux the scene narration as audio.
+       c. The resulting per-scene clip is complete: correct duration, codec, and
+          audio. No further processing needed.
+    4. Concat all per-scene clips via the concat-demuxer with ``-c copy``
+       (lossless — all clips are already uniform). Upload to S3.
+
     Resilience guarantees:
-    - A clip that fails to generate is replaced by a mood-coloured fallback card.
-      The whole assembly is NEVER aborted for one failed clip.
+    - A clip that fails to generate is replaced by a mood-coloured fallback card
+      (→ slide → colour card). The whole assembly is NEVER aborted for one failed clip.
     - Temp files are cleaned up only on success. On failure (e.g. S3 upload) the
       temp directory is kept and its path logged for debugging.
-    - `on_progress(patch: dict)` is called after every clip (not batched) and at
+    - ``on_progress(patch: dict)`` is called after every clip (not batched) and at
       each stage boundary; it may be sync or async.
+
+    Signature is unchanged from the pre-Section-4 version so all existing callers
+    (generate_long_video in video_job.py, generate_film in stories/generator.py)
+    require no edits.
     """
     _check_ffmpeg()
 
@@ -299,7 +464,7 @@ async def assemble_video(
     total = len(scenes)
     succeeded = False
     try:
-        # Step 1 — translate all scenes to concrete Kling prompts (Prompt 2).
+        # Step 1 — translate all scenes to concrete video prompts (Prompt 2).
         target_duration = sum(
             int(s.get("duration_seconds") or _FALLBACK_DURATION_DEFAULT) for s in scenes
         )
@@ -316,83 +481,170 @@ async def assemble_video(
             "clips_generated": 0,
             "narration_ready": False,
             "assembly_started": False,
+            "current_stage": "narration",
+        })
+
+        # Step 2 — synthesize per-scene narration in the executor (blocking TTS
+        # calls should not block the event loop). Each scene gets its own mp3 and
+        # a real duration_ms that drives clip fitting in step 3.
+        loop = asyncio.get_event_loop()
+        scene_audio_list: List[dict] = await loop.run_in_executor(
+            None,
+            synthesize_scene_narrations,
+            scenes, language_code, str(work_dir),
+        )
+        # Index by scene_number for O(1) lookup.
+        scene_audio_by_num: dict[int, dict] = {
+            e["scene_number"]: e for e in scene_audio_list
+        }
+
+        await _emit(on_progress, {
+            "narration_ready": True,
+            "assembly_started": True,
             "current_stage": "generating_clips",
         })
 
-        # Step 2 — generate clips in parallel, capped by the semaphore. The
-        # provider is decided once per assembly (content_type is fixed) by the
-        # single source of truth in video_provider.py.
+        # Step 3 — per-scene clip generation + normalise + mux.
+        # Clips are generated sequentially here because:
+        #   (a) FFmpeg normalisation is CPU-bound, and
+        #   (b) the semaphore already throttles concurrent model calls.
+        # If parallelism is needed in the future, move the semaphore into this loop.
         provider = get_provider(content_type)
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_KLING_CALLS)
         done_lock = asyncio.Lock()
         clips_done = 0
 
-        async def generate_one_clip(entry: dict) -> str:
+        # Final per-scene clip paths (already normalised + audio-muxed).
+        finished_clip_paths: List[str] = []
+
+        async def process_one_scene(entry: dict) -> str:
+            """Generate, normalise, fit, and mux one scene clip. Returns the
+            path of the finished clip. Never raises — falls back to colour card."""
             nonlocal clips_done
-            scene_number = entry["scene_number"]
-            clip_path = work_dir / f"clip_{scene_number:04d}.mp4"
+            scene_number  = entry["scene_number"]
+            audio_info    = scene_audio_by_num.get(scene_number)
+
+            if audio_info is None:
+                # Fallback: create a silence entry for any scene the audio index
+                # is missing (should not happen, but defensive).
+                logger.warning(
+                    "No audio entry for scene %d — treating as silent.", scene_number
+                )
+                narration_duration_s = _FALLBACK_DURATION_DEFAULT
+                audio_path = None
+            else:
+                narration_duration_s = audio_info["duration_ms"] / 1000.0
+                audio_path = audio_info["audio_path"]
+
+            # Paths for the raw clip (from model/fallback) and the finished clip.
+            raw_clip_path     = str(work_dir / f"raw_{scene_number:04d}.mp4")
+            finished_clip_path = str(work_dir / f"scene_{scene_number:04d}.mp4")
+
             async with semaphore:
-                mp4: Optional[bytes] = None
-                used_provider: Optional[str] = None
-                is_fallback = True
                 try:
-                    mp4, used_provider, is_fallback = await _generate_clip_with_fallback(
-                        provider, entry["kling_prompt"], entry["clip_duration"],
+                    await _generate_clip_with_fallback(
+                        provider=provider,
+                        prompt=entry["kling_prompt"],
+                        duration=entry["clip_duration"],
+                        clip_path=raw_clip_path,
+                        scene_number=scene_number,
+                        content_type=content_type,
+                        mood=entry["mood"],
                     )
                 except Exception as exc:
-                    # Never abort the assembly for one failed clip — any
-                    # unexpected error degrades to a colour card.
+                    # Unexpected error in the fallback chain — degrade to colour card
+                    # so the rest of the assembly can still proceed.
                     logger.warning(
-                        "clip generation failed (scene %s): %s", scene_number, exc
+                        "Clip generation entirely unexpected failure scene %d: %s; "
+                        "using colour card.", scene_number, exc,
                     )
-                if mp4 is not None:
-                    clip_path.write_bytes(mp4)
-                    log_generation_cost(used_provider, content_type, scene_number, is_fallback)
-                else:
-                    generate_fallback_card(entry["mood"], entry["card_duration"], str(clip_path))
-            # Update progress after EVERY clip (not batched).
+                    generate_fallback_card(
+                        entry["mood"], int(math.ceil(narration_duration_s)), raw_clip_path
+                    )
+                    log_generation_cost("colour_card", content_type, scene_number, True)
+
+            # Normalise + fit + mux audio. If audio_path is missing (silence
+            # fallback path above), synthesise silence to a temp file so the
+            # output always has an audio track.
+            if audio_path is None or not Path(audio_path).exists():
+                # Emergency: generate silence via lavfi anullsrc.
+                silence_path = str(work_dir / f"silence_{scene_number:04d}.mp3")
+                _run_ffmpeg([
+                    "ffmpeg", "-y",
+                    "-f", "lavfi",
+                    "-i", "anullsrc=r=44100:cl=mono",
+                    "-t", str(int(math.ceil(narration_duration_s))),
+                    "-q:a", "9", "-acodec", "libmp3lame",
+                    silence_path,
+                ])
+                audio_path = silence_path
+
+            try:
+                _normalize_and_fit_clip(
+                    raw_clip_path, audio_path, narration_duration_s, finished_clip_path
+                )
+            except Exception as exc:
+                # Normalisation failure: write a colour card directly to the
+                # finished-clip slot so the concat manifest remains complete.
+                logger.error(
+                    "Normalisation failed for scene %d (%s); substituting colour card.",
+                    scene_number, exc,
+                )
+                try:
+                    generate_fallback_card(
+                        entry["mood"], int(math.ceil(narration_duration_s)),
+                        finished_clip_path,
+                    )
+                    # Mux the already-generated audio onto the colour card.
+                    _run_ffmpeg([
+                        "ffmpeg", "-y",
+                        "-i", finished_clip_path,
+                        "-i", audio_path,
+                        "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k",
+                        "-shortest",
+                        finished_clip_path + ".muxed.mp4",
+                    ])
+                    import os
+                    os.replace(finished_clip_path + ".muxed.mp4", finished_clip_path)
+                except Exception as card_exc:
+                    logger.error(
+                        "Colour-card fallback also failed for scene %d (%s).",
+                        scene_number, card_exc,
+                    )
+
+            # Update progress counter after every clip.
             async with done_lock:
                 clips_done += 1
                 current = clips_done
             await _emit(on_progress, {"clips_generated": current})
-            return str(clip_path)
+            return finished_clip_path
 
-        clip_paths = await asyncio.gather(*(generate_one_clip(e) for e in plan))
-
-        # Step 3 — narration audio (one ElevenLabs call for the full text).
-        await _emit(on_progress, {"current_stage": "narration"})
-        narration_path = work_dir / "narration.mp3"
-        await asyncio.get_event_loop().run_in_executor(
-            None, _synthesize_narration, narration_text, language_code, str(narration_path)
+        # Run all scene tasks. We use asyncio.gather so progress callbacks fire
+        # concurrently (the semaphore keeps actual model calls bounded).
+        finished_paths_unordered = await asyncio.gather(
+            *(process_one_scene(e) for e in plan)
         )
-        await _emit(on_progress, {
-            "narration_ready": True,
-            "assembly_started": True,
-            "current_stage": "assembling",
-        })
+        # asyncio.gather preserves input order — align with plan.
+        finished_clip_paths = list(finished_paths_unordered)
 
-        # Step 4 — FFmpeg: concat all clips, then mux narration under the video.
+        await _emit(on_progress, {"current_stage": "assembling"})
+
+        # Step 4 — concat all per-scene clips (already uniform format) using the
+        # concat-demuxer with stream copy (no re-encode, no glitch).
         concat_path = work_dir / "concat.txt"
-        write_concat_manifest(clip_paths, str(concat_path))
-
-        video_only = work_dir / "video_only.mp4"
-        _run_ffmpeg([
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(concat_path),
-            "-c:v", "libx264", "-crf", "18", "-preset", "medium",
-            str(video_only),
-        ])
+        write_concat_manifest(finished_clip_paths, str(concat_path))
 
         final_path = work_dir / "final.mp4"
         _run_ffmpeg([
             "ffmpeg", "-y",
-            "-i", str(video_only),
-            "-i", str(narration_path),
-            "-c:v", "copy",
-            "-c:a", "aac", "-b:a", "192k",
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-shortest",
+            "-f", "concat", "-safe", "0",
+            "-i", str(concat_path),
+            # Stream copy: all clips share identical codec/format headers so
+            # no re-encode is needed.  -movflags +faststart puts the moov atom
+            # at the front of the MP4 for streaming-friendly playback.
+            "-c", "copy",
+            "-movflags", "+faststart",
             str(final_path),
         ])
 

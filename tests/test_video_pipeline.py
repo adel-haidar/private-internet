@@ -426,6 +426,6 @@ class TestGenerateVideo:
             result = await generate_videos_batch(count=3, topic_id="t-1", user_id="u1")
 
         assert mock_gen.call_count == 1
-        # Scheduled feed uses the cheap short-form WAN band.
-        assert mock_gen.call_args == call("t-1", user_id="u1", duration_band="short")
+        # Scheduled feed uses the standard long-form WAN band (3–5 min).
+        assert mock_gen.call_args == call("t-1", user_id="u1", duration_band="standard")
         assert result["created"] == ["video-1"]

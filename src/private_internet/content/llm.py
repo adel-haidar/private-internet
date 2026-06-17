@@ -20,9 +20,9 @@ PULSE_MODEL_DEFAULT = "eu.amazon.nova-pro-v1:0"
 
 
 def bedrock_text_region() -> str:
-    """Region for the primary content TEXT model (Mistral Small) — it IS available
+    """Region for the primary content TEXT model (Amazon Nova Pro) — available
     in eu-central-1, so default to settings.aws_region. Override with
-    BEDROCK_TEXT_REGION. (The Nova text fallback + Nova Canvas use the eu-west-1
+    BEDROCK_TEXT_REGION. (The Nova Canvas image model uses the eu-west-1
     image region instead — see _bedrock_nova_region.)"""
     return os.getenv("BEDROCK_TEXT_REGION") or get_settings().aws_region
 
@@ -40,7 +40,7 @@ async def converse_text(
     max_tokens: int = 1024,
 ) -> Tuple[str, dict]:
     """
-    Invoke Claude Haiku on Bedrock via the converse API, falling back to the
+    Invoke Amazon Nova on Bedrock via the converse API, falling back to the
     configured general model on failure. Returns (text, usage) where usage is
     the converse `usage` dict ({inputTokens, outputTokens, totalTokens}).
     Raises if both models fail.
@@ -57,7 +57,7 @@ async def converse_text(
         if system_prompt:
             kwargs["system"] = [{"text": system_prompt}]
         try:
-            # Primary: Mistral Small in eu-central-1 (bedrock_text_region).
+            # Primary: Amazon Nova Pro in eu-central-1 (bedrock_text_region).
             client = boto3.client("bedrock-runtime", region_name=bedrock_text_region())
             response = client.converse(modelId=model_id, **kwargs)
         except Exception as e:
@@ -84,7 +84,7 @@ async def converse_tool(
     model_id: Optional[str] = None,
 ) -> Tuple[Optional[dict], dict]:
     """
-    Invoke a Claude model on Bedrock with a single FORCED tool (toolChoice).
+    Invoke an Amazon Nova model on Bedrock with a single FORCED tool (toolChoice).
     Returns (tool_input, usage) where tool_input is the model's structured
     arguments for the tool, or None if no toolUse block came back.
 

@@ -8,6 +8,7 @@ Two script generators live here:
 
 import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -31,6 +32,14 @@ SIGNAL_DURATION_TARGETS = {
 
 # Roughly 8-second clips, so a 3–5 min SIGNAL video is ~22–38 scenes.
 _SCENE_SECONDS = 8
+
+# Spoken narration rate used to derive the per-scene word budget.
+# 2.5 words/second is a comfortable TTS pace; an 8s clip → 18–22 words.
+_WORDS_PER_SECOND = 2.5
+
+# Cheap Nova tier for scene scripting: high-volume calls that don't need Pro.
+# Override with BEDROCK_SCRIPT_MODEL_ID if desired.
+_SCRIPT_MODEL_ID = os.getenv("BEDROCK_SCRIPT_MODEL_ID", "eu.amazon.nova-lite-v1:0")
 
 
 # Scene-by-scene script tool — forced on the Bedrock call. One scene ≈ 8 seconds;
@@ -134,7 +143,7 @@ class SceneScript:
 
 
 class SceneScriptGenerator:
-    """Generates a scene-by-scene script via a forced Bedrock Claude tool call.
+    """Generates a scene-by-scene script via a forced Amazon Nova tool call on Bedrock.
 
     Shared by SIGNAL (3–5 min) and STORIES (6–45 min) — only the duration target
     and scene count differ, passed in by the caller.
@@ -166,6 +175,11 @@ class SceneScriptGenerator:
             f"Not English unless {lang_name} is English."
         )
 
+        # Word budget per scene: TTS pace × clip length.
+        # At _WORDS_PER_SECOND words/s, an 8s clip fits ~18–22 words.
+        words_lo = int(_SCENE_SECONDS * _WORDS_PER_SECOND * 0.9)
+        words_hi = int(_SCENE_SECONDS * _WORDS_PER_SECOND * 1.1)
+
         system_prompt = (
             f"{creator['style_prompt']}\n\n"
             f"You are writing a {content_label} as a scene-by-scene breakdown for "
@@ -176,6 +190,10 @@ class SceneScriptGenerator:
             f"{_SCENE_SECONDS} seconds long.\n"
             f"- narration_text is spoken aloud by a TTS voice — {lang_directive} "
             "Keep the persona's tone. One or two sentences per scene.\n"
+            f"- WORD BUDGET: narration_text for each scene must be {words_lo}–{words_hi} "
+            f"words so it fills the {_SCENE_SECONDS}s clip at {_WORDS_PER_SECOND} "
+            "words/second. Count carefully — too few words leave silence, too many "
+            "get cut off. Every scene must meet this budget.\n"
             "- visual_description is an abstract beat (mood, subject, action) — it "
             "is translated into a video prompt separately, so do NOT write camera "
             "directions or text overlays.\n"
@@ -199,6 +217,7 @@ class SceneScriptGenerator:
             system_prompt=system_prompt,
             temperature=0.0,
             max_tokens=8192,
+            model_id=_SCRIPT_MODEL_ID,  # Nova Lite: cheap, forced-tool capable
         )
         if not result or not result.get("scenes"):
             raise ValueError("Scene script generation returned no scenes")
@@ -232,7 +251,7 @@ def _strip_markdown_fences(text: str) -> str:
 
 
 class VideoScriptGenerator:
-    """Generates a structured 5-section narration script via Bedrock Claude Haiku."""
+    """Generates a structured 5-section narration script via Amazon Nova on Bedrock."""
 
     async def generate(
         self,

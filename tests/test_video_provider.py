@@ -8,6 +8,7 @@ and the per-provider fallback hierarchy in content/video_assembler.py:
 """
 
 import pytest
+from pathlib import Path
 from unittest.mock import patch, AsyncMock
 
 from private_internet.content import video_provider as vp
@@ -23,6 +24,7 @@ from private_internet.content.video_assembler import (
     assemble_video,
 )
 from private_internet.content.replicate_wan_client import Wan2GenerationError
+from private_internet.content.slide_clip import SlideClipError
 
 
 # ── get_provider routing (single source of truth) ──────────────
@@ -76,72 +78,126 @@ class TestCostLogging:
 # ── Per-provider fallback hierarchy ────────────────────────────
 
 class TestFallbackHierarchy:
+    """The per-provider chain (Section 4 rewrite). `_generate_clip_with_fallback`
+    now WRITES the clip to `clip_path` and logs its own cost (returns None):
+
+        wan2  (SIGNAL/PULSE): Wan2.1 → image-slide (Ken Burns) → colour card.  NEVER Kling.
+        kling (STORIES):      Kling  → Wan2.1 → image-slide → colour card.
+    """
+
     @pytest.mark.anyio
-    async def test_wan2_success(self):
+    async def test_wan2_success(self, tmp_path):
+        clip = str(tmp_path / "c.mp4")
+        cost = []
         with patch.object(va._wan_client, "generate_clip",
                           new=AsyncMock(return_value=b"wan-bytes")) as wan, \
-             patch.object(va, "generate_video_clip", new=AsyncMock()) as kling:
-            data, used, is_fallback = await _generate_clip_with_fallback(
-                "wan2", "a prompt", 8
+             patch.object(va, "generate_video_clip", new=AsyncMock()) as kling, \
+             patch.object(va, "generate_slide_clip", new=AsyncMock()) as slide, \
+             patch.object(va, "log_generation_cost", side_effect=lambda *a, **k: cost.append(a)):
+            await _generate_clip_with_fallback(
+                "wan2", "a prompt", 8, clip, 1, "signal", "calm"
             )
-        assert (data, used, is_fallback) == (b"wan-bytes", "wan2", False)
+        assert Path(clip).read_bytes() == b"wan-bytes"
         wan.assert_awaited_once()
-        # SIGNAL/PULSE must NEVER touch Kling.
-        kling.assert_not_called()
+        kling.assert_not_called()   # SIGNAL/PULSE must NEVER touch Kling
+        slide.assert_not_called()
+        assert cost == [("wan2", "signal", 1, False)]
 
     @pytest.mark.anyio
-    async def test_wan2_failure_uses_card_and_never_calls_kling(self):
-        """A failed SIGNAL/PULSE clip returns no bytes (caller renders a colour
-        card) and must NOT trigger a Kling API call — the cost model depends on
-        this."""
+    async def test_wan2_failure_uses_slide_before_card_never_kling(self, tmp_path):
+        """A failed Wan2.1 clip tries the image-slide tier (motion) BEFORE the flat
+        colour card, and must NEVER trigger a Kling call. Here the slide succeeds."""
+        clip = str(tmp_path / "c.mp4")
+        cost = []
         with patch.object(va._wan_client, "generate_clip",
                           new=AsyncMock(side_effect=Wan2GenerationError("boom"))), \
-             patch.object(va, "generate_video_clip", new=AsyncMock()) as kling:
-            data, used, is_fallback = await _generate_clip_with_fallback(
-                "wan2", "a prompt", 8
+             patch.object(va, "generate_video_clip", new=AsyncMock()) as kling, \
+             patch.object(va, "generate_slide_clip", new=AsyncMock()) as slide, \
+             patch.object(va, "generate_fallback_card") as card, \
+             patch.object(va, "log_generation_cost", side_effect=lambda *a, **k: cost.append(a)):
+            await _generate_clip_with_fallback(
+                "wan2", "a prompt", 8, clip, 2, "signal", "tense"
             )
-        assert data is None          # → caller renders a colour card
-        assert used is None
-        assert is_fallback is True
-        kling.assert_not_called()    # absolute constraint
+        kling.assert_not_called()       # absolute constraint
+        slide.assert_awaited_once()     # slide tier reached
+        card.assert_not_called()        # slide succeeded — no colour card
+        assert cost == [("slide", "signal", 2, True)]
 
     @pytest.mark.anyio
-    async def test_kling_success(self):
+    async def test_wan2_and_slide_fail_uses_card_never_kling(self, tmp_path):
+        """Wan2.1 AND the slide tier fail → flat colour card; Kling never called."""
+        clip = str(tmp_path / "c.mp4")
+        cost = []
+        with patch.object(va._wan_client, "generate_clip",
+                          new=AsyncMock(side_effect=Wan2GenerationError("boom"))), \
+             patch.object(va, "generate_video_clip", new=AsyncMock()) as kling, \
+             patch.object(va, "generate_slide_clip",
+                          new=AsyncMock(side_effect=SlideClipError("no fal"))) as slide, \
+             patch.object(va, "generate_fallback_card") as card, \
+             patch.object(va, "log_generation_cost", side_effect=lambda *a, **k: cost.append(a)):
+            await _generate_clip_with_fallback(
+                "wan2", "a prompt", 8, clip, 3, "signal", "warm"
+            )
+        kling.assert_not_called()       # absolute constraint
+        slide.assert_awaited_once()
+        card.assert_called_once()
+        assert cost == [("colour_card", "signal", 3, True)]
+
+    @pytest.mark.anyio
+    async def test_kling_success(self, tmp_path):
+        clip = str(tmp_path / "c.mp4")
+        cost = []
         with patch.object(va, "generate_video_clip",
                           new=AsyncMock(return_value=b"kling-bytes")) as kling, \
-             patch.object(va._wan_client, "generate_clip", new=AsyncMock()) as wan:
-            data, used, is_fallback = await _generate_clip_with_fallback(
-                "kling", "a prompt", 10
+             patch.object(va._wan_client, "generate_clip", new=AsyncMock()) as wan, \
+             patch.object(va, "generate_slide_clip", new=AsyncMock()) as slide, \
+             patch.object(va, "log_generation_cost", side_effect=lambda *a, **k: cost.append(a)):
+            await _generate_clip_with_fallback(
+                "kling", "a prompt", 10, clip, 1, "stories", "calm"
             )
-        assert (data, used, is_fallback) == (b"kling-bytes", "kling", False)
+        assert Path(clip).read_bytes() == b"kling-bytes"
         kling.assert_awaited_once()
         wan.assert_not_called()
+        slide.assert_not_called()
+        assert cost == [("kling", "stories", 1, False)]
 
     @pytest.mark.anyio
-    async def test_kling_failure_falls_back_to_wan2(self):
+    async def test_kling_failure_falls_back_to_wan2(self, tmp_path):
+        clip = str(tmp_path / "c.mp4")
+        cost = []
         with patch.object(va, "generate_video_clip",
                           new=AsyncMock(side_effect=RuntimeError("kling down"))), \
              patch.object(va._wan_client, "generate_clip",
-                          new=AsyncMock(return_value=b"wan-bytes")) as wan:
-            data, used, is_fallback = await _generate_clip_with_fallback(
-                "kling", "a prompt", 10
+                          new=AsyncMock(return_value=b"wan-bytes")) as wan, \
+             patch.object(va, "generate_slide_clip", new=AsyncMock()) as slide, \
+             patch.object(va, "log_generation_cost", side_effect=lambda *a, **k: cost.append(a)):
+            await _generate_clip_with_fallback(
+                "kling", "a prompt", 10, clip, 1, "stories", "calm"
             )
-        # STORIES degrades to Wan2.1 before the colour card; cost reflects wan2.
-        assert (data, used, is_fallback) == (b"wan-bytes", "wan2", True)
+        # STORIES degrades to Wan2.1 before the slide/card; cost reflects wan2.
+        assert Path(clip).read_bytes() == b"wan-bytes"
         wan.assert_awaited_once()
+        slide.assert_not_called()
+        assert cost == [("wan2", "stories", 1, True)]
 
     @pytest.mark.anyio
-    async def test_kling_then_wan2_both_fail_uses_card(self):
+    async def test_kling_wan2_slide_all_fail_uses_card(self, tmp_path):
+        clip = str(tmp_path / "c.mp4")
+        cost = []
         with patch.object(va, "generate_video_clip",
                           new=AsyncMock(side_effect=RuntimeError("kling down"))), \
              patch.object(va._wan_client, "generate_clip",
-                          new=AsyncMock(side_effect=Wan2GenerationError("wan down"))):
-            data, used, is_fallback = await _generate_clip_with_fallback(
-                "kling", "a prompt", 10
+                          new=AsyncMock(side_effect=Wan2GenerationError("wan down"))), \
+             patch.object(va, "generate_slide_clip",
+                          new=AsyncMock(side_effect=SlideClipError("no fal"))) as slide, \
+             patch.object(va, "generate_fallback_card") as card, \
+             patch.object(va, "log_generation_cost", side_effect=lambda *a, **k: cost.append(a)):
+            await _generate_clip_with_fallback(
+                "kling", "a prompt", 10, clip, 1, "stories", "calm"
             )
-        assert data is None          # → caller renders a colour card
-        assert used is None
-        assert is_fallback is True
+        slide.assert_awaited_once()
+        card.assert_called_once()
+        assert cost == [("colour_card", "stories", 1, True)]
 
 
 # ── Cost logging fires during assembly ─────────────────────────

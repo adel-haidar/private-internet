@@ -1,16 +1,22 @@
-"""fal.ai video generation (Kling) for SIGNAL section clips.
+"""fal.ai video generation (Kling) for STORIES section clips.
 
-Replaces the legacy still-image + Ken-Burns slides with a real generated video
-clip per section. Uses fal's async queue API: submit a job, poll until COMPLETE,
-then download the resulting mp4 bytes. Video models produce short silent clips
-(Kling v1 = 5/10s; others e.g. Veo3 also do 8s) and the assembler stitches them
-under the narration.
+Uses fal's async queue API: submit a job, poll until COMPLETE, then download
+the resulting mp4 bytes. Video models produce short silent clips (Kling v1 =
+5/10s; others e.g. Veo3 also do 8s) and the assembler stitches them under the
+narration.
 
 Callers pass the per-scene requested duration in seconds; this module snaps it
 to a value the configured model actually supports (`fal_video_durations`), so a
-caller never has to know the model's clip-length menu. Callers keep a slide /
-fallback-card, so an unfunded balance or any error degrades gracefully rather
-than failing the whole video.
+caller never has to know the model's clip-length menu. Callers keep a
+slide-fallback (slide_clip.generate_slide_clip) → colour-card chain, so an
+unfunded balance or any error degrades gracefully rather than failing the whole
+video.
+
+Public function
+---------------
+generate_video_clip(prompt, *, duration, aspect_ratio) → bytes
+    Used by video_assembler.py as the Kling clip generator.
+    Alias: generate_kling_clip points to the same coroutine.
 """
 
 import asyncio
@@ -107,3 +113,11 @@ async def generate_video_clip(
         vid = await client.get(url)
         vid.raise_for_status()
         return vid.content
+
+
+# ---------------------------------------------------------------------------
+# Alias so callers can use a semantically clear name when referring to the
+# Kling tier specifically (e.g. in Section 4's per-provider dispatch). Both
+# names refer to the same coroutine function object.
+# ---------------------------------------------------------------------------
+generate_kling_clip = generate_video_clip
