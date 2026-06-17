@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** A SIGNAL section: header (optional 3px accent bar + title, optional
- * "See all →") above a horizontal scroll row (default slot). */
+ * "See all →") above a wrapping grid of cards (default slot). */
 withDefaults(defineProps<{ title: string; accent?: boolean; seeAll?: boolean }>(), {
   accent: false,
   seeAll: false,
@@ -24,5 +24,5 @@ defineEmits<{ (e: 'all'): void }>()
 .sec__l { display: flex; align-items: center; gap: 8px; font-family: var(--font-display); font-weight: 600; font-size: 15px; color: var(--text-primary); }
 .sec__bar { width: 3px; height: 15px; border-radius: 2px; background: var(--accent-primary); }
 .sec__all { background: none; border: 0; color: var(--accent-primary); font-size: var(--text-sm); cursor: pointer; }
-.sec__row { display: flex; gap: 16px; overflow-x: auto; padding-bottom: 6px; }
+.sec__row { display: flex; flex-wrap: wrap; gap: 16px; padding-bottom: 6px; }
 </style>
