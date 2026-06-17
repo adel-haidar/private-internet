@@ -123,7 +123,8 @@ async def _find_existing_summary_id(
     resp.raise_for_status()
     for item in resp.json().get("items", []):
         if (item.get("title") or "").strip() == title:
-            return item.get("memory_id")
+            # The list endpoint serializes the id as "id"; search uses "memory_id".
+            return item.get("id") or item.get("memory_id")
     return None
 
 
