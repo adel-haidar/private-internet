@@ -110,7 +110,7 @@ export default {
       { label: 'GitHub', href: 'https://github.com/adel-haidar/personal-intelligence' },
     ],
     coffee: '请我喝杯咖啡',
-    copyright: 'Adel Haidar',
+    copyright: 'Private Internet',
   },
   mobileMenu: { close: '关闭' },
 }

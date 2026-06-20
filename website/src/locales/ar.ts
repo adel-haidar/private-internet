@@ -144,7 +144,7 @@ export default {
       { label: 'GitHub', href: 'https://github.com/adel-haidar/personal-intelligence' },
     ],
     coffee: '\u0627\u0634\u062A\u0631 \u0644\u064A \u0642\u0647\u0648\u0629',
-    copyright: 'Adel Haidar',
+    copyright: 'Private Internet',
   },
   mobileMenu: { close: '\u0625\u063A\u0644\u0627\u0642' },
 }
