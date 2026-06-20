@@ -203,9 +203,9 @@ async def get_application_for_match(
     pool = await init_pool(settings.database_url)
     user_id = await _resolve_user_id(ident, pool)
     app = await get_application_by_match(pool, match_id, user_id=user_id)
-    if app is None:
-        raise HTTPException(404, "No application for this match yet")
-    return _serialize_application(app)
+    # Return 200 with a null body when none exists yet — a 404 here would be
+    # rewritten by CloudFront to the SPA index.html and break JSON parsing.
+    return {"application": _serialize_application(app) if app else None}
 
 
 @router.get("/applications/{app_id}")

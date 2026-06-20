@@ -101,9 +101,11 @@ export async function startApplication(matchId: number): Promise<StartApplicatio
 /** The application for a match, or null if none has been generated yet. */
 export async function getApplicationByMatch(matchId: number): Promise<JobApplication | null> {
   const res = await authFetch(`${BASE}/api/jobs/matches/${matchId}/application`)
-  if (res.status === 404) return null
   if (!res.ok) throw new Error(`Failed to load application: HTTP ${res.status}`)
-  return res.json() as Promise<JobApplication>
+  // The endpoint returns 200 with { application: null } when none exists yet
+  // (a 404 would be rewritten to the SPA index.html by CloudFront).
+  const data = await res.json() as { application: JobApplication | null }
+  return data.application ?? null
 }
 
 export async function getApplication(appId: number): Promise<JobApplication> {
