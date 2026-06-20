@@ -134,6 +134,9 @@ class TestGeneratePostsBatchLanguage:
 
         with (
             patch("private_internet.content.jobs.post_job._connect", return_value=conn),
+            # feature_enabled_for_user() reaches the users DB via its own _connect;
+            # mock it so this test stays DB-less and exercises only language routing.
+            patch("private_internet.content.jobs.post_job.feature_enabled_for_user", return_value=True),
             patch("private_internet.content.jobs.post_job.CreatorSelector", return_value=mock_selector),
             patch("private_internet.content.jobs.post_job.PostTextGenerator", return_value=mock_gen),
             patch("private_internet.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen),

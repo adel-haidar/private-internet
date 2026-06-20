@@ -186,17 +186,43 @@ class TestSearchMemories:
 # ── MCP delete tool: confirm=False guard ──────────────────────
 
 class TestMcpDeleteConfirmGuard:
-    def test_confirm_false_is_rejected(self):
-        # Import after patching init_db to prevent DB connection at import time
-        with patch("private_internet.memory.service.init_db"):
-            pass
-        # The confirm guard is pure Python logic — test inline
-        confirm = False
-        if not confirm:
-            result = "Deletion aborted: confirm must be True to delete a memory."
-        assert "confirm must be True" in result
+    """Exercise the REAL `delete` MCP tool in mcp_server, not a re-implementation.
 
-    def test_confirm_true_proceeds(self):
-        with patch("private_internet.memory.service.delete_memory", return_value=True):
-            confirm = True
-            assert confirm is True
+    init_db() runs at module import; patch it (and the user-id resolver) so the
+    tool body runs without a DB connection.
+    """
+
+    def _delete_tool(self):
+        # mcp_server calls init_db() at module-import time (it opens a DB
+        # connection). Patch init_db at its source and (re)import the module
+        # under that patch so the import never touches a real DB.
+        import sys
+        with patch("private_internet.memory.service.init_db"):
+            sys.modules.pop("private_internet.memory.mcp_server", None)
+            from private_internet.memory.mcp_server import delete
+        return delete
+
+    def test_confirm_false_aborts_without_deleting(self):
+        delete = self._delete_tool()
+        with patch("private_internet.memory.mcp_server.delete_memory") as mock_del, \
+             patch("private_internet.memory.mcp_server._mcp_user_id", return_value="u1"):
+            result = delete("mem-1", confirm=False)
+        # The real guard message, and — crucially — no deletion was attempted.
+        assert "confirm must be True" in result
+        mock_del.assert_not_called()
+
+    def test_confirm_true_deletes_scoped_to_user(self):
+        delete = self._delete_tool()
+        with patch("private_internet.memory.mcp_server.delete_memory", return_value=True) as mock_del, \
+             patch("private_internet.memory.mcp_server._mcp_user_id", return_value="u1"):
+            result = delete("mem-1", confirm=True)
+        assert "Deleted memory mem-1" in result
+        # Deletion ran and was scoped to the resolved user.
+        mock_del.assert_called_once_with("mem-1", user_id="u1")
+
+    def test_confirm_true_reports_missing_memory(self):
+        delete = self._delete_tool()
+        with patch("private_internet.memory.mcp_server.delete_memory", return_value=False), \
+             patch("private_internet.memory.mcp_server._mcp_user_id", return_value="u1"):
+            result = delete("ghost", confirm=True)
+        assert "No memory found" in result

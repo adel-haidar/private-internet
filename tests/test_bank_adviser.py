@@ -30,7 +30,7 @@ S Kreissparkasse
 Göppingen
 
 Kontoauszug 1/2026
-Girokonto 1256081504, DE76 6105 0000 1256 0815 04,  Adel Haidar
+Girokonto 0000000000, DE00 0000 0000 0000 0000 00,  Test User
 Seite 1 von 8
 Datum Erläuterung Betrag EUR
 Kontostand am 30.12.2025 um 23:04 Uhr             2.593,06
@@ -75,7 +75,7 @@ Ab 01.01.2026 neuer Zinssatz 11,1200 v.H. für geduldete Kontoüberziehung
 # Quarter-end month with a Rechnungsabschluss annex (trailing '+' balances).
 MAR = """\
 Kontoauszug 3/2026
-Girokonto 1256081504, DE76 6105 0000 1256 0815 04,  Adel Haidar
+Girokonto 0000000000, DE00 0000 0000 0000 0000 00,  Test User
 Seite 1 von 8
 Datum Erläuterung Betrag EUR
 Kontostand am 27.02.2026 um 20:03 Uhr             8.506,79
@@ -172,7 +172,7 @@ def _client() -> MemoryClient:
 def test_statement_month_from_header_beats_mentions():
     client = _client()
     item = {
-        "title": "Konto_1256081504-Auszug_2026_0005.pdf (2/4)",
+        "title": "Konto_0000000000-Auszug_2026_0005.pdf (2/4)",
         "content": MAR.replace("3/2026", "5/2026"),
     }
     assert client._statement_month(item) == "2026-05"
@@ -180,7 +180,7 @@ def test_statement_month_from_header_beats_mentions():
 
 def test_statement_month_from_title_fallback():
     client = _client()
-    item = {"title": "Konto_1256081504-Auszug_2026_0005.pdf (4/4)", "content": "Hinweise zum Kontoauszug ..."}
+    item = {"title": "Konto_0000000000-Auszug_2026_0005.pdf (4/4)", "content": "Hinweise zum Kontoauszug ..."}
     assert client._statement_month(item) == "2026-05"
 
 
@@ -188,7 +188,7 @@ def test_statement_mentioning_other_months_not_duplicated():
     # 'Rundfunk 01.2026 - 03.2026' in the January statement must not pull it
     # into the March bucket.
     client = _client()
-    item = {"title": "Konto_1256081504-Auszug_2026_0001.pdf (1/8)", "content": JAN}
+    item = {"title": "Konto_0000000000-Auszug_2026_0001.pdf (1/8)", "content": JAN}
     assert client._statement_month(item) == "2026-01"
     assert client._mentions_month(item["content"], "2026-03")  # old logic would have matched
 
@@ -196,8 +196,8 @@ def test_statement_mentioning_other_months_not_duplicated():
 def test_dedup_collapses_reupload_suffix():
     client = _client()
     items = [
-        {"id": "a", "title": "Konto_1256081504-Auszug_2025_0001.pdf (4/4)", "created_at": "2026-01-01"},
-        {"id": "b", "title": "Konto_1256081504-Auszug_2025_0001_1.pdf (4/4)", "created_at": "2026-02-01"},
+        {"id": "a", "title": "Konto_0000000000-Auszug_2025_0001.pdf (4/4)", "created_at": "2026-01-01"},
+        {"id": "b", "title": "Konto_0000000000-Auszug_2025_0001_1.pdf (4/4)", "created_at": "2026-02-01"},
     ]
     deduped = client._deduplicate_by_title(items)
     assert len(deduped) == 1

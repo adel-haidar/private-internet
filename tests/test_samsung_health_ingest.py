@@ -93,12 +93,18 @@ class TestIsSamsungHealthJson:
 
 class TestParseSamsungHealthExport:
     def test_parses_sample_file(self):
-        """Verify real sample file structure produces expected metric count."""
-        with open("/home/adel/Downloads/samsung_health_export.json", "rb") as f:
-            raw = f.read()
-        metrics = parse_samsung_health_export(raw)
-        # 3 days × 4 fields + 3 sleep_score = 15
+        """A full 3-day export yields one metric per present field plus a derived
+        sleep_score per sleeping day: 3 days × 4 fields + 3 sleep_score = 15.
+
+        Uses the in-repo SAMPLE_EXPORT fixture (not a developer-machine path) so
+        the assertion is deterministic and portable to CI."""
+        metrics = parse_samsung_health_export(_to_bytes(SAMPLE_EXPORT))
+        # 3 days × 4 fields (steps, calories, hr, sleep) + 3 derived sleep_score = 15
         assert len(metrics) == 15
+        # Each of the five metric types appears once per day.
+        by_type = _metrics_by_type(metrics)
+        assert sum(len(v) for v in by_type.values()) == 15
+        assert all(len(v) == 3 for v in by_type.values())
 
     def test_correct_metric_types_produced(self):
         metrics = parse_samsung_health_export(_to_bytes(SAMPLE_EXPORT))

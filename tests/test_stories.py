@@ -1,19 +1,39 @@
 """
-Pure-Python unit tests for the STORIES module.
+Unit tests for the STORIES module.
 
-No DB, no network — only logic that lives in Python.
+No DB, no network. The DB-backed helpers are exercised against a mocked
+psycopg2 connection so the REAL production functions run (their SQL, user
+scoping and Python-side merging) — not a re-implementation of that logic.
 Covered:
   - Watch-progress completion at the 90 % threshold (_is_completed)
-  - continue_watching filter / order (pure-Python simulation)
-  - category counting helper (pure-Python simulation)
+  - continue_watching: real query — user scoping, WHERE/ORDER/LIMIT clauses
+  - list_categories: real Python merge of two grouped-count queries
 """
 
 import uuid
 from datetime import datetime, timezone, timedelta
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from private_internet.content.stories.db import _is_completed
+from private_internet.content.stories import db as stories_db
+from private_internet.content.stories.db import (
+    _is_completed,
+    continue_watching,
+    list_categories,
+)
+
+
+def _rdict_conn(*fetchall_batches):
+    """A MagicMock conn whose cursor.fetchall() yields each batch in turn.
+
+    `RealDictCursor` rows behave like dicts, so plain dicts are a faithful stand-in.
+    """
+    conn = MagicMock()
+    cursor = MagicMock()
+    cursor.fetchall.side_effect = list(fetchall_batches)
+    conn.cursor.return_value = cursor
+    return conn, cursor
 
 
 # ── _is_completed (90% rule) ──────────────────────────────────────────────────
@@ -67,7 +87,7 @@ class TestIsCompleted:
         assert _is_completed(4.4, 5.0) is False
 
 
-# ── continue_watching (pure-Python simulation) ────────────────────────────────
+# ── continue_watching (real query against a mocked connection) ────────────────
 
 def _make_progress(
     *,
@@ -89,148 +109,98 @@ def _make_progress(
     }
 
 
-def _simulate_continue_watching(rows: list[dict], limit: int = 10) -> list[dict]:
-    """Mirror the continue_watching SQL logic in pure Python for testing."""
-    filtered = [
-        r for r in rows
-        if not r["completed"] and r["position_seconds"] > 30
-    ]
-    filtered.sort(key=lambda r: r["last_watched_at"], reverse=True)
-    return filtered[:limit]
-
-
 class TestContinueWatching:
+    """Exercise the real continue_watching function. The completed/position
+    filter and ordering live in SQL (the DB applies them), so the rows the mock
+    returns represent what Postgres would hand back; the test pins the contract:
+    user scoping is threaded into the query, the WHERE/ORDER/LIMIT clauses are
+    present, and rows are surfaced unchanged as dicts."""
+
     def _ts(self, days_ago: int = 0) -> datetime:
         return datetime.now(timezone.utc) - timedelta(days=days_ago)
 
-    def test_excludes_completed(self):
-        rows = [
-            _make_progress(position_seconds=95.0, completed=True, last_watched_at=self._ts()),
-            _make_progress(position_seconds=50.0, completed=False, last_watched_at=self._ts()),
-        ]
-        result = _simulate_continue_watching(rows)
+    def test_query_is_user_scoped_with_filter_order_and_limit(self):
+        user_id = str(uuid.uuid4())
+        rows = [_make_progress(position_seconds=50.0, completed=False, last_watched_at=self._ts())]
+        conn, cursor = _rdict_conn(rows)
+
+        result = continue_watching(conn, user_id=user_id, limit=7)
+
+        # Rows are returned as plain dicts (RealDictCursor -> dict()).
         assert len(result) == 1
         assert result[0]["position_seconds"] == 50.0
+        assert all(isinstance(r, dict) for r in result)
 
-    def test_excludes_position_under_30(self):
-        rows = [
-            _make_progress(position_seconds=20.0, completed=False, last_watched_at=self._ts()),
-            _make_progress(position_seconds=60.0, completed=False, last_watched_at=self._ts()),
+        sql, params = cursor.execute.call_args.args
+        # The completion + position filter and ordering must be in the SQL itself
+        # (this is what makes the feature correct — not a Python re-filter).
+        assert "completed = FALSE" in sql
+        assert "position_seconds > 30" in sql
+        assert "ORDER BY last_watched_at DESC" in sql
+        assert "LIMIT %s" in sql
+        # MUST SCOPE BY USER — and honour the requested limit.
+        assert params[0] == user_id
+        assert params[-1] == 7
+        # RealDictCursor was requested so rows arrive keyed by column name.
+        assert cursor is conn.cursor.return_value
+        assert conn.cursor.call_args.kwargs.get("cursor_factory") is stories_db.RealDictCursor
+
+    def test_empty_result_returns_empty_list(self):
+        conn, _ = _rdict_conn([])
+        assert continue_watching(conn, user_id="u1") == []
+
+    def test_default_limit_is_ten(self):
+        conn, cursor = _rdict_conn([])
+        continue_watching(conn, user_id="u1")
+        _, params = cursor.execute.call_args.args
+        assert params[-1] == 10
+
+
+# ── list_categories (real Python merge of two grouped-count queries) ──────────
+
+class TestListCategories:
+    """list_categories runs two GROUP BY queries (films, series) and merges the
+    counts in Python. The merge is the real logic under test here."""
+
+    def test_merges_film_and_series_counts_user_scoped(self):
+        user_id = str(uuid.uuid4())
+        film_rows = [
+            {"category": "drama", "film_count": 2},
+            {"category": "thriller", "film_count": 1},
         ]
-        result = _simulate_continue_watching(rows)
-        assert len(result) == 1
-        assert result[0]["position_seconds"] == 60.0
-
-    def test_excludes_exactly_30(self):
-        # boundary: > 30, not >= 30
-        rows = [
-            _make_progress(position_seconds=30.0, completed=False, last_watched_at=self._ts()),
-            _make_progress(position_seconds=31.0, completed=False, last_watched_at=self._ts()),
+        series_rows = [
+            {"category": "drama", "series_count": 1},
+            {"category": "sci-fi", "series_count": 3},
         ]
-        result = _simulate_continue_watching(rows)
-        assert len(result) == 1
-        assert result[0]["position_seconds"] == 31.0
+        conn, cursor = _rdict_conn(film_rows, series_rows)
 
-    def test_ordered_by_last_watched_desc(self):
-        rows = [
-            _make_progress(position_seconds=50.0, completed=False, last_watched_at=self._ts(days_ago=3)),
-            _make_progress(position_seconds=60.0, completed=False, last_watched_at=self._ts(days_ago=1)),
-            _make_progress(position_seconds=70.0, completed=False, last_watched_at=self._ts(days_ago=0)),
-        ]
-        result = _simulate_continue_watching(rows)
-        positions = [r["position_seconds"] for r in result]
-        assert positions == [70.0, 60.0, 50.0]
-
-    def test_limit_applied(self):
-        rows = [
-            _make_progress(position_seconds=float(i * 10 + 31), completed=False, last_watched_at=self._ts(days_ago=i))
-            for i in range(15)
-        ]
-        result = _simulate_continue_watching(rows, limit=10)
-        assert len(result) == 10
-
-    def test_empty_when_all_completed(self):
-        rows = [
-            _make_progress(position_seconds=95.0, completed=True, last_watched_at=self._ts())
-            for _ in range(5)
-        ]
-        result = _simulate_continue_watching(rows)
-        assert result == []
-
-    def test_empty_list(self):
-        assert _simulate_continue_watching([]) == []
-
-
-# ── Category counting (pure-Python simulation) ────────────────────────────────
-
-def _simulate_categories(
-    films: list[dict], series: list[dict]
-) -> list[dict]:
-    """Mirror the list_categories SQL+Python merge logic."""
-    film_counts: dict[str, int] = {}
-    for f in films:
-        cat = f.get("category")
-        if cat:
-            film_counts[cat] = film_counts.get(cat, 0) + 1
-
-    series_counts: dict[str, int] = {}
-    for s in series:
-        cat = s.get("category")
-        if cat:
-            series_counts[cat] = series_counts.get(cat, 0) + 1
-
-    all_cats = sorted(set(film_counts) | set(series_counts))
-    return [
-        {
-            "category": cat,
-            "film_count": film_counts.get(cat, 0),
-            "series_count": series_counts.get(cat, 0),
-        }
-        for cat in all_cats
-    ]
-
-
-class TestCategoryCounting:
-    def test_counts_films_by_category(self):
-        films = [
-            {"category": "drama"},
-            {"category": "drama"},
-            {"category": "thriller"},
-        ]
-        result = _simulate_categories(films, [])
+        result = list_categories(conn, user_id=user_id)
         cats = {r["category"]: r for r in result}
-        assert cats["drama"]["film_count"] == 2
-        assert cats["thriller"]["film_count"] == 1
 
-    def test_counts_series_by_category(self):
-        series = [
-            {"category": "sci-fi"},
-            {"category": "sci-fi"},
-            {"category": "sci-fi"},
-        ]
-        result = _simulate_categories([], series)
-        assert result[0]["series_count"] == 3
+        # drama appears in both tables → both counts merged on one row.
+        assert cats["drama"] == {"category": "drama", "film_count": 2, "series_count": 1}
+        # thriller only has films; sci-fi only has series — zero-filled, not dropped.
+        assert cats["thriller"] == {"category": "thriller", "film_count": 1, "series_count": 0}
+        assert cats["sci-fi"] == {"category": "sci-fi", "film_count": 0, "series_count": 3}
+        # Result is sorted alphabetically by category.
+        assert [r["category"] for r in result] == ["drama", "sci-fi", "thriller"]
 
-    def test_merges_films_and_series_counts(self):
-        films = [{"category": "drama"}, {"category": "thriller"}]
-        series = [{"category": "drama"}, {"category": "sci-fi"}]
-        result = _simulate_categories(films, series)
+        # Both queries scoped to the user and exclude NULL categories in SQL.
+        for call in cursor.execute.call_args_list:
+            sql, params = call.args
+            assert "category IS NOT NULL" in sql
+            assert params[0] == user_id
+
+    def test_empty_both_tables(self):
+        conn, _ = _rdict_conn([], [])
+        assert list_categories(conn, user_id="u1") == []
+
+    def test_disjoint_categories_zero_fill(self):
+        conn, _ = _rdict_conn(
+            [{"category": "action", "film_count": 5}],
+            [{"category": "comedy", "series_count": 4}],
+        )
+        result = list_categories(conn, user_id="u1")
         cats = {r["category"]: r for r in result}
-        assert cats["drama"]["film_count"] == 1
-        assert cats["drama"]["series_count"] == 1
-        assert cats["thriller"]["series_count"] == 0
-        assert cats["sci-fi"]["film_count"] == 0
-
-    def test_skips_null_category(self):
-        films = [{"category": None}, {"category": "drama"}]
-        result = _simulate_categories(films, [])
-        assert len(result) == 1
-        assert result[0]["category"] == "drama"
-
-    def test_sorted_alphabetically(self):
-        films = [{"category": "thriller"}, {"category": "drama"}, {"category": "action"}]
-        result = _simulate_categories(films, [])
-        assert [r["category"] for r in result] == ["action", "drama", "thriller"]
-
-    def test_empty_inputs(self):
-        assert _simulate_categories([], []) == []
+        assert cats["action"]["series_count"] == 0
+        assert cats["comedy"]["film_count"] == 0
