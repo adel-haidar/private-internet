@@ -348,6 +348,32 @@ def list_tracks(
         conn.close()
 
 
+def has_recent_track_for_mood(*, user_id: str, mood: str, days: int = 7) -> bool:
+    """Return True if the user has a ready track in `mood` created within
+    the last `days` days. Used by the generator to skip Suno when the
+    user's library is fresh for that mood — avoids a wasted paid call.
+    # MUST SCOPE BY USER
+    """
+    assert user_id is not None
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    conn = _connect()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT 1 FROM aria_tracks
+               WHERE user_id = %s
+                 AND mood = %s::aria_mood
+                 AND status = 'ready'
+                 AND created_at >= %s
+               LIMIT 1""",
+            (user_id, mood, cutoff),
+        )
+        return cur.fetchone() is not None
+    finally:
+        cur.close()
+        conn.close()
+
+
 def search_tracks(query: str, *, user_id: str, limit: int = 20) -> list[dict]:
     """Full-text substring search on title/genre/topic_category. # MUST SCOPE BY USER"""
     assert user_id is not None

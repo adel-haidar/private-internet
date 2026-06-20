@@ -134,22 +134,32 @@ class SunoClient:
         instrumental: bool = True,
         min_seconds: int = MIN_DURATION_SECONDS,
     ) -> SunoResult:
-        """Generate a track, enforce the minimum duration, retry once on short.
+        """Generate a track, enforce the minimum duration, retry AT MOST ONCE.
 
-        On a too-short track, retries once with ', extended version, full length'
-        appended to the style prompt. If the retry is also too short, raises
-        SunoGenerationError (the caller marks the track failed — never saved).
+        Cost-bounding contract (enforced by this method's structure, not a loop):
+          - If the first track meets min_seconds → return immediately. ONE call.
+          - If the first track is too short → make ONE additional call with an
+            extended-style hint. If that is also short → raise (never saved).
+          - Total Suno API calls per invocation: 1 (happy path) or 2 (short retry).
+            It is structurally impossible to exceed 2 calls because generate_track
+            is called exactly twice at most with no loop construct.
+
+        The retry hint `, extended version, full length` appended to the style
+        prompt is purely stylistic guidance — it does not change the prompt content
+        or incur any Bedrock cost.
         """
         result = await self.generate_track(
             prompt=prompt, style=style, title=title, instrumental=instrumental
         )
         duration = await self._duration(result.audio)
         if duration >= min_seconds:
+            # First track is long enough — zero retry cost.
             result.duration_seconds = duration
             return result
 
+        # First track too short: ONE bounded retry with extended-style hint.
         logger.warning(
-            "Suno track too short (%.0fs, job %s) — retrying with extended style",
+            "Suno track too short (%.0fs, job %s) — retrying once with extended style",
             duration,
             result.task_id,
         )
@@ -159,6 +169,8 @@ class SunoClient:
         )
         retry_duration = await self._duration(retry.audio)
         if retry_duration < min_seconds:
+            # Both attempts failed the min-duration check. Raise so the caller
+            # marks the track as failed — nothing is saved, no further Suno calls.
             raise SunoGenerationError(
                 f"Track too short after retry: {retry_duration:.0f}s "
                 f"(min {min_seconds}s, job {retry.task_id}, style '{ext_style}')"

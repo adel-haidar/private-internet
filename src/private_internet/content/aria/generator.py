@@ -37,6 +37,7 @@ from private_internet.content.aria.db import (
     add_tracks_to_playlist,
     list_tracks,
     list_playlists,
+    has_recent_track_for_mood,
 )
 from private_internet.content.aria.suno_client import SunoClient
 from private_internet.content.aria.waveform import compute_waveform
@@ -353,6 +354,27 @@ async def generate_track(*, user_id: str) -> str:
         logger.error("[user:%s] ARIA: metadata generation failed: %s", user_id[:8], e, exc_info=True)
         raise
 
+    # Skip guard: if the user already has a ready track in this exact mood that
+    # was generated within the last 7 days, skip the Suno call entirely. Suno
+    # charges per generation; generating another calm/focus track when one was
+    # produced yesterday wastes a paid API call without improving the library.
+    # We check *after* Bedrock (cheap, temp=0) so we know the actual mood, and
+    # *before* Suno (paid) so we can abort before any charge is incurred.
+    mood = metadata["mood"]
+    recent_exists = await loop.run_in_executor(
+        None,
+        lambda: has_recent_track_for_mood(user_id=user_id, mood=mood, days=7),
+    )
+    if recent_exists:
+        logger.info(
+            "[user:%s] ARIA: skipping Suno — recent '%s' track already exists (7-day window)",
+            user_id[:8],
+            mood,
+        )
+        # Return None so generate_tracks_batch counts this as "skipped" rather
+        # than "created". No DB row is inserted and no Suno charge is incurred.
+        return None  # type: ignore[return-value]
+
     # Insert the track row early (status=generating) so status polling works.
     await loop.run_in_executor(
         None,
@@ -487,7 +509,9 @@ async def generate_track(*, user_id: str) -> str:
 async def generate_tracks_batch(count: int = 1, *, user_id: str) -> dict:
     """
     Generate `count` tracks for the user, at most 2 concurrently.
-    Returns {"created": [track_id, ...], "failed": int}.
+    Returns {"created": [track_id, ...], "failed": int, "skipped_mood_recent": int}.
+    "skipped_mood_recent" counts tracks whose mood already had a fresh track in
+    the last 7 days — Suno was NOT called for those, so no charge was incurred.
     # MUST SCOPE BY USER
     """
     assert user_id is not None, "user_id must be set before any ARIA operation"
@@ -503,15 +527,20 @@ async def generate_tracks_batch(count: int = 1, *, user_id: str) -> dict:
 
     created = []
     failed = 0
+    skipped = 0
     tasks = [asyncio.create_task(_one()) for _ in range(count)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for r in results:
         if isinstance(r, Exception):
             failed += 1
+        elif r is None:
+            # generate_track returns None when the mood-recency skip guard fires:
+            # no Suno call was made and no DB row was inserted.
+            skipped += 1
         else:
             created.append(r)
     logger.info(
-        "[user:%s] ARIA batch done — created: %d, failed: %d",
-        user_id[:8], len(created), failed,
+        "[user:%s] ARIA batch done — created: %d, skipped: %d, failed: %d",
+        user_id[:8], len(created), skipped, failed,
     )
-    return {"created": created, "failed": failed}
+    return {"created": created, "failed": failed, "skipped_mood_recent": skipped}

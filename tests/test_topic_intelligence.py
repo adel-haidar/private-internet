@@ -146,28 +146,36 @@ class TestWebResearchService:
         assert "grounding" in results[0].summary.lower()
 
     @pytest.mark.anyio
-    async def test_assess_topic_relevance(self):
+    async def test_assess_topic_relevance_derived_from_grounding(self):
+        """assess_topic_relevance now derives its score from Gemini grounding
+        metadata set by the preceding research_topic() call — no Bedrock call."""
+        from private_internet.content.research_service import _GROUNDING_SCORE
+
         service = WebResearchService()
         topic = TopicCandidate("AWS prep", "aws-prep", ["aws"], "mcp_memory", "m1")
         research = [ResearchResult("https://aws.amazon.com", "AWS", "AWS Study Guide")]
-        
-        mock_response = {
-            "output": {
-                "message": {
-                    "content": [{"text": "Relevance score is: 0.85"}]
-                }
-            }
-        }
-        mock_client = MagicMock()
-        mock_client.converse.return_value = mock_response
-        
-        with (
-            patch("boto3.client", return_value=mock_client),
-            patch("private_internet.content.research_service.get_settings")
-        ):
-            weight = await service.assess_topic_relevance(topic, research)
-            
-        assert weight == 0.85
+
+        # 0 grounding chunks (default state) → conservative fallback score
+        service._last_grounding_count = 0
+        w0 = await service.assess_topic_relevance(topic, research)
+        assert w0 == _GROUNDING_SCORE[0]   # 0.60
+
+        # 3 grounding chunks → 0.80
+        service._last_grounding_count = 3
+        w3 = await service.assess_topic_relevance(topic, research)
+        assert w3 == _GROUNDING_SCORE[3]   # 0.80
+
+        # ≥5 chunks → cap at highest score
+        service._last_grounding_count = 7
+        w7 = await service.assess_topic_relevance(topic, research)
+        assert w7 == _GROUNDING_SCORE[-1]  # 0.95
+
+        # Must be purely synchronous / no I/O — no boto3 calls made
+        import boto3 as _boto3
+        with patch.object(_boto3, "client") as mock_boto:
+            service._last_grounding_count = 2
+            await service.assess_topic_relevance(topic, research)
+            mock_boto.assert_not_called()
 
 
 # ── TopicStorageService Tests ───────────────────────────────────

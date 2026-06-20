@@ -2,17 +2,26 @@ import os
 import json
 import logging
 import asyncio
-import re
 from dataclasses import dataclass
 from typing import List, Tuple
 
 import google.generativeai as genai
 from google.generativeai import protos
-import boto3
-from private_internet.config import get_settings
 from private_internet.content.topic_intelligence import TopicCandidate
 
 logger = logging.getLogger(__name__)
+
+# Relevance scoring via Gemini grounding metadata:
+# Each grounding chunk = one web source the model actually used.  More sources
+# = stronger signal that the topic is real, current, and well-documented.
+# We map chunk count → [0.5, 1.0] with a sigmoid-like piecewise scale:
+#   0 chunks  → 0.6 (conservative default; topic still came from the user's brain)
+#   1 chunk   → 0.65
+#   2 chunks  → 0.72
+#   3 chunks  → 0.80
+#   4 chunks  → 0.88
+#   ≥5 chunks → 0.95
+_GROUNDING_SCORE = [0.6, 0.65, 0.72, 0.80, 0.88, 0.95]
 
 
 @dataclass
@@ -29,7 +38,7 @@ class WebResearchService:
         if not api_key:
             logger.warning("GEMINI_API_KEY environment variable is not set.")
         genai.configure(api_key=api_key)
-        
+
         # Configure the generative model with Google Search grounding enabled.
         # Note: gemini-2.0 models require the `google_search` tool — the API
         # rejects the older `google_search_retrieval` (1.5-only). The legacy
@@ -38,6 +47,11 @@ class WebResearchService:
             model_name="gemini-2.0-flash",
             tools=[protos.Tool(google_search=protos.Tool.GoogleSearch())]
         )
+        # Grounding chunk count from the most recent research_topic() call.
+        # Used by assess_topic_relevance() to derive a relevance weight without
+        # a second LLM call.  Keyed per-instance so concurrent callers each get
+        # their own service object (topic_job creates one per job run).
+        self._last_grounding_count: int = 0
 
     async def research_topic(self, topic: TopicCandidate) -> List[ResearchResult]:
         """
@@ -110,6 +124,14 @@ class WebResearchService:
         except Exception as e:
             logger.warning(f"Failed to parse grounding metadata: {e}")
 
+        # Persist chunk count so assess_topic_relevance() can read it without a
+        # second LLM call.
+        self._last_grounding_count = len(grounding_sources)
+        logger.debug(
+            f"research_topic: {self._last_grounding_count} grounding chunk(s) "
+            f"for topic '{topic.name}'"
+        )
+
         # Fallback: if we failed to get structured results from the text, but have grounding URLs, use them!
         if not results and grounding_sources:
             logger.info("Using fallback grounding metadata sources for research results")
@@ -126,63 +148,31 @@ class WebResearchService:
 
     async def assess_topic_relevance(self, topic: TopicCandidate, research: List[ResearchResult]) -> float:
         """
-        Returns a relevance weight (0.0-1.0) using Claude Haiku on Bedrock.
-        Assess factors like user interests, trending state, and suitability for script generation.
+        Returns a relevance weight (0.0–1.0) derived from Gemini's Google Search
+        grounding metadata — specifically the number of grounding chunks returned
+        by the preceding research_topic() call.
+
+        This replaces a redundant second Bedrock LLM call: Gemini already signals
+        how well a topic is documented on the live web through the number of web
+        sources it actually cited.  More grounding chunks → higher weight.
+
+        Scoring table (see _GROUNDING_SCORE at module level):
+          0 chunks → 0.60  (topic came from user's brain; conservative default)
+          1 chunk  → 0.65
+          2 chunks → 0.72
+          3 chunks → 0.80
+          4 chunks → 0.88
+          ≥5 chunks → 0.95
+
+        If research_topic() was not called first (e.g. unit tests that call this
+        method in isolation) the chunk count defaults to 0 → 0.60 weight, which
+        is a safe, conservative fallback that keeps the topic in the feed.
         """
-        research_text = ""
-        for r in research:
-            research_text += f"- Title: {r.title}\n  URL: {r.url}\n  Summary: {r.summary}\n"
-
-        prompt = (
-            "You are a relevance assessment model. Review the following topic candidate and associated research results.\n"
-            "Determine the overall relevance weight (from 0.0 to 1.0) for the user based on:\n"
-            "- Is the topic currently trending or highly relevant?\n"
-            "- Does it appear to connect to a real person's daily interests (career, health, finance, learning, travel, culture, technology, etc.)?\n"
-            "- Is there enough material for a good video script?\n\n"
-            f"Topic: {topic.name}\n"
-            f"Keywords: {', '.join(topic.keywords)}\n"
-            f"Research:\n{research_text}\n\n"
-            "Output ONLY a single floating-point number between 0.0 and 1.0 (e.g., 0.75). Do not include any other text, reasoning, or markdown formatting."
+        chunk_count = self._last_grounding_count
+        weight = _GROUNDING_SCORE[min(chunk_count, len(_GROUNDING_SCORE) - 1)]
+        logger.info(
+            f"assess_topic_relevance: topic='{topic.name}', "
+            f"grounding_chunks={chunk_count}, weight={weight:.2f} "
+            f"(derived from Gemini grounding; no Bedrock call)"
         )
-
-        settings = get_settings()
-        model_id = os.getenv("BEDROCK_TEXT_MODEL_ID", "mistral.mistral-small-2402-v1:0")
-        
-        loop = asyncio.get_event_loop()
-        
-        def invoke_bedrock():
-            from private_internet.content.llm import bedrock_text_region
-            client = boto3.client("bedrock-runtime", region_name=bedrock_text_region())
-            try:
-                response = client.converse(
-                    modelId=model_id,
-                    messages=[{"role": "user", "content": [{"text": prompt}]}],
-                    inferenceConfig={"temperature": 0.0}
-                )
-                return response["output"]["message"]["content"][0]["text"]
-            except Exception as e:
-                logger.warning(f"Failed to call Bedrock Haiku for relevance assessment: {e}. Trying fallback.")
-                fallback_model = os.getenv("BEDROCK_MODEL_ID", "eu.amazon.nova-2-lite-v1:0")
-                response = client.converse(
-                    modelId=fallback_model,
-                    messages=[{"role": "user", "content": [{"text": prompt}]}],
-                    inferenceConfig={"temperature": 0.0}
-                )
-                return response["output"]["message"]["content"][0]["text"]
-
-        try:
-            response_text = await loop.run_in_executor(None, invoke_bedrock)
-            response_text = response_text.strip()
-        except Exception as e:
-            logger.error(f"Bedrock relevance assessment failed completely: {e}", exc_info=True)
-            return 0.5
-
-        try:
-            match = re.search(r"(\d+\.\d+|\d+)", response_text)
-            if match:
-                weight = float(match.group(1))
-                return max(0.0, min(1.0, weight))
-            return 0.5
-        except Exception as e:
-            logger.error(f"Failed to parse weight float from Bedrock response: '{response_text}'. Error: {e}")
-            return 0.5
+        return weight

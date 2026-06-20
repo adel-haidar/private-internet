@@ -388,7 +388,8 @@ class TestGeneratePostsBatch:
              patch("private_internet.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
              patch("private_internet.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
              patch("private_internet.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
-             patch("private_internet.content.jobs.post_job.AssetStore", return_value=mock_store):
+             patch("private_internet.content.jobs.post_job.AssetStore", return_value=mock_store), \
+             patch("private_internet.content.jobs.post_job._lookup_cached_image", return_value=None):
             result = await generate_posts_batch(count=1, user_id="u1")
 
         assert result["created"] == 1
@@ -428,7 +429,8 @@ class TestGeneratePostsBatch:
              patch("private_internet.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
              patch("private_internet.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
              patch("private_internet.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
-             patch("private_internet.content.jobs.post_job.AssetStore", return_value=MagicMock()):
+             patch("private_internet.content.jobs.post_job.AssetStore", return_value=MagicMock()), \
+             patch("private_internet.content.jobs.post_job._lookup_cached_image", return_value=None):
             result = await generate_posts_batch(count=1, user_id="u1")
 
         assert result["created"] == 1
@@ -449,3 +451,101 @@ class TestGeneratePostsBatch:
             result = await generate_posts_batch(count=3, user_id="u1")
 
         assert result == {"created": 0, "failed": 0}
+
+
+# ── Image cache (_lookup_cached_image) ────────────────────────
+
+class TestImageCache:
+    """Unit tests for the (topic, creator, user) image URL cache in post_job."""
+
+    @pytest.mark.anyio
+    async def test_cache_hit_skips_image_generation(self):
+        """When _lookup_cached_image returns a URL, generate_for_post is NOT called."""
+        topic = _topic()
+        creator = _creator()
+        cached_url = "https://cdn/content/posts/old/image.png"
+
+        conn = MagicMock()
+        cursor = MagicMock()
+        cursor.fetchall.side_effect = [
+            [topic],
+            [{"title": "t", "summary": "s", "url": "https://u"}],
+        ]
+        conn.cursor.return_value = cursor
+
+        mock_selector = MagicMock()
+        mock_selector.select_for_topic.return_value = creator
+        mock_selector.select_tone.return_value = "informative"
+
+        mock_text_gen = MagicMock()
+        mock_text_gen.generate = AsyncMock(
+            return_value=GeneratedPost(
+                body="post body", referenced_urls=[], post_format="reframe",
+                usage={"inputTokens": 5, "outputTokens": 2},
+            )
+        )
+        mock_image_gen = MagicMock()
+        mock_image_gen.generate_for_post = AsyncMock(return_value=(b"img", "prompt"))
+        mock_store = MagicMock()
+
+        with patch("private_internet.content.jobs.post_job._connect", return_value=conn), \
+             patch("private_internet.content.jobs.post_job.feature_enabled_for_user", return_value=True), \
+             patch("private_internet.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
+             patch("private_internet.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
+             patch("private_internet.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
+             patch("private_internet.content.jobs.post_job.AssetStore", return_value=mock_store), \
+             patch("private_internet.content.jobs.post_job._lookup_cached_image", return_value=cached_url):
+            result = await generate_posts_batch(count=1, user_id="u1")
+
+        assert result["created"] == 1
+        # fal.ai / Nova Canvas was NOT hit
+        mock_image_gen.generate_for_post.assert_not_awaited()
+        mock_store.upload_post_image.assert_not_called()
+        # The cached URL was used in the INSERT
+        insert_calls = [c for c in cursor.execute.call_args_list if "INSERT INTO content_posts" in c.args[0]]
+        assert insert_calls[0].args[1][4] == cached_url
+
+    @pytest.mark.anyio
+    async def test_cache_miss_generates_and_uploads(self):
+        """When _lookup_cached_image returns None, image generation runs normally."""
+        topic = _topic()
+        creator = _creator()
+
+        conn = MagicMock()
+        cursor = MagicMock()
+        cursor.fetchall.side_effect = [
+            [topic],
+            [{"title": "t", "summary": "s", "url": "https://u"}],
+        ]
+        conn.cursor.return_value = cursor
+
+        mock_selector = MagicMock()
+        mock_selector.select_for_topic.return_value = creator
+        mock_selector.select_tone.return_value = "satirical"
+
+        mock_text_gen = MagicMock()
+        mock_text_gen.generate = AsyncMock(
+            return_value=GeneratedPost(
+                body="post body", referenced_urls=[], post_format="micro_story",
+                usage={"inputTokens": 8, "outputTokens": 3},
+            )
+        )
+        mock_image_gen = MagicMock()
+        mock_image_gen.generate_for_post = AsyncMock(return_value=(b"img", "a prompt"))
+        mock_store = MagicMock()
+        mock_store.upload_post_image.return_value = "https://cdn/content/posts/new/image.png"
+
+        with patch("private_internet.content.jobs.post_job._connect", return_value=conn), \
+             patch("private_internet.content.jobs.post_job.feature_enabled_for_user", return_value=True), \
+             patch("private_internet.content.jobs.post_job.CreatorSelector", return_value=mock_selector), \
+             patch("private_internet.content.jobs.post_job.PostTextGenerator", return_value=mock_text_gen), \
+             patch("private_internet.content.jobs.post_job.PostImageGenerator", return_value=mock_image_gen), \
+             patch("private_internet.content.jobs.post_job.AssetStore", return_value=mock_store), \
+             patch("private_internet.content.jobs.post_job._lookup_cached_image", return_value=None):
+            result = await generate_posts_batch(count=1, user_id="u1")
+
+        assert result["created"] == 1
+        mock_image_gen.generate_for_post.assert_awaited_once()
+        mock_store.upload_post_image.assert_called_once()
+        insert_calls = [c for c in cursor.execute.call_args_list if "INSERT INTO content_posts" in c.args[0]]
+        assert insert_calls[0].args[1][4] == "https://cdn/content/posts/new/image.png"

@@ -5,10 +5,11 @@ Primary path: POST https://api.elevenlabs.io/v1/music
   Returns audio/mpeg bytes.
 
 Graceful fallback: if the music endpoint returns 401/402/404 (plan lacks
-access or no credits), falls back to TTS narration of a generated script using
-eleven_multilingual_v2 + a fixed narrator voice. The fallback NEVER crashes the
-generator — it returns bytes or raises only for genuinely unrecoverable errors
-(network loss, etc.).
+access or no credits), falls back to Amazon Polly TTS narration of the track
+concept. Polly runs off the EC2 IAM role (no external key, no per-character
+charge at our volume) so it is effectively free compared to ElevenLabs TTS.
+The fallback NEVER crashes the generator — it returns bytes or raises only
+for genuinely unrecoverable errors (network loss, etc.).
 
 Note on the API shape: at the time of implementation, ElevenLabs /v1/music
 accepts `prompt` and an optional `duration_seconds` (integer, capped at 30s on
@@ -17,10 +18,12 @@ free plans). The response is streaming audio/mpeg when Accept is set to
 application/json. We use the binary streaming path for efficiency.
 """
 
-import json
 import logging
-import urllib.request
+import os
+import tempfile
 import urllib.error
+import urllib.request
+import json
 from typing import Optional
 
 from private_internet.config import get_settings
@@ -30,12 +33,14 @@ logger = logging.getLogger(__name__)
 # ElevenLabs /v1/music endpoint (compose path).
 _MUSIC_URL = "https://api.elevenlabs.io/v1/music"
 
-# Fallback TTS: a stable ElevenLabs English narrator voice (public).
-_FALLBACK_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel (ElevenLabs default)
-_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_128"
-
 # Plan-level rejection codes (not a client bug — fallback is warranted).
 _FALLBACK_STATUS_CODES = {401, 402, 404, 422}
+
+# Polly fallback voice: English neural (Joanna). Polly runs off the IAM role —
+# no separate API key needed — and the first 1 million characters/month are
+# free-tier, making it the zero-cost safety net for the music fallback path.
+_POLLY_FALLBACK_VOICE = "Joanna"
+_POLLY_FALLBACK_LOCALE = "en-US"
 
 
 def generate_music(
@@ -51,17 +56,17 @@ def generate_music(
     s = get_settings()
     api_key = s.elevenlabs_api_key
     if not api_key:
-        logger.warning("ELEVENLABS_API_KEY not set — falling back to TTS")
-        return _tts_fallback(prompt, api_key="")
+        logger.warning("ELEVENLABS_API_KEY not set — falling back to Polly TTS")
+        return _tts_fallback(prompt)
 
     try:
         return _call_music_api(prompt, api_key, duration_seconds)
     except _MusicPlanError as e:
         logger.warning(
-            "ElevenLabs music API rejected request (%s) — falling back to TTS narration",
+            "ElevenLabs music API rejected request (%s) — falling back to Polly TTS narration",
             e,
         )
-        return _tts_fallback(prompt, api_key=api_key)
+        return _tts_fallback(prompt)
 
 
 def _call_music_api(
@@ -94,43 +99,46 @@ def _call_music_api(
         raise RuntimeError(f"ElevenLabs music API error: HTTP {e.code} {e.reason}") from e
 
 
-def _tts_fallback(prompt: str, api_key: str) -> bytes:
-    """Synthesize a short narration of the track concept as an audio fallback.
-    Returns mp3 bytes. Returns silent placeholder if TTS also fails."""
-    # Build a brief spoken description from the prompt.
+def _tts_fallback(prompt: str, api_key: str = "") -> bytes:
+    """Synthesize a short narration of the track concept via Amazon Polly.
+
+    Polly runs off the EC2 IAM role — no external API key — so this fallback
+    incurs zero additional cost beyond the music-API failure itself. Returns
+    mp3 bytes written to a temp file then read back. Falls back to a silent
+    stub only if Polly itself errors (e.g. IAM misconfiguration).
+    """
+    from private_internet.content.polly_engine import PollyEngine
+
     spoken = (
         f"This is a generated musical piece. {prompt[:200]}"
         if len(prompt) > 20
         else f"A short musical composition. {prompt}"
     )
-    if not api_key:
-        # No key at all — return a minimal valid MP3 header stub.
-        logger.warning("No ElevenLabs API key for TTS fallback — returning stub audio")
-        return _silent_mp3_stub()
 
-    s = get_settings()
-    body = json.dumps({
-        "text": spoken,
-        "model_id": s.elevenlabs_model_id,
-        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
-    }).encode()
-    req = urllib.request.Request(
-        _TTS_URL.format(voice_id=_FALLBACK_VOICE_ID),
-        data=body,
-        headers={
-            "xi-api-key": api_key,
-            "Content-Type": "application/json",
-            "Accept": "audio/mpeg",
-        },
-        method="POST",
-    )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            audio = resp.read()
-        logger.info("TTS fallback produced %d bytes of narration audio", len(audio))
+        engine = PollyEngine()
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            engine.synthesize_section(
+                spoken,
+                _POLLY_FALLBACK_VOICE,
+                _POLLY_FALLBACK_LOCALE,
+                tmp_path,
+            )
+            with open(tmp_path, "rb") as f:
+                audio = f.read()
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        logger.info(
+            "Polly TTS fallback produced %d bytes of narration audio", len(audio)
+        )
         return audio
     except Exception as exc:
-        logger.warning("TTS fallback also failed (%s) — returning stub audio", exc)
+        logger.warning("Polly TTS fallback failed (%s) — returning stub audio", exc)
         return _silent_mp3_stub()
 
 

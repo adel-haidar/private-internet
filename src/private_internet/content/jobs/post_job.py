@@ -2,7 +2,7 @@
 
 import uuid
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from psycopg2.extras import RealDictCursor
 
@@ -15,6 +15,41 @@ from private_internet.content.asset_store import AssetStore
 from private_internet.content.user_language import resolve_user_language
 
 logger = logging.getLogger(__name__)
+
+# Maximum age of a cached post image before we regenerate it.  7 days keeps
+# images fresh without re-paying the fal.ai fee on every daily run.
+_IMAGE_CACHE_TTL_DAYS = 7
+
+
+def _lookup_cached_image(conn, topic_id: str, creator_id: str, user_id: str) -> str | None:
+    """Return a recently-generated image URL for the same (topic, creator, user)
+    if one exists within _IMAGE_CACHE_TTL_DAYS, else None.
+
+    Cache key: (topic_id, creator_id, user_id) — scoped so cross-user images
+    are never shared even if they happen to share a topic.
+    # MUST SCOPE BY USER
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(days=_IMAGE_CACHE_TTL_DAYS)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            """SELECT image_url FROM content_posts
+               WHERE user_id = %s
+                 AND topic_id = %s
+                 AND creator_id = %s
+                 AND image_url IS NOT NULL
+                 AND created_at >= %s
+               ORDER BY created_at DESC
+               LIMIT 1""",
+            (user_id, topic_id, creator_id, cutoff),
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        logger.warning(f"Image cache lookup failed (will regenerate): {e}")
+        return None
+    finally:
+        cur.close()
 
 
 async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
@@ -106,19 +141,34 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
 
                 # d/e. Generate + upload image (Pro+; non-fatal on failure).
                 # Free users get a text-only post (image_url stays NULL).
+                #
+                # Cache: if this (topic, creator, user) combination already produced
+                # an image within _IMAGE_CACHE_TTL_DAYS we reuse the existing CDN URL
+                # instead of paying for a new fal.ai generation.  On a cache miss we
+                # generate, upload, and persist as usual.
                 image_url = None
                 image_prompt = None
                 if media_enabled:
-                    try:
-                        image_bytes, image_prompt = await image_generator.generate_for_post(
-                            topic, creator, post.body
+                    cached_url = _lookup_cached_image(
+                        conn, topic["id"], creator["id"], user_id
+                    )
+                    if cached_url:
+                        image_url = cached_url
+                        logger.info(
+                            f"Image cache HIT for topic='{topic['name']}' "
+                            f"creator='{creator['slug']}' — reusing {cached_url}"
                         )
-                        image_url = asset_store.upload_post_image(image_bytes, post_id)
-                    except Exception as e:
-                        logger.warning(
-                            f"Image generation failed for topic '{topic['name']}' — "
-                            f"creating post without image: {e}"
-                        )
+                    else:
+                        try:
+                            image_bytes, image_prompt = await image_generator.generate_for_post(
+                                topic, creator, post.body
+                            )
+                            image_url = asset_store.upload_post_image(image_bytes, post_id)
+                        except Exception as e:
+                            logger.warning(
+                                f"Image generation failed for topic '{topic['name']}' — "
+                                f"creating post without image: {e}"
+                            )
 
                 # f. Insert the post
                 cur = conn.cursor()
