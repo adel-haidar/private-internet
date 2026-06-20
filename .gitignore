@@ -35,3 +35,6 @@ stripe_secret.properties
 *secret*.properties
 frontend/.design-reference/
 design_handoff_health_export_guide/
+
+# Local PII ops artifact — never commit
+user_inventory.html
