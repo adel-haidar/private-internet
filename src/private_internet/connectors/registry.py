@@ -24,14 +24,10 @@ REAL_CONNECTORS: dict[str, Connector] = {
     ]
 }
 
-# Platforms on the roadmap — shown as "coming soon" tiles with no interactive state.
-COMING_SOON: list[dict] = [
-    {"id": "claude",   "display_name": "Claude.ai"},
-    {"id": "gmail",    "display_name": "Gmail"},
-    {"id": "onedrive", "display_name": "OneDrive"},
-    {"id": "meta",     "display_name": "Meta"},
-    {"id": "x",        "display_name": "X (Twitter)"},
-]
+# Roadmap platforms shown as inert "coming soon" tiles. Emptied for now — only
+# connectors with a working OAuth + fetch implementation are surfaced. Re-add an
+# {"id", "display_name"} entry here to bring a placeholder tile back.
+COMING_SOON: list[dict] = []
 
 _COMING_SOON_IDS = {c["id"] for c in COMING_SOON}
 
