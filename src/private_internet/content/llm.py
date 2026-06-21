@@ -1,6 +1,7 @@
 """Shared Bedrock text-generation helper for the content pipelines."""
 
 import os
+import time
 import logging
 import asyncio
 from typing import Optional, Tuple
@@ -90,11 +91,23 @@ async def converse_tool(
 
     `tool` is in Anthropic-native shape: {"name", "description", "input_schema"}.
     It is adapted to the Bedrock converse `toolSpec` format here.
-    """
-    model = model_id or os.getenv("BEDROCK_PULSE_MODEL_ID", PULSE_MODEL_DEFAULT)
 
-    def invoke():
-        client = boto3.client("bedrock-runtime", region_name=bedrock_text_region())
+    Resilience: unlike a single converse call, the primary model is retried once
+    on a transient Bedrock failure (ThrottlingException / ModelErrorException —
+    both common under the all-users content fan-out), then falls back to a
+    secondary Nova model in the Nova fallback region. Forced toolChoice is
+    preserved on every attempt (Nova Lite supports tool use). Raises only if all
+    attempts fail — so callers like PULSE/STORIES/ARIA stop losing a whole item
+    to one transient model error.
+    """
+    primary = model_id or os.getenv("BEDROCK_PULSE_MODEL_ID", PULSE_MODEL_DEFAULT)
+    # First-party fallback that also supports forced tools. Deliberately NOT
+    # BEDROCK_MODEL_ID (that env may carry an unrelated/typo'd value); override
+    # here only via BEDROCK_TOOL_FALLBACK_MODEL_ID.
+    fallback = os.getenv("BEDROCK_TOOL_FALLBACK_MODEL_ID", "eu.amazon.nova-lite-v1:0")
+
+    def invoke(model: str, region: str):
+        client = boto3.client("bedrock-runtime", region_name=region)
         kwargs = {
             "modelId": model,
             "messages": [{"role": "user", "content": [{"text": user_prompt}]}],
@@ -117,5 +130,27 @@ async def converse_tool(
                 return block["toolUse"]["input"], usage
         return None, usage
 
+    def run():
+        # (model, region): retry primary once with backoff (transient errors),
+        # then fall back to a second model/region.
+        attempts = [
+            (primary, bedrock_text_region()),
+            (primary, bedrock_text_region()),
+            (fallback, _bedrock_nova_region()),
+        ]
+        last_exc: Optional[Exception] = None
+        for i, (model, region) in enumerate(attempts):
+            try:
+                return invoke(model, region)
+            except Exception as e:  # noqa: BLE001 — surface only after all attempts
+                last_exc = e
+                logger.warning(
+                    "converse_tool attempt %d/%d (%s @ %s) failed: %s",
+                    i + 1, len(attempts), model, region, e,
+                )
+                if i < len(attempts) - 1:
+                    time.sleep(1.5 * (i + 1))
+        raise last_exc  # type: ignore[misc]
+
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, invoke)
+    return await loop.run_in_executor(None, run)

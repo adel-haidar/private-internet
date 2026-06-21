@@ -106,7 +106,7 @@ class TestCreatorSelector:
 
 # ── Validation helpers / fixtures ──────────────────────────────
 
-# A body of exactly 90 words — inside the 75-130 valid range.
+# A body of exactly 90 words — inside the 60-160 valid range.
 _VALID_BODY = " ".join(["word"] * 89 + ["end."])
 
 
@@ -131,11 +131,11 @@ class TestValidatePulsePost:
         assert reason == ""
 
     @pytest.mark.parametrize("n_words,valid", [
-        (74, False),    # just below the 75 floor
-        (75, True),     # lower boundary inclusive
+        (59, False),    # just below the 60 floor
+        (60, True),     # lower boundary inclusive
         (90, True),     # comfortable middle
-        (130, True),    # upper boundary inclusive
-        (131, False),   # just above the 130 ceiling
+        (160, True),    # upper boundary inclusive
+        (161, False),   # just above the 160 ceiling
     ])
     def test_length_boundaries(self, n_words, valid):
         body = " ".join(["word"] * n_words)
@@ -240,7 +240,8 @@ class TestPostTextGenerator:
         assert "rejected because" in retry_prompt
 
     @pytest.mark.anyio
-    async def test_returns_none_after_two_failures(self):
+    async def test_returns_none_after_max_failures(self):
+        from private_internet.content.post_generator import _MAX_ATTEMPTS
         bad = _tool_post(body=" ".join(["word"] * 10))
         mock_converse = AsyncMock(return_value=(bad, {}))
         with patch("private_internet.content.post_generator.converse_tool", new=mock_converse):
@@ -248,7 +249,7 @@ class TestPostTextGenerator:
             post = await generator.generate(_topic(), _creator(), "critical", [])
 
         assert post is None
-        assert mock_converse.call_count == 2
+        assert mock_converse.call_count == _MAX_ATTEMPTS
 
     @pytest.mark.anyio
     async def test_returns_none_when_no_tool_output(self):

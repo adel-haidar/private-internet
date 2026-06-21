@@ -78,7 +78,20 @@ class WebResearchService:
         try:
             response = await loop.run_in_executor(None, generate_content)
         except Exception as e:
-            logger.error(f"Gemini content generation failed: {e}", exc_info=True)
+            # Quota exhaustion (HTTP 429 / ResourceExhausted) is an expected,
+            # self-healing condition — the topic still came from the user's brain
+            # and downstream generation degrades to "no background research"
+            # rather than failing. Log it quietly (no stack trace, no ERROR alarm)
+            # so a depleted Gemini quota doesn't drown the logs or look like an
+            # outage. Everything else keeps the loud ERROR + traceback.
+            msg = str(e)
+            if "429" in msg or "ResourceExhausted" in type(e).__name__ or "quota" in msg.lower():
+                logger.warning(
+                    f"Gemini research skipped (quota/rate limit) for "
+                    f"'{topic.name}'; continuing without web research."
+                )
+            else:
+                logger.error(f"Gemini content generation failed: {e}", exc_info=True)
             return []
 
         response_text = response.text.strip() if response and hasattr(response, "text") else ""

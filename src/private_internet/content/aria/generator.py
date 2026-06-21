@@ -26,8 +26,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-import boto3
-
 from private_internet.billing.plans import feature_enabled_for_user
 from private_internet.config import get_settings
 from private_internet.content.aria.db import (
@@ -43,7 +41,7 @@ from private_internet.content.aria.suno_client import SunoClient
 from private_internet.content.aria.waveform import compute_waveform
 from private_internet.content.asset_store import AssetStore
 from private_internet.content.cover_art import generate_cover
-from private_internet.content.llm import bedrock_text_region
+from private_internet.content.llm import converse_tool
 from private_internet.database import _connect
 
 logger = logging.getLogger(__name__)
@@ -195,14 +193,14 @@ def _fetch_recent_memories(user_id: str, limit: int = 8) -> list[dict]:
 
 # ── Bedrock metadata generation ───────────────────────────────────────────────
 
-def _generate_track_metadata(memories: list[dict], user_id: str) -> dict:
-    """Invoke Bedrock with forced tool_choice to get track metadata.
-    temperature=0, max_tokens=1024. Synchronous — call via run_in_executor.
+async def _generate_track_metadata(memories: list[dict], user_id: str) -> dict:
+    """Get track metadata from Bedrock via forced tool_choice (temperature=0).
+
+    Uses the shared ``converse_tool`` helper so the call inherits its retry +
+    Nova fallback (a single ModelErrorException no longer fails the track) and
+    the correct first-party default model — the old inline default pointed at the
+    retired Anthropic Haiku id, which only worked because prod overrode it.
     """
-    model_id = os.getenv(
-        "BEDROCK_TEXT_MODEL_ID",
-        "eu.anthropic.claude-3-5-haiku-20241022-v1:0",
-    )
     # Build user message from memories.
     if memories:
         memory_text = "\n".join(
@@ -218,27 +216,20 @@ def _generate_track_metadata(memories: list[dict], user_id: str) -> dict:
             "Create a versatile, calming instrumental track suitable for focused work."
         )
 
-    client = boto3.client("bedrock-runtime", region_name=bedrock_text_region())
-    resp = client.converse(
-        modelId=model_id,
-        messages=[{"role": "user", "content": [{"text": user_msg}]}],
-        system=[{"text": _SYSTEM_PROMPT}],
-        inferenceConfig={"temperature": 0, "maxTokens": 1024},
-        toolConfig={
-            "tools": [{
-                "toolSpec": {
-                    "name": "generate_track_metadata",
-                    "description": "Generate structured metadata for a personalised music track.",
-                    "inputSchema": {"json": _TRACK_TOOL_SCHEMA},
-                }
-            }],
-            "toolChoice": {"tool": {"name": "generate_track_metadata"}},
+    tool_input, _usage = await converse_tool(
+        user_msg,
+        {
+            "name": "generate_track_metadata",
+            "description": "Generate structured metadata for a personalised music track.",
+            "input_schema": _TRACK_TOOL_SCHEMA,
         },
+        system_prompt=_SYSTEM_PROMPT,
+        temperature=0.0,
+        max_tokens=1024,
     )
-    for block in resp["output"]["message"]["content"]:
-        if "toolUse" in block:
-            return block["toolUse"]["input"]
-    raise RuntimeError("Bedrock returned no tool call for track metadata")
+    if not tool_input:
+        raise RuntimeError("Bedrock returned no tool call for track metadata")
+    return tool_input
 
 
 # ── Asset store extensions ────────────────────────────────────────────────────
@@ -340,9 +331,7 @@ async def generate_track(*, user_id: str) -> str:
     # 2. Bedrock metadata (blocking, off event loop).
     try:
         t_meta = datetime.now(timezone.utc)
-        metadata = await loop.run_in_executor(
-            None, lambda: _generate_track_metadata(memories, user_id)
-        )
+        metadata = await _generate_track_metadata(memories, user_id)
         logger.info(
             "[user:%s] ARIA: metadata in %.1fs — '%s' (%s)",
             user_id[:8],

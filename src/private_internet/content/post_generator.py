@@ -171,9 +171,12 @@ def validate_pulse_post(post: dict) -> Tuple[bool, str]:
     body = post["post_body"]
     words = body.split()
 
-    # Length check
-    if not (75 <= len(words) <= 130):
-        return False, f"Word count {len(words)} outside 75-130 range"
+    # Length check. The prompt targets ~75-130 words; we accept a wider 60-160
+    # band before discarding a post — Nova routinely lands just outside the tight
+    # band, and dropping an otherwise-good post entirely was the single biggest
+    # source of "failed validation twice" skips.
+    if not (60 <= len(words) <= 160):
+        return False, f"Word count {len(words)} outside 60-160 range"
 
     # Forbidden openings
     forbidden_openings = [
@@ -207,6 +210,12 @@ class GeneratedPost:
 # unusable and treated as a validation failure (rather than crashing).
 _REQUIRED_KEYS = ("format_chosen", "post_body", "opening_sentence")
 
+# How many times to ask the model for a valid post before giving up on a topic.
+# Each attempt re-prompts with the prior rejection reason. converse_tool itself
+# also retries/falls back on transient Bedrock errors, so these are content
+# (validation) retries, not network retries.
+_MAX_ATTEMPTS = 3
+
 
 class PostTextGenerator:
     async def generate(
@@ -225,9 +234,10 @@ class PostTextGenerator:
         is appended to the system prompt — matching the pattern ARIA's podcast
         generator uses — so the post is written in the user's language.
 
-        Validates the output in pure Python. On failure it retries once with the
-        rejection reason fed back in. On a second failure it logs and returns
-        None — the caller must skip (never save a bad post).
+        Validates the output in pure Python. On failure it retries with the
+        rejection reason fed back in (up to _MAX_ATTEMPTS total). If every attempt
+        fails it logs and returns None — the caller must skip (never save a bad
+        post).
 
         `topic` / `creator` / `research` are DB row dicts.
         """
@@ -255,7 +265,7 @@ class PostTextGenerator:
         total_usage = {"inputTokens": 0, "outputTokens": 0}
         retry_note = ""
 
-        for attempt in range(2):
+        for attempt in range(_MAX_ATTEMPTS):
             user_prompt = base_user_prompt + retry_note
             result, usage = await converse_tool(
                 user_prompt=user_prompt,
@@ -299,7 +309,7 @@ class PostTextGenerator:
             )
 
         logger.warning(
-            f"PULSE generation failed twice for topic '{topic.get('name')}' — "
-            "skipping (no post saved)."
+            f"PULSE generation failed {_MAX_ATTEMPTS}x for topic "
+            f"'{topic.get('name')}' — skipping (no post saved)."
         )
         return None

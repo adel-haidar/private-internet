@@ -131,7 +131,7 @@ async def generate_posts_batch(count: int = 3, *, user_id: str) -> dict:
                     failed += 1
                     logger.warning(
                         f"Skipping topic '{topic['name']}' — post generation "
-                        "failed validation twice."
+                        "failed validation."
                     )
                     continue
                 total_input_tokens += post.usage.get("inputTokens", 0)
