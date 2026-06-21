@@ -59,6 +59,12 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick))
     </button>
 
     <div v-if="open" class="picker-panel" role="listbox">
+      <div v-if="selectedCount > 0" class="picker-head">
+        <span class="picker-selected">{{ selectedCount }} selected</span>
+        <button type="button" class="picker-clear" @click="store.clearRunCountries()">
+          Clear all
+        </button>
+      </div>
       <input
         v-model="filter"
         type="text"
@@ -145,6 +151,28 @@ onBeforeUnmount(() => document.removeEventListener('mousedown', onDocClick))
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.28);
   overflow: hidden;
 }
+
+.picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 0;
+}
+.picker-selected {
+  font-size: 12px;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+.picker-clear {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.picker-clear:hover { text-decoration: underline; }
 
 .picker-filter {
   margin: 8px;

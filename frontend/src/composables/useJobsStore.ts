@@ -140,6 +140,16 @@ function toggleRunCountry(code: string): void {
   loadPlatforms()
 }
 
+function clearRunCountries(): void {
+  if (state.selectedRunCountries.length === 0) return
+  state.selectedRunCountries = []
+  persistList(RUN_COUNTRIES_KEY, state.selectedRunCountries)
+  // No countries → no platform options or selection either.
+  state.selectedRunPlatforms = []
+  persistList(RUN_PLATFORMS_KEY, state.selectedRunPlatforms)
+  loadPlatforms()
+}
+
 const allPlatformKeys = computed((): Set<string> => {
   const keys = new Set<string>()
   for (const list of Object.values(state.availablePlatforms)) {
@@ -321,6 +331,7 @@ const _store = reactive({
   fetchReport,
   loadCountries,
   toggleRunCountry,
+  clearRunCountries,
   loadPlatforms,
   toggleRunPlatform,
   openSetupGuide,
