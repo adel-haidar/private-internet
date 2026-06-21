@@ -78,6 +78,17 @@ const newCount = computed(() =>
   state.matches.filter(m => m.status === 'new').length,
 )
 
+// Distinct job boards present in the loaded matches, for the Platform filter.
+// Derived from the data so it reflects every publisher JSearch returned, not a
+// hardcoded list.
+const matchPlatforms = computed((): string[] => {
+  const set = new Set<string>()
+  for (const m of state.matches) {
+    if (m.platform) set.add(m.platform)
+  }
+  return [...set].sort((a, b) => a.localeCompare(b))
+})
+
 const sortedMatches = computed((): JobMatch[] => {
   const arr = [...state.matches]
   const dir = state.sortDir === 'asc' ? 1 : -1
@@ -304,6 +315,7 @@ const _store = reactive({
   strongMatchCount,
   appliedCount,
   newCount,
+  matchPlatforms,
   sortedMatches,
   fetchMatches,
   fetchReport,

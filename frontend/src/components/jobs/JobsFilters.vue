@@ -55,7 +55,7 @@ const hasFilters = () =>
       @change="store.setFilter('platform', ($event.target as HTMLSelectElement).value)"
     >
       <option value="">Platform: All</option>
-      <option value="LinkedIn">LinkedIn</option>
+      <option v-for="p in store.matchPlatforms" :key="p" :value="p">{{ p }}</option>
     </select>
 
     <button
