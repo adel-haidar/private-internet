@@ -317,22 +317,24 @@ export function useTradingDesk() {
     if (pollTimer !== null) { clearTimeout(pollTimer); pollTimer = null }
   }
 
-  async function pollRun(runId: string) {
+  async function pollRun(runId: string, throughApproval = false) {
     stopPoll()
     try {
       const bundle = await apiGet<RunBundle>(`/api/trading/desk/runs/${runId}`)
       runBundle.value = bundle
       const status = bundle.run?.status
-      // Keep polling only while the team is actively working. At the approval
-      // gate the run is quiescent (waiting on the user), so stop — otherwise we
-      // re-render every 1.5s for nothing, which can fight UI interactions.
-      const active = status && !TERMINAL_STATUSES.includes(status) && status !== 'awaiting_approval'
-      if (active) {
-        pollTimer = setTimeout(() => pollRun(runId), 1500)
+      const terminal = !!status && TERMINAL_STATUSES.includes(status)
+      if (status === 'done') loadPortfolio()
+      // At the approval gate the run is quiescent (waiting on the user) so we
+      // normally stop — UNLESS we just approved, in which case we must keep
+      // polling through awaiting_approval → executing → done to show the result.
+      const parkedAtGate = status === 'awaiting_approval' && !throughApproval
+      if (status && !terminal && !parkedAtGate) {
+        pollTimer = setTimeout(() => pollRun(runId, throughApproval), 1500)
       }
     } catch {
       // silently retry on transient errors
-      pollTimer = setTimeout(() => pollRun(runId), 3000)
+      pollTimer = setTimeout(() => pollRun(runId, throughApproval), 3000)
     }
   }
 
@@ -434,10 +436,9 @@ export function useTradingDesk() {
     try {
       const bundle = await apiPost<RunBundle>(`/api/trading/desk/runs/${runId}/approve`)
       runBundle.value = bundle
-      const status = bundle.run?.status
-      if (status && !TERMINAL_STATUSES.includes(status)) {
-        pollRun(runId)
-      }
+      // Keep polling THROUGH the approval gate: execution runs in the background
+      // (awaiting_approval → executing → done), so follow it to show the outcome.
+      pollRun(runId, true)
     } catch (e) {
       error.value = e instanceof Error ? e.message : 'Failed to approve run'
     } finally {
