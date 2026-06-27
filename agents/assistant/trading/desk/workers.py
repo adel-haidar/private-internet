@@ -35,35 +35,34 @@ def _jsonable(o):
 
 logger = logging.getLogger(__name__)
 
-# Curated universe of liquid, broadly-available instruments that reliably resolve
-# on Trading 212 (the snapshot only carries INDICES, so without this the model
-# invents untradeable tickers like 'NXUS'). US single stocks are available to EU
-# retail and resolve by their plain ticker; ETFs here are UCITS (PRIIPs-compliant
-# for EU accounts — US-domiciled ETFs like SPY/QQQ are NOT available to EU retail).
-# The desk picks ONLY from this list, so every candidate is tradeable.
+# Curated universe of liquid instruments that (1) resolve on Trading 212 and
+# (2) have a plain Yahoo Finance symbol so the desk can price them to size orders.
+# The snapshot only carries INDICES, so without this the model invents untradeable
+# tickers like 'NXUS'. Every entry is US-LISTED (incl. ADRs ASML/SAP/NVO/SHEL): the
+# same plain ticker prices on Yahoo (USD) AND resolves on T212. UCITS ETFs are
+# intentionally excluded for now — their Yahoo symbols need exchange suffixes
+# (VUSA.L) and are quoted in GBp, which broke sizing ("No price to size VUSA").
+# The desk picks ONLY from this list, so every candidate is priceable + tradeable.
 TRADEABLE_UNIVERSE: list[dict] = [
-    {"ticker": "AAPL",  "name": "Apple",                 "region": "us",     "asset_class": "equity"},
-    {"ticker": "MSFT",  "name": "Microsoft",             "region": "us",     "asset_class": "equity"},
-    {"ticker": "NVDA",  "name": "NVIDIA",                "region": "us",     "asset_class": "equity"},
-    {"ticker": "GOOGL", "name": "Alphabet",              "region": "us",     "asset_class": "equity"},
-    {"ticker": "AMZN",  "name": "Amazon",                "region": "us",     "asset_class": "equity"},
-    {"ticker": "META",  "name": "Meta Platforms",        "region": "us",     "asset_class": "equity"},
-    {"ticker": "TSLA",  "name": "Tesla",                 "region": "us",     "asset_class": "equity"},
-    {"ticker": "AMD",   "name": "AMD",                   "region": "us",     "asset_class": "equity"},
-    {"ticker": "JPM",   "name": "JPMorgan Chase",        "region": "us",     "asset_class": "equity"},
-    {"ticker": "V",     "name": "Visa",                  "region": "us",     "asset_class": "equity"},
-    {"ticker": "JNJ",   "name": "Johnson & Johnson",     "region": "us",     "asset_class": "equity"},
-    {"ticker": "PG",    "name": "Procter & Gamble",      "region": "us",     "asset_class": "equity"},
-    {"ticker": "KO",    "name": "Coca-Cola",             "region": "us",     "asset_class": "equity"},
-    {"ticker": "WMT",   "name": "Walmart",               "region": "us",     "asset_class": "equity"},
-    {"ticker": "XOM",   "name": "Exxon Mobil",           "region": "us",     "asset_class": "equity"},
-    {"ticker": "ASML",  "name": "ASML Holding",          "region": "europe", "asset_class": "equity"},
-    {"ticker": "SAP",   "name": "SAP SE",                "region": "europe", "asset_class": "equity"},
-    {"ticker": "NVO",   "name": "Novo Nordisk",          "region": "europe", "asset_class": "equity"},
-    {"ticker": "SHEL",  "name": "Shell plc",             "region": "europe", "asset_class": "equity"},
-    {"ticker": "VUSA",  "name": "Vanguard S&P 500 UCITS ETF",       "region": "europe", "asset_class": "etf"},
-    {"ticker": "VWRL",  "name": "Vanguard FTSE All-World UCITS ETF", "region": "europe", "asset_class": "etf"},
-    {"ticker": "EQQQ",  "name": "Invesco Nasdaq-100 UCITS ETF",     "region": "europe", "asset_class": "etf"},
+    {"ticker": "AAPL",  "name": "Apple",             "region": "us",     "asset_class": "equity"},
+    {"ticker": "MSFT",  "name": "Microsoft",         "region": "us",     "asset_class": "equity"},
+    {"ticker": "NVDA",  "name": "NVIDIA",            "region": "us",     "asset_class": "equity"},
+    {"ticker": "GOOGL", "name": "Alphabet",          "region": "us",     "asset_class": "equity"},
+    {"ticker": "AMZN",  "name": "Amazon",            "region": "us",     "asset_class": "equity"},
+    {"ticker": "META",  "name": "Meta Platforms",    "region": "us",     "asset_class": "equity"},
+    {"ticker": "TSLA",  "name": "Tesla",             "region": "us",     "asset_class": "equity"},
+    {"ticker": "AMD",   "name": "AMD",               "region": "us",     "asset_class": "equity"},
+    {"ticker": "JPM",   "name": "JPMorgan Chase",    "region": "us",     "asset_class": "equity"},
+    {"ticker": "V",     "name": "Visa",              "region": "us",     "asset_class": "equity"},
+    {"ticker": "JNJ",   "name": "Johnson & Johnson", "region": "us",     "asset_class": "equity"},
+    {"ticker": "PG",    "name": "Procter & Gamble",  "region": "us",     "asset_class": "equity"},
+    {"ticker": "KO",    "name": "Coca-Cola",         "region": "us",     "asset_class": "equity"},
+    {"ticker": "WMT",   "name": "Walmart",           "region": "us",     "asset_class": "equity"},
+    {"ticker": "XOM",   "name": "Exxon Mobil",       "region": "us",     "asset_class": "equity"},
+    {"ticker": "ASML",  "name": "ASML Holding",      "region": "europe", "asset_class": "equity"},
+    {"ticker": "SAP",   "name": "SAP SE",            "region": "europe", "asset_class": "equity"},
+    {"ticker": "NVO",   "name": "Novo Nordisk",      "region": "europe", "asset_class": "equity"},
+    {"ticker": "SHEL",  "name": "Shell plc",         "region": "europe", "asset_class": "equity"},
 ]
 
 
