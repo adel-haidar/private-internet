@@ -20,6 +20,7 @@ from assistant.trading.day_trader import DayTrader
 from assistant.trading.market_data import collect_market_snapshot
 from assistant.trading import db as trading_db
 from assistant.trading.desk import coordinator as desk_coordinator
+from assistant.trading.desk.workers import TRADEABLE_UNIVERSE
 from assistant.trading.desk.brokers.base import BrokerError
 from assistant.trading.desk.brokers.trading212 import Trading212Broker
 from assistant.trading.desk.crypto import encrypt
@@ -621,6 +622,24 @@ async def desk_start_run(ident: dict = Depends(require_user)):
                 status_code=400,
                 detail=(f"Your Trading 212 available cash (€{free:.2f}) minus the "
                         f"€{reserve:.2f} reserve floor leaves nothing to allocate."),
+            )
+
+        # Pre-flight: Trading 212 places WHOLE shares only, so a single trade must
+        # afford at least one share of the cheapest available name. Fail fast with
+        # guidance instead of running a full pipeline that can place nothing.
+        max_trade_pct = float((cfg.get("guardrails") or {}).get("max_trade_pct") or 100)
+        per_trade_budget = allocation * max_trade_pct / 100.0
+        cheapest = min((u.get("approx_price", 0) for u in TRADEABLE_UNIVERSE), default=0)
+        if cheapest and per_trade_budget < cheapest:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Each trade can use at most €{per_trade_budget:.2f} "
+                    f"(allocation €{allocation:.0f} × max-per-trade {max_trade_pct:.0f}%), "
+                    f"but Trading 212 only buys whole shares and the cheapest available "
+                    f"stock is ~€{cheapest:.0f}/share. Raise your allocation or the "
+                    f"max-per-trade guardrail so one order can afford a whole share."
+                ),
             )
 
     run = await trading_db.create_run(
