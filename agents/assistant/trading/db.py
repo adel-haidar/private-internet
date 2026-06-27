@@ -1,0 +1,510 @@
+"""Persistence layer for the Agent Trading Desk (Service B, asyncpg).
+
+Owns all `trading_*` tables and the async helpers the desk service/coordinator
+call. Mirrors the schema in `migrations/0026_trading_desk.sql`, bootstrapped
+idempotently on first use (the desk routes never call init explicitly, so the
+pool self-initialises and verifies the schema lazily).
+
+Conventions:
+- Every user-data query is scoped by user_id.  # MUST SCOPE BY USER
+- user_id may be NULL (seed-admin / internal callers), so scoping uses
+  `IS NOT DISTINCT FROM` and upserts are UPDATE-then-INSERT rather than
+  ON CONFLICT (which never matches a NULL key).
+- NUMERIC columns are bound as Decimal (asyncpg rejects float for numeric).
+- JSONB columns (universe, guardrails, evidence) round-trip as Python
+  objects via a connection codec.
+"""
+
+import asyncio
+import json
+import logging
+from decimal import Decimal
+from typing import Any, Optional
+
+import asyncpg
+
+from assistant.shared.settings import get_settings
+
+logger = logging.getLogger(__name__)
+
+_DDL = """
+CREATE TABLE IF NOT EXISTS trading_config (
+    user_id         UUID,
+    account         TEXT,
+    strategy        TEXT,
+    mode            TEXT,
+    allocation      NUMERIC,
+    reserve_floor   NUMERIC,
+    universe        JSONB,
+    guardrails      JSONB,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS trading_broker_connection (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id          UUID NOT NULL,
+    provider         TEXT NOT NULL DEFAULT 'trading212',
+    environment      TEXT,
+    api_key_enc      TEXT,
+    api_secret_enc   TEXT,
+    status           TEXT,
+    label            TEXT,
+    connected_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_verified_at TIMESTAMPTZ,
+    UNIQUE (user_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_trading_broker_user
+    ON trading_broker_connection (user_id);
+
+CREATE TABLE IF NOT EXISTS trading_run (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID NOT NULL,
+    account      TEXT,
+    strategy     TEXT,
+    mode         TEXT,
+    allocation   NUMERIC,
+    reserve      NUMERIC,
+    status       TEXT NOT NULL DEFAULT 'researching',
+    market_read  TEXT,
+    notional     NUMERIC,
+    error        TEXT,
+    started_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_trading_run_user
+    ON trading_run (user_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS trading_run_event (
+    id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id     UUID NOT NULL,
+    user_id    UUID NOT NULL,
+    stage      TEXT,
+    agent      TEXT,
+    type       TEXT,
+    message    TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_trading_run_event_run
+    ON trading_run_event (run_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_trading_run_event_user
+    ON trading_run_event (user_id);
+
+CREATE TABLE IF NOT EXISTS trading_trade (
+    id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id             UUID NOT NULL,
+    user_id            UUID NOT NULL,
+    ticker             TEXT,
+    name               TEXT,
+    side               TEXT,
+    amount             NUMERIC,
+    pct_of_allocation  NUMERIC,
+    headline           TEXT,
+    reasoning          TEXT,
+    evidence           JSONB,
+    risk_verdict       TEXT,
+    risk_note          TEXT,
+    kept               BOOLEAN NOT NULL DEFAULT TRUE,
+    status             TEXT    NOT NULL DEFAULT 'pending',
+    order_type         TEXT,
+    limit_price        NUMERIC,
+    broker_order_id    TEXT,
+    filled_qty         NUMERIC,
+    filled_price       NUMERIC,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_trading_trade_run
+    ON trading_trade (run_id);
+CREATE INDEX IF NOT EXISTS idx_trading_trade_user
+    ON trading_trade (user_id);
+
+CREATE TABLE IF NOT EXISTS trading_position (
+    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID NOT NULL,
+    account     TEXT NOT NULL,
+    ticker      TEXT NOT NULL,
+    name        TEXT,
+    qty         NUMERIC,
+    avg_price   NUMERIC,
+    asset_class TEXT,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (user_id, account, ticker)
+);
+CREATE INDEX IF NOT EXISTS idx_trading_position_user
+    ON trading_position (user_id, account);
+
+CREATE TABLE IF NOT EXISTS trading_paper_account (
+    user_id          UUID PRIMARY KEY,
+    cash             NUMERIC NOT NULL DEFAULT 100000,
+    starting_balance NUMERIC NOT NULL DEFAULT 100000,
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+"""
+
+_pool: Optional[asyncpg.Pool] = None
+_init_lock = asyncio.Lock()
+
+
+async def _init_conn(conn: asyncpg.Connection) -> None:
+    """Make JSONB columns round-trip as Python objects."""
+    await conn.set_type_codec(
+        "jsonb", encoder=json.dumps, decoder=json.loads, schema="pg_catalog"
+    )
+
+
+async def _get_pool() -> asyncpg.Pool:
+    """Lazily create the pool and verify the schema (idempotent)."""
+    global _pool
+    if _pool is not None:
+        return _pool
+    async with _init_lock:
+        if _pool is None:
+            database_url = get_settings().database_url
+            if not database_url:
+                raise RuntimeError("Database not configured (DATABASE_URL missing)")
+            pool = await asyncpg.create_pool(
+                database_url, init=_init_conn, min_size=1, max_size=5
+            )
+            async with pool.acquire() as conn:
+                await conn.execute(_DDL)
+            _pool = pool
+            logger.info("Trading desk DB pool initialised and schema verified")
+    return _pool
+
+
+async def init_pool(database_url: str | None = None) -> asyncpg.Pool:
+    """Explicit init hook (e.g. for an app lifespan). Self-init also works."""
+    return await _get_pool()
+
+
+def get_pool() -> asyncpg.Pool:
+    if _pool is None:
+        raise RuntimeError("Trading desk DB pool not initialised")
+    return _pool
+
+
+# ── helpers ──────────────────────────────────────────────────────────────────
+
+def _dec(x: Any) -> Optional[Decimal]:
+    """Coerce a number to Decimal for NUMERIC binding (asyncpg rejects float)."""
+    if x is None:
+        return None
+    if isinstance(x, Decimal):
+        return x
+    return Decimal(str(x))
+
+
+def _uid(x: Any) -> Optional[str]:
+    return str(x) if x is not None else None
+
+
+# ── config ───────────────────────────────────────────────────────────────────
+
+async def get_config(user_id) -> Optional[dict]:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        row = await conn.fetchrow(
+            "SELECT user_id, account, strategy, mode, allocation, reserve_floor, "
+            "universe, guardrails, updated_at FROM trading_config "
+            "WHERE user_id IS NOT DISTINCT FROM $1::uuid",
+            _uid(user_id),
+        )
+        return dict(row) if row else None
+
+
+async def upsert_config(user_id, **fields) -> dict:
+    pool = await _get_pool()
+    args = (
+        _uid(user_id),
+        fields.get("account"),
+        fields.get("strategy"),
+        fields.get("mode"),
+        _dec(fields.get("allocation")),
+        _dec(fields.get("reserve_floor")),
+        fields.get("universe"),
+        fields.get("guardrails"),
+    )
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER — UPDATE-then-INSERT (NULL user_id can't ON CONFLICT)
+        updated = await conn.fetchrow(
+            "UPDATE trading_config SET account=$2, strategy=$3, mode=$4, "
+            "allocation=$5, reserve_floor=$6, universe=$7, guardrails=$8, "
+            "updated_at=NOW() WHERE user_id IS NOT DISTINCT FROM $1::uuid RETURNING *",
+            *args,
+        )
+        if updated:
+            return dict(updated)
+        inserted = await conn.fetchrow(
+            "INSERT INTO trading_config (user_id, account, strategy, mode, "
+            "allocation, reserve_floor, universe, guardrails) "
+            "VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8) RETURNING *",
+            *args,
+        )
+        return dict(inserted)
+
+
+# ── broker connection ────────────────────────────────────────────────────────
+
+async def get_broker(user_id, provider="trading212") -> Optional[dict]:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        row = await conn.fetchrow(
+            "SELECT * FROM trading_broker_connection "
+            "WHERE user_id IS NOT DISTINCT FROM $1::uuid AND provider=$2",
+            _uid(user_id), provider,
+        )
+        return dict(row) if row else None
+
+
+async def upsert_broker(
+    user_id, provider, environment, api_key_enc, api_secret_enc, status, label
+) -> dict:
+    pool = await _get_pool()
+    args = (_uid(user_id), provider, environment, api_key_enc, api_secret_enc, status, label)
+    async with pool.acquire() as conn:
+        updated = await conn.fetchrow(
+            "UPDATE trading_broker_connection SET environment=$3, api_key_enc=$4, "
+            "api_secret_enc=$5, status=$6, label=$7, connected_at=NOW() "
+            "WHERE user_id=$1::uuid AND provider=$2 RETURNING *",
+            *args,
+        )
+        if updated:
+            return dict(updated)
+        inserted = await conn.fetchrow(
+            "INSERT INTO trading_broker_connection (user_id, provider, environment, "
+            "api_key_enc, api_secret_enc, status, label) "
+            "VALUES ($1::uuid,$2,$3,$4,$5,$6,$7) RETURNING *",
+            *args,
+        )
+        return dict(inserted)
+
+
+async def set_broker_verified(user_id, provider="trading212") -> None:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE trading_broker_connection SET last_verified_at=NOW(), "
+            "status='connected' WHERE user_id=$1::uuid AND provider=$2",
+            _uid(user_id), provider,
+        )
+
+
+async def delete_broker(user_id, provider="trading212") -> None:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "DELETE FROM trading_broker_connection "
+            "WHERE user_id=$1::uuid AND provider=$2",
+            _uid(user_id), provider,
+        )
+
+
+# ── runs ─────────────────────────────────────────────────────────────────────
+
+async def create_run(user_id, account, strategy, mode, allocation, reserve) -> dict:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "INSERT INTO trading_run (user_id, account, strategy, mode, allocation, "
+            "reserve, status) VALUES ($1::uuid,$2,$3,$4,$5,$6,'researching') RETURNING *",
+            _uid(user_id), account, strategy, mode, _dec(allocation), _dec(reserve),
+        )
+        return dict(row)
+
+
+_RUN_FIELDS = {
+    "account", "strategy", "mode", "allocation", "reserve", "status",
+    "market_read", "notional", "error", "started_at", "finished_at",
+}
+_RUN_NUMERIC = {"allocation", "reserve", "notional"}
+
+
+async def update_run(run_id, **fields) -> None:
+    updates = {k: v for k, v in fields.items() if k in _RUN_FIELDS}
+    if not updates:
+        return
+    pool = await _get_pool()
+    sets, args = [], []
+    for i, (k, v) in enumerate(updates.items(), start=1):
+        args.append(_dec(v) if k in _RUN_NUMERIC else v)
+        sets.append(f"{k}=${i}")
+    args.append(str(run_id))
+    async with pool.acquire() as conn:
+        await conn.execute(
+            f"UPDATE trading_run SET {', '.join(sets)} WHERE id=${len(args)}::uuid",
+            *args,
+        )
+
+
+async def get_run(run_id, user_id) -> Optional[dict]:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        row = await conn.fetchrow(
+            "SELECT * FROM trading_run WHERE id=$1::uuid "
+            "AND user_id IS NOT DISTINCT FROM $2::uuid",
+            str(run_id), _uid(user_id),
+        )
+        return dict(row) if row else None
+
+
+async def latest_run(user_id) -> Optional[dict]:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        row = await conn.fetchrow(
+            "SELECT * FROM trading_run WHERE user_id IS NOT DISTINCT FROM $1::uuid "
+            "ORDER BY started_at DESC LIMIT 1",
+            _uid(user_id),
+        )
+        return dict(row) if row else None
+
+
+# ── events ───────────────────────────────────────────────────────────────────
+
+async def add_event(run_id, user_id, stage, agent, type, message) -> None:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO trading_run_event (run_id, user_id, stage, agent, type, message) "
+            "VALUES ($1::uuid,$2::uuid,$3,$4,$5,$6)",
+            str(run_id), _uid(user_id), stage, agent, type, message,
+        )
+
+
+async def list_events(run_id, user_id) -> list[dict]:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        rows = await conn.fetch(
+            "SELECT * FROM trading_run_event WHERE run_id=$1::uuid "
+            "AND user_id IS NOT DISTINCT FROM $2::uuid ORDER BY created_at ASC",
+            str(run_id), _uid(user_id),
+        )
+        return [dict(r) for r in rows]
+
+
+# ── trades ───────────────────────────────────────────────────────────────────
+
+async def add_trades(run_id, user_id, trades: list[dict]) -> list[dict]:
+    pool = await _get_pool()
+    out: list[dict] = []
+    async with pool.acquire() as conn:
+        for t in trades:
+            row = await conn.fetchrow(
+                "INSERT INTO trading_trade (run_id, user_id, ticker, name, side, amount, "
+                "pct_of_allocation, headline, reasoning, evidence, risk_verdict, risk_note, "
+                "kept, status, order_type, limit_price) VALUES "
+                "($1::uuid,$2::uuid,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *",
+                str(run_id), _uid(user_id),
+                t.get("ticker"), t.get("name"), t.get("side"),
+                _dec(t.get("amount")), _dec(t.get("pct_of_allocation")),
+                t.get("headline"), t.get("reasoning"), t.get("evidence") or [],
+                t.get("risk_verdict"), t.get("risk_note"),
+                bool(t.get("kept", True)), t.get("status") or "pending",
+                t.get("order_type"), _dec(t.get("limit_price")),
+            )
+            out.append(dict(row))
+    return out
+
+
+async def list_trades(run_id, user_id) -> list[dict]:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        rows = await conn.fetch(
+            "SELECT * FROM trading_trade WHERE run_id=$1::uuid "
+            "AND user_id IS NOT DISTINCT FROM $2::uuid ORDER BY created_at ASC",
+            str(run_id), _uid(user_id),
+        )
+        return [dict(r) for r in rows]
+
+
+async def set_trade_kept(trade_id, user_id, kept: bool) -> None:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        await conn.execute(
+            "UPDATE trading_trade SET kept=$3 WHERE id=$1::uuid "
+            "AND user_id IS NOT DISTINCT FROM $2::uuid",
+            str(trade_id), _uid(user_id), bool(kept),
+        )
+
+
+_TRADE_FIELDS = {"status", "broker_order_id", "filled_qty", "filled_price"}
+_TRADE_NUMERIC = {"filled_qty", "filled_price"}
+
+
+async def update_trade(trade_id, user_id, **fields) -> None:
+    updates = {k: v for k, v in fields.items() if k in _TRADE_FIELDS}
+    if not updates:
+        return
+    pool = await _get_pool()
+    sets, args = [], []
+    for i, (k, v) in enumerate(updates.items(), start=1):
+        args.append(_dec(v) if k in _TRADE_NUMERIC else v)
+        sets.append(f"{k}=${i}")
+    id_pos = len(args) + 1
+    user_pos = len(args) + 2
+    args.extend([str(trade_id), _uid(user_id)])
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        await conn.execute(
+            f"UPDATE trading_trade SET {', '.join(sets)} "
+            f"WHERE id=${id_pos}::uuid AND user_id IS NOT DISTINCT FROM ${user_pos}::uuid",
+            *args,
+        )
+
+
+# ── paper account + positions ────────────────────────────────────────────────
+
+async def get_paper_account(user_id) -> dict:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO trading_paper_account (user_id) VALUES ($1::uuid) "
+            "ON CONFLICT (user_id) DO NOTHING",
+            _uid(user_id),
+        )
+        row = await conn.fetchrow(
+            "SELECT * FROM trading_paper_account WHERE user_id=$1::uuid",
+            _uid(user_id),
+        )
+        return dict(row)
+
+
+async def adjust_paper_cash(user_id, delta) -> None:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE trading_paper_account SET cash=cash+$2, updated_at=NOW() "
+            "WHERE user_id=$1::uuid",
+            _uid(user_id), _dec(delta),
+        )
+
+
+async def get_positions(user_id, account) -> list[dict]:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        rows = await conn.fetch(
+            "SELECT * FROM trading_position WHERE user_id IS NOT DISTINCT FROM $1::uuid "
+            "AND account=$2 ORDER BY ticker ASC",
+            _uid(user_id), account,
+        )
+        return [dict(r) for r in rows]
+
+
+async def upsert_position(user_id, account, ticker, name, qty, avg_price, asset_class) -> None:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO trading_position (user_id, account, ticker, name, qty, "
+            "avg_price, asset_class) VALUES ($1::uuid,$2,$3,$4,$5,$6,$7) "
+            "ON CONFLICT (user_id, account, ticker) DO UPDATE SET "
+            "name=EXCLUDED.name, qty=EXCLUDED.qty, avg_price=EXCLUDED.avg_price, "
+            "asset_class=EXCLUDED.asset_class, updated_at=NOW()",
+            _uid(user_id), account, ticker, name, _dec(qty), _dec(avg_price), asset_class,
+        )

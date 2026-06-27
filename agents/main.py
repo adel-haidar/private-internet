@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import httpx
@@ -17,6 +18,11 @@ from assistant.banking.investment_adviser import InvestmentAdviser
 from assistant.banking.models import BankAdviserResult
 from assistant.trading.day_trader import DayTrader
 from assistant.trading.market_data import collect_market_snapshot
+from assistant.trading import db as trading_db
+from assistant.trading.desk import coordinator as desk_coordinator
+from assistant.trading.desk.brokers.base import BrokerError
+from assistant.trading.desk.brokers.trading212 import Trading212Broker
+from assistant.trading.desk.crypto import encrypt
 from assistant.health.router import router as health_router
 from assistant.job.router import router as job_router
 from assistant.shared.auth import require_user
@@ -408,3 +414,322 @@ async def latest_day_trading_analysis(settings: SettingsDep, ident: dict = Depen
     if not payload:
         raise HTTPException(status_code=404, detail="No cached analysis available — run one first.")
     return payload
+
+
+# ── Agent Trading Desk (orchestrator-workers) ───────────────────────────────────
+# All routes under /api/trading/desk. Scoped by ident["user_id"]. Never returns
+# secrets, never returns 403 (CloudFront rewrites 403/404 → SPA index.html).
+
+# Strategy → guardrail defaults (from the design handoff / DESK_CONTRACT.md).
+_STRATEGY_GUARDRAILS: dict[str, dict] = {
+    "conservative": {"max_trade_pct": 8,  "day_loss_pct": 1.5, "crypto_pct": 0,  "default_stop_pct": 6},
+    "moderate":     {"max_trade_pct": 18, "day_loss_pct": 4,   "crypto_pct": 10, "default_stop_pct": 6},
+    "aggressive":   {"max_trade_pct": 35, "day_loss_pct": 9,   "crypto_pct": 25, "default_stop_pct": 6},
+}
+_DEFAULT_STRATEGY = "moderate"
+_DEFAULT_RESERVE_FLOOR = 5000
+_DEFAULT_ALLOCATION = 25000
+_NON_TERMINAL = {"researching", "drafting", "evaluating", "awaiting_approval", "executing"}
+
+
+class DeskConfigUpdate(BaseModel):
+    account: Literal["paper", "live"] | None = None
+    strategy: Literal["conservative", "moderate", "aggressive"] | None = None
+    mode: Literal["controlled", "auto"] | None = None
+    allocation: float | None = None
+    reserve_floor: float | None = None
+    universe: list | dict | None = None
+    guardrails: dict | None = None
+
+
+class BrokerUpdate(BaseModel):
+    environment: Literal["demo", "live"] = "demo"
+    api_key: str
+    api_secret: str | None = None
+    label: str | None = None
+
+
+def _seeded_config(user_id, strategy: str = _DEFAULT_STRATEGY) -> dict:
+    """Default config (used when a user has none yet)."""
+    return {
+        "account": "paper",
+        "strategy": strategy,
+        "mode": "controlled",
+        "allocation": _DEFAULT_ALLOCATION,
+        "reserve_floor": _DEFAULT_RESERVE_FLOOR,
+        "universe": [],
+        "guardrails": dict(_STRATEGY_GUARDRAILS[strategy]),
+    }
+
+
+@app.get("/api/trading/desk/config")
+async def desk_get_config(ident: dict = Depends(require_user)):
+    user_id = ident["user_id"]
+    cfg = await trading_db.get_config(user_id)
+    if cfg is None:
+        cfg = await trading_db.upsert_config(user_id, **_seeded_config(user_id))
+    return cfg
+
+
+@app.put("/api/trading/desk/config")
+async def desk_put_config(body: DeskConfigUpdate, ident: dict = Depends(require_user)):
+    user_id = ident["user_id"]
+    current = await trading_db.get_config(user_id) or _seeded_config(user_id)
+
+    fields = body.model_dump(exclude_unset=True)
+    # Changing the strategy re-seeds guardrail defaults unless explicitly overridden.
+    if "strategy" in fields and "guardrails" not in fields:
+        new_strategy = fields["strategy"]
+        if new_strategy in _STRATEGY_GUARDRAILS:
+            fields["guardrails"] = dict(_STRATEGY_GUARDRAILS[new_strategy])
+
+    merged = {
+        "account": fields.get("account", current.get("account", "paper")),
+        "strategy": fields.get("strategy", current.get("strategy", _DEFAULT_STRATEGY)),
+        "mode": fields.get("mode", current.get("mode", "controlled")),
+        "allocation": fields.get("allocation", current.get("allocation", _DEFAULT_ALLOCATION)),
+        "reserve_floor": fields.get("reserve_floor", current.get("reserve_floor", _DEFAULT_RESERVE_FLOOR)),
+        "universe": fields.get("universe", current.get("universe", [])),
+        "guardrails": fields.get("guardrails", current.get("guardrails", dict(_STRATEGY_GUARDRAILS[_DEFAULT_STRATEGY]))),
+    }
+    return await trading_db.upsert_config(user_id, **merged)
+
+
+def _broker_view(broker: dict | None) -> dict:
+    """Public broker shape — NEVER includes secrets."""
+    if not broker:
+        return {"connected": False, "provider": "trading212", "environment": None,
+                "label": None, "status": None, "last_verified_at": None}
+    return {
+        "connected": True,
+        "provider": broker.get("provider", "trading212"),
+        "environment": broker.get("environment"),
+        "label": broker.get("label"),
+        "status": broker.get("status"),
+        "last_verified_at": broker.get("last_verified_at"),
+    }
+
+
+@app.get("/api/trading/desk/broker")
+async def desk_get_broker(ident: dict = Depends(require_user)):
+    broker = await trading_db.get_broker(ident["user_id"], provider="trading212")
+    return _broker_view(broker)
+
+
+@app.put("/api/trading/desk/broker")
+async def desk_put_broker(body: BrokerUpdate, ident: dict = Depends(require_user)):
+    user_id = ident["user_id"]
+    # Verify the key with a real get_cash() call BEFORE storing anything.
+    try:
+        adapter = Trading212Broker(body.api_key, body.api_secret, environment=body.environment)
+        await adapter.get_cash()
+    except BrokerError as exc:
+        # Bad/unauthorised key → 400 (never 403).
+        raise HTTPException(status_code=400, detail=f"Could not verify Trading 212 key: {exc}")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not verify Trading 212 key: {exc}")
+
+    api_key_enc = encrypt(body.api_key)
+    api_secret_enc = encrypt(body.api_secret) if body.api_secret else None
+    await trading_db.upsert_broker(
+        user_id, "trading212", body.environment, api_key_enc, api_secret_enc,
+        "connected", body.label,
+    )
+    await trading_db.set_broker_verified(user_id, provider="trading212")
+    broker = await trading_db.get_broker(user_id, provider="trading212")
+    return _broker_view(broker)
+
+
+@app.delete("/api/trading/desk/broker")
+async def desk_delete_broker(ident: dict = Depends(require_user)):
+    await trading_db.delete_broker(ident["user_id"], provider="trading212")
+    return {"connected": False}
+
+
+async def _run_bundle(run_id, user_id) -> dict:
+    run = await trading_db.get_run(run_id, user_id)
+    if run is None:
+        raise HTTPException(status_code=400, detail="Run not found.")
+    events = await trading_db.list_events(run_id, user_id)
+    trades = await trading_db.list_trades(run_id, user_id)
+    return {"run": run, "events": events, "trades": trades}
+
+
+@app.post("/api/trading/desk/runs")
+async def desk_start_run(ident: dict = Depends(require_user)):
+    user_id = ident["user_id"]
+    # 409 if a run is already in progress for this user.
+    latest = await trading_db.latest_run(user_id)
+    if latest and latest.get("status") in _NON_TERMINAL:
+        raise HTTPException(status_code=409, detail="A trading run is already in progress.")
+
+    cfg = await trading_db.get_config(user_id)
+    if cfg is None:
+        cfg = await trading_db.upsert_config(user_id, **_seeded_config(user_id))
+
+    run = await trading_db.create_run(
+        user_id,
+        account=cfg.get("account", "paper"),
+        strategy=cfg.get("strategy", _DEFAULT_STRATEGY),
+        mode=cfg.get("mode", "controlled"),
+        allocation=cfg.get("allocation", _DEFAULT_ALLOCATION),
+        reserve=cfg.get("reserve_floor", _DEFAULT_RESERVE_FLOOR),
+    )
+    # Launch the orchestrator as a detached background task; the frontend polls.
+    asyncio.create_task(desk_coordinator.run_desk(run["id"], user_id, cfg, token=ident["token"]))
+    return {"run": run, "events": [], "trades": []}
+
+
+@app.get("/api/trading/desk/runs/latest")
+async def desk_latest_run(ident: dict = Depends(require_user)):
+    user_id = ident["user_id"]
+    run = await trading_db.latest_run(user_id)
+    if run is None:
+        return {"run": None}
+    return await _run_bundle(run["id"], user_id)
+
+
+@app.get("/api/trading/desk/runs/{run_id}")
+async def desk_get_run(run_id: str, ident: dict = Depends(require_user)):
+    return await _run_bundle(run_id, ident["user_id"])
+
+
+@app.post("/api/trading/desk/runs/{run_id}/approve")
+async def desk_approve_run(run_id: str, ident: dict = Depends(require_user)):
+    user_id = ident["user_id"]
+    run = await trading_db.get_run(run_id, user_id)
+    if run is None:
+        raise HTTPException(status_code=400, detail="Run not found.")
+    if run.get("status") != "awaiting_approval":
+        raise HTTPException(status_code=400, detail="Run is not awaiting approval.")
+    asyncio.create_task(desk_coordinator.execute_run(run_id, user_id))
+    return await _run_bundle(run_id, user_id)
+
+
+@app.post("/api/trading/desk/runs/{run_id}/deny")
+async def desk_deny_run(run_id: str, ident: dict = Depends(require_user)):
+    user_id = ident["user_id"]
+    run = await trading_db.get_run(run_id, user_id)
+    if run is None:
+        raise HTTPException(status_code=400, detail="Run not found.")
+    await trading_db.update_run(run_id, status="denied", finished_at=datetime.now(timezone.utc))
+    await trading_db.add_event(run_id, user_id, "execute", "coordinator", "done", "Run denied by user.")
+    return await _run_bundle(run_id, user_id)
+
+
+@app.post("/api/trading/desk/runs/{run_id}/cancel")
+async def desk_cancel_run(run_id: str, ident: dict = Depends(require_user)):
+    user_id = ident["user_id"]
+    run = await trading_db.get_run(run_id, user_id)
+    if run is None:
+        raise HTTPException(status_code=400, detail="Run not found.")
+    await trading_db.update_run(run_id, status="cancelled", finished_at=datetime.now(timezone.utc))
+    await trading_db.add_event(run_id, user_id, "execute", "coordinator", "done", "Run cancelled by user.")
+    return await _run_bundle(run_id, user_id)
+
+
+async def _set_trade_kept_and_return(trade_id: str, user_id, kept: bool) -> dict:
+    await trading_db.set_trade_kept(trade_id, user_id, kept)
+    trades = None
+    # Recompute the owning run's notional.
+    trade = None
+    # list_trades requires a run_id, so find the trade's run via latest first.
+    latest = await trading_db.latest_run(user_id)
+    if latest:
+        for t in await trading_db.list_trades(latest["id"], user_id):
+            if str(t["id"]) == str(trade_id):
+                trade = t
+                trades = await trading_db.list_trades(latest["id"], user_id)
+                break
+    if trade is None:
+        raise HTTPException(status_code=400, detail="Trade not found.")
+    notional = 0.0
+    for t in trades or []:
+        if t.get("kept", True) and t.get("risk_verdict") != "rejected" and t.get("status") != "skipped":
+            notional += float(t.get("amount") or 0)
+    await trading_db.update_run(latest["id"], notional=round(notional, 2))
+    return trade
+
+
+@app.post("/api/trading/desk/trades/{trade_id}/keep")
+async def desk_keep_trade(trade_id: str, ident: dict = Depends(require_user)):
+    return await _set_trade_kept_and_return(trade_id, ident["user_id"], True)
+
+
+@app.post("/api/trading/desk/trades/{trade_id}/skip")
+async def desk_skip_trade(trade_id: str, ident: dict = Depends(require_user)):
+    return await _set_trade_kept_and_return(trade_id, ident["user_id"], False)
+
+
+@app.get("/api/trading/desk/portfolio")
+async def desk_portfolio(ident: dict = Depends(require_user)):
+    user_id = ident["user_id"]
+    cfg = await trading_db.get_config(user_id)
+    account = (cfg or {}).get("account", "paper")
+
+    if account == "paper":
+        acct = await trading_db.get_paper_account(user_id)
+        cash = float(acct["cash"])
+        starting = float(acct.get("starting_balance", cash))
+        positions = await trading_db.get_positions(user_id, "paper")
+        snapshot = await collect_market_snapshot()
+        price_lookup = desk_coordinator._snapshot_price_lookup(snapshot)
+        holdings = []
+        holdings_value = 0.0
+        for p in positions:
+            price = price_lookup(p["ticker"])
+            if price is None:
+                price = await desk_coordinator._quote_for(p["ticker"])
+            qty = float(p["qty"])
+            value = round(qty * price, 2) if price else None
+            if value:
+                holdings_value += value
+            holdings.append({
+                "ticker": p["ticker"],
+                "name": p.get("name") or p["ticker"],
+                "value": value,
+                "pct": None,
+                "day_change": None,
+                "asset_class": p.get("asset_class") or "equity",
+            })
+        total = round(cash + holdings_value, 2)
+        for h in holdings:
+            if h["value"] and total:
+                h["pct"] = round(h["value"] / total * 100, 2)
+        return {
+            "account": "paper",
+            "value": total,
+            "cash": round(cash, 2),
+            "day_change": None,
+            "since_funded": round(total - starting, 2),
+            "holdings": holdings,
+        }
+
+    # Live → Trading 212.
+    broker = await trading_db.get_broker(user_id, provider="trading212")
+    if not broker or not broker.get("api_key_enc"):
+        raise HTTPException(status_code=400, detail="No Trading 212 broker connected.")
+    try:
+        broker_adapter = await desk_coordinator._make_broker(user_id, "live", None)
+        cash = await broker_adapter.get_cash()
+        positions = await broker_adapter.get_positions()
+    except BrokerError as exc:
+        raise HTTPException(status_code=502, detail=f"Trading 212 unavailable: {exc}")
+    holdings = [{
+        "ticker": p.get("ticker"),
+        "name": p.get("name") or p.get("ticker"),
+        "value": p.get("value"),
+        "pct": None,
+        "day_change": None,
+        "asset_class": p.get("asset_class") or "equity",
+    } for p in positions]
+    free = cash.get("free") or 0
+    total = cash.get("total") or free
+    return {
+        "account": "live",
+        "value": total,
+        "cash": free,
+        "day_change": None,
+        "since_funded": None,
+        "holdings": holdings,
+    }

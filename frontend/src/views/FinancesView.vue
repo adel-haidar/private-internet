@@ -16,6 +16,7 @@ import PeriodControls from '../components/finances/PeriodControls.vue'
 import SpendingBudgetPanel from '../components/finances/SpendingBudgetPanel.vue'
 import InvestingPanel from '../components/finances/InvestingPanel.vue'
 import DayTradingPanel from '../components/finances/DayTradingPanel.vue'
+import TradingDeskPanel from '../components/finances/TradingDeskPanel.vue'
 import GoalPrompt from '../components/GoalPrompt.vue'
 import { useBankAdviser, type AnalysisParams } from '../composables/useBankAdviser'
 import { requireAuth } from '../composables/useAuth'
@@ -57,7 +58,7 @@ const TABS = [
   { value: 'overview',    label: 'Overview' },
   { value: 'spending',    label: 'Spending & budget' },
   { value: 'investments', label: 'Investments' },
-  { value: 'trading',     label: 'Day trading' },
+  { value: 'trading',     label: 'Trading' },
 ]
 const activeTab = ref<'overview' | 'spending' | 'investments' | 'trading'>('overview')
 
@@ -320,8 +321,15 @@ async function deleteAll() {
     <!-- ══ INVESTMENTS ══ -->
     <InvestingPanel v-else-if="activeTab === 'investments'" />
 
-    <!-- ══ DAY TRADING ══ -->
-    <DayTradingPanel v-else-if="activeTab === 'trading'" />
+    <!-- ══ TRADING (Agent Trading Desk) ══ -->
+    <template v-else-if="activeTab === 'trading'">
+      <TradingDeskPanel />
+      <!-- Legacy day-trading analysis (market snapshot / buy-hold-sell recommendations) -->
+      <div style="margin-top: var(--space-8); padding-top: var(--space-6); border-top: 1px solid var(--border-subtle);">
+        <div style="font-family: var(--font-display); font-weight: 600; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-tertiary); margin-bottom: var(--space-4);">Market snapshot analysis</div>
+        <DayTradingPanel />
+      </div>
+    </template>
   </div>
 
   <ConfirmModal
