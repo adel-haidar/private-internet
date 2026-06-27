@@ -60,7 +60,7 @@ const activeWorkspace = computed(() => {
 
 // ── Money formatting ─────────────────────────────────────────────────────────
 function money(v: number, currency = '€'): string {
-  return `${currency}${Math.round(v).toLocaleString('de-DE')}`
+  return `${currency}${(v ?? 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 function pct(v: number): string {
   return `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`

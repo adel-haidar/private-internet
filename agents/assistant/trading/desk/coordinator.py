@@ -185,6 +185,7 @@ async def run_desk(run_id, user_id, config: dict, token: str | None = None) -> N
         reviewed = await asyncio.to_thread(risk.evaluate, drafted, config)
         trade_rows = _to_trade_rows(reviewed.get("trades", []), config)
         trade_rows = _sanitize_trades(trade_rows, positions)
+        trade_rows = _enforce_budget(trade_rows, config)  # code-enforced money guardrails
         if trade_rows:
             await db.add_trades(run_id, user_id, trade_rows)
         kept = [t for t in trade_rows if t["kept"] and t["risk_verdict"] != "rejected"]
@@ -233,6 +234,63 @@ def _sanitize_trades(rows: list[dict], positions: list[dict] | None) -> list[dic
             r["status"] = "rejected"
             note = (r.get("risk_note") or "").strip()
             r["risk_note"] = (note + " " if note else "") + reason
+    return rows
+
+
+def _enforce_budget(rows: list[dict], config: dict) -> list[dict]:
+    """CODE-enforce the money guardrails — never trust the LLM's arithmetic.
+
+    The Strategist/RiskOfficer can emit an `amount` that bears no relation to the
+    real allocation (e.g. €1450 on a €25 allocation, mislabelled '5.8%'). This is
+    the deterministic backstop: clamp each BUY to max_trade_pct% of the REAL
+    allocation, keep the running total within (allocation − reserve), and recompute
+    pct_of_allocation from the actual euros. Runs in temperature-0 Python, not an LLM.
+    """
+    def _f(x, default=0.0):
+        try:
+            return float(x)
+        except (TypeError, ValueError):
+            return default
+
+    allocation = _f(config.get("allocation"))
+    reserve = _f(config.get("reserve_floor"))
+    guardrails = config.get("guardrails") or {}
+    max_trade_pct = _f(guardrails.get("max_trade_pct"), 100.0)
+    cap_per_trade = allocation * max_trade_pct / 100.0 if allocation else 0.0
+    deployable = max(0.0, allocation - reserve)
+    spent = 0.0
+
+    for r in rows:
+        amount = _f(r.get("amount"))
+        if r.get("risk_verdict") == "rejected" or not r.get("kept", True):
+            r["pct_of_allocation"] = round(amount / allocation * 100, 2) if allocation else 0
+            continue
+        if r.get("side") in ("sell", "trim"):
+            r["pct_of_allocation"] = round(amount / allocation * 100, 2) if allocation else 0
+            continue
+        # BUY: clamp to the per-trade cap and the remaining deployable budget.
+        capped = min(amount, cap_per_trade) if cap_per_trade else 0.0
+        capped = min(capped, max(0.0, deployable - spent))
+        if capped <= 0:
+            r["risk_verdict"] = "rejected"
+            r["kept"] = False
+            r["status"] = "rejected"
+            note = (r.get("risk_note") or "").strip()
+            r["risk_note"] = (note + " " if note else "") + (
+                f"No allocation budget left (allocation €{allocation:.0f}, "
+                f"max-per-trade {max_trade_pct:.0f}%)."
+            )
+            r["pct_of_allocation"] = 0
+            continue
+        if capped < amount - 0.005:
+            note = (r.get("risk_note") or "").strip()
+            r["risk_note"] = (note + " " if note else "") + (
+                f"Sized down to €{capped:.2f} to fit your €{allocation:.0f} allocation "
+                f"and {max_trade_pct:.0f}% per-trade cap."
+            )
+        r["amount"] = round(capped, 2)
+        r["pct_of_allocation"] = round(capped / allocation * 100, 2) if allocation else 0
+        spent += capped
     return rows
 
 
