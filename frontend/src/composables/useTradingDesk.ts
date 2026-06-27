@@ -434,6 +434,18 @@ export function useTradingDesk() {
     actionLoading.value = true
     error.value = null
     try {
+      // Re-sync first: the cards may be stale (the run can already have been
+      // approved + executed in the background). Acting on a stale gate is what
+      // produced "Run is not awaiting approval".
+      const current = await apiGet<RunBundle>(`/api/trading/desk/runs/${runId}`)
+      runBundle.value = current
+      const st = current.run?.status
+      if (st && st !== 'awaiting_approval') {
+        // Already moved on — follow it to its real outcome, no scary error.
+        if (!TERMINAL_STATUSES.includes(st)) pollRun(runId, true)
+        else if (st === 'done') loadPortfolio()
+        return
+      }
       const bundle = await apiPost<RunBundle>(`/api/trading/desk/runs/${runId}/approve`)
       runBundle.value = bundle
       // Keep polling THROUGH the approval gate: execution runs in the background
