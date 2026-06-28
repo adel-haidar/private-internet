@@ -34,7 +34,7 @@ function cls(): string[] {
 </script>
 
 <template>
-  <button :class="cls()" :disabled="disabled || loading" v-bind="$attrs">
+  <button :class="cls()" :disabled="disabled || loading" :aria-busy="loading || undefined" v-bind="$attrs">
     <span v-if="loading" class="pi-btn__spinner" aria-hidden="true" />
     <PIIcon v-if="!loading && icon" :name="icon" :size="16" />
     <slot v-if="!loading" />

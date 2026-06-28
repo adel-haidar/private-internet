@@ -13,7 +13,7 @@ import { useI18n } from './i18n'
 import { API_BASE } from './config/env'
 
 const route = useRoute()
-const { setLocale } = useI18n()
+const { t, setLocale } = useI18n()
 // App-level music state: the mini-player persists across navigation, so it lives
 // here in the shell (above the router), never inside a page component.
 const { track: ariaTrack } = useAria()
@@ -55,8 +55,14 @@ onMounted(async () => {
 
     <!-- Authenticated shell: sidebar + scrollable content -->
     <div v-else class="pi-shell">
+      <a class="skip-link" href="#main-content">{{ t('a11y.skipToContent') }}</a>
       <Sidebar />
-      <main class="pi-main" :class="{ 'pi-main--mini': ariaTrack || signalMini }">
+      <main
+        id="main-content"
+        class="pi-main"
+        :class="{ 'pi-main--mini': ariaTrack || signalMini }"
+        tabindex="-1"
+      >
         <div class="pi-main__inner">
           <RouterView />
         </div>

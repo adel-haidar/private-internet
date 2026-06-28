@@ -129,7 +129,7 @@ const NAV_SYS: NavItem[] = [
     </div>
 
     <!-- Primary nav -->
-    <nav class="pi-nav">
+    <nav class="pi-nav" :aria-label="t('a11y.primaryNav')">
       <RouterLink
         v-for="item in NAV_MAIN"
         :key="item.to"
@@ -139,6 +139,8 @@ const NAV_SYS: NavItem[] = [
       >
         <button
           :class="['pi-nav__item', item.brain ? 'pi-nav__item--brain' : '', isActive ? 'pi-nav__item--active' : '', isLocked(item) ? 'pi-nav__item--locked' : '']"
+          :aria-current="isActive ? 'page' : undefined"
+          :aria-label="isLocked(item) ? t('a11y.lockedFeature', { name: t('nav.' + item.key) }) : t('nav.' + item.key)"
           @click="handleNavClick(item, navigate)"
         >
           <!-- Brain item: animated BrainPulse normally; a static 💤 while the
@@ -183,6 +185,8 @@ const NAV_SYS: NavItem[] = [
       >
         <button
           :class="['pi-nav__item', isActive ? 'pi-nav__item--active' : '']"
+          :aria-current="isActive ? 'page' : undefined"
+          :aria-label="t('nav.' + item.key)"
           @click="navigate"
         >
           <PIIcon :name="item.icon" :size="18" />

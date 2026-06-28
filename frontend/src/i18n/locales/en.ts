@@ -1,5 +1,10 @@
 export const en = {
   common: { save: 'Save', cancel: 'Cancel' },
+  a11y: {
+    skipToContent: 'Skip to main content',
+    primaryNav: 'Primary',
+    lockedFeature: '{name} — upgrade required',
+  },
   health: {
     sendToDoctor: 'Send analysis to your doctor',
     sentToDoctorReady: "Email draft created — your mail app should open with the report attached. If it doesn't, open the downloaded file.",

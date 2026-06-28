@@ -151,6 +151,36 @@ a { color: var(--accent-primary); text-decoration: none; }
 /* focus ring — 2px accent, offset 2px, never hidden */
 :focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 
+/* screen-reader-only — visually hidden, still announced by assistive tech */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* skip-to-content link — first focusable element; reveals on keyboard focus */
+.skip-link {
+  position: fixed;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: 100;
+  transform: translateY(-150%);
+  padding: var(--space-2) var(--space-4);
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-menu);
+  transition: transform 0.18s var(--ease);
+}
+.skip-link:focus { transform: translateY(0); outline-offset: 3px; }
+
 /* utility text classes */
 .t-mono { font-family: var(--font-mono); }
 .t-serif { font-family: var(--font-serif); }
