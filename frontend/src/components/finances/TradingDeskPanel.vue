@@ -13,7 +13,7 @@ const {
   workspace, runError, activeStage, stageStatus, keptNotional, keptCount,
   loadConfig, saveConfig, loadBroker, connectBroker, disconnectBroker,
   loadLatestRun, startRun, approveRun, denyRun, cancelRun,
-  keepTrade, skipTrade, loadPortfolio, resetRun,
+  keepTrade, skipTrade, loadPortfolio, setAutonomous, resetRun,
 } = useTradingDesk()
 
 // ── Setup panel: show/hide ────────────────────────────────────────────────────
@@ -511,7 +511,48 @@ const latestEvent = computed(() => {
           </template>
         </PiCard>
 
-        <!-- 1c. Strategy -->
+        <!-- 1c. Autonomous trading toggle -->
+        <PiCard>
+          <div class="td-card-head">
+            <div>
+              <div class="td-card-title">Autonomous trading</div>
+              <p class="td-auto-desc">
+                When on, the desk reviews your positions and the market every 30 minutes during US market hours and places/exits trades automatically within your guardrails. A daily-loss circuit breaker pauses new buys if losses breach your day-loss limit.
+              </p>
+            </div>
+            <div class="td-auto-toggle-wrap">
+              <template v-if="config.account === 'live' && broker.connected">
+                <button
+                  class="td-toggle"
+                  :class="{ 'td-toggle--on': config.autonomous }"
+                  :aria-checked="config.autonomous"
+                  role="switch"
+                  aria-label="Autonomous trading"
+                  @click="setAutonomous(!config.autonomous)"
+                >
+                  <span class="td-toggle__thumb" />
+                </button>
+                <span class="td-auto-toggle-label" :style="config.autonomous ? 'color:var(--accent-primary)' : 'color:var(--text-tertiary)'">
+                  {{ config.autonomous ? 'On' : 'Off' }}
+                </span>
+              </template>
+              <template v-else>
+                <button
+                  class="td-toggle td-toggle--disabled"
+                  disabled
+                  role="switch"
+                  aria-checked="false"
+                  aria-label="Autonomous trading (unavailable)"
+                >
+                  <span class="td-toggle__thumb" />
+                </button>
+                <span class="td-auto-toggle-hint">Connect a live Trading 212 account to enable autonomous mode.</span>
+              </template>
+            </div>
+          </div>
+        </PiCard>
+
+        <!-- 1e. Strategy -->
         <PiCard>
           <div class="td-card-title" style="margin-bottom: var(--space-4);">Strategy</div>
           <div class="td-strat-grid">
@@ -535,7 +576,7 @@ const latestEvent = computed(() => {
           </div>
         </PiCard>
 
-        <!-- 1d. Mode -->
+        <!-- 1f. Mode -->
         <PiCard>
           <div class="td-card-title" style="margin-bottom: var(--space-4);">How trades get placed</div>
           <div class="td-mode-grid">
@@ -565,7 +606,7 @@ const latestEvent = computed(() => {
           </div>
         </PiCard>
 
-        <!-- 1e. Universe -->
+        <!-- 1g. Universe -->
         <PiCard>
           <div class="td-card-title" style="margin-bottom: var(--space-4);">What the agents may trade</div>
           <div class="td-universe">
@@ -582,7 +623,7 @@ const latestEvent = computed(() => {
           </div>
         </PiCard>
 
-        <!-- 1f. Guardrails -->
+        <!-- 1h. Guardrails -->
         <PiCard>
           <div class="td-card-title" style="margin-bottom: var(--space-4);">Money guardrails</div>
           <p class="td-guardrail-note">The Risk officer enforces these on every order. Hitting the daily loss limit pauses the whole desk.</p>
@@ -897,10 +938,21 @@ const latestEvent = computed(() => {
     <template v-else-if="activeWorkspace === 'monitoring'">
       <div class="td-stack">
 
+        <!-- Circuit-breaker banner (shown when autonomous paused) -->
+        <div v-if="portfolio?.paused" class="td-cb-banner" role="alert">
+          <PIIcon name="shield" :size="15" style="color:var(--warning);flex:0 0 auto" />
+          <span>
+            <strong>Daily-loss circuit breaker active</strong> — new buys are paused for today. Protective exits still run.
+          </span>
+        </div>
+
         <!-- Portfolio card -->
         <PiCard v-if="portfolio">
           <div class="td-eyebrow" style="margin-bottom:var(--space-3)">
             Managed by the agents · {{ portfolio.account === 'paper' ? 'Paper' : 'Live' }}
+            <template v-if="portfolio.autonomous">
+              <span class="pi-badge pi-badge--filled" style="margin-left:var(--space-2);vertical-align:middle">Autonomous</span>
+            </template>
           </div>
 
           <div class="td-portfolio-head">
@@ -949,6 +1001,36 @@ const latestEvent = computed(() => {
               </div>
             </div>
           </div>
+
+          <!-- Managed positions section -->
+          <template v-if="portfolio.managed_positions && portfolio.managed_positions.length">
+            <div class="td-managed-head">
+              <span class="td-eyebrow">Managed positions</span>
+              <span v-if="portfolio.autonomous" class="pi-badge pi-badge--filled" style="font-size:10px">Managed autonomously</span>
+            </div>
+            <div class="td-managed-list">
+              <div
+                v-for="pos in portfolio.managed_positions"
+                :key="pos.ticker"
+                class="td-managed-row"
+              >
+                <div class="td-managed-row__head">
+                  <span class="td-ticker">{{ pos.ticker }}</span>
+                  <span v-if="pos.qty != null" class="t-mono td-managed-qty">{{ pos.qty }} shares</span>
+                  <span v-if="pos.entry_price != null" class="t-mono t-secondary" style="font-size:var(--text-xs)">
+                    Entry {{ money(pos.entry_price) }}
+                  </span>
+                  <span v-if="pos.stop_price != null" class="td-managed-chip td-managed-chip--stop">
+                    Stop {{ money(pos.stop_price) }}
+                  </span>
+                  <span v-if="pos.target_price != null" class="td-managed-chip td-managed-chip--target">
+                    Target {{ money(pos.target_price) }}
+                  </span>
+                </div>
+                <p v-if="pos.thesis" class="td-managed-thesis">{{ pos.thesis }}</p>
+              </div>
+            </div>
+          </template>
         </PiCard>
 
         <!-- This run orders card -->
@@ -1436,4 +1518,82 @@ const latestEvent = computed(() => {
 .td-modal__title { font-family: var(--font-display); font-weight: 600; font-size: var(--text-md); }
 .td-modal__body { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.65; }
 .td-modal__actions { display: flex; gap: var(--space-3); justify-content: flex-end; flex-wrap: wrap; }
+
+/* ── Autonomous toggle ─────────────────────────────────────────────────── */
+.td-auto-desc {
+  font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.6;
+  margin-top: var(--space-2); max-width: 60ch;
+}
+.td-auto-toggle-wrap {
+  display: flex; align-items: center; gap: var(--space-2);
+  flex: 0 0 auto; margin-left: auto; align-self: flex-start;
+}
+.td-auto-toggle-label {
+  font-size: var(--text-sm); font-weight: 500; min-width: 24px;
+}
+.td-auto-toggle-hint {
+  font-size: var(--text-xs); color: var(--text-tertiary); max-width: 22ch; line-height: 1.5;
+}
+
+/* Toggle switch */
+.td-toggle {
+  position: relative; width: 40px; height: 22px; border-radius: var(--radius-pill);
+  background: var(--border-medium); border: none; cursor: pointer; padding: 0;
+  transition: background .18s var(--ease); flex: 0 0 auto;
+}
+.td-toggle--on { background: var(--accent-primary); }
+.td-toggle--disabled { opacity: 0.45; cursor: not-allowed; }
+.td-toggle__thumb {
+  position: absolute; top: 3px; left: 3px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; transition: transform .18s var(--ease);
+  pointer-events: none;
+}
+.td-toggle--on .td-toggle__thumb { transform: translateX(18px); }
+@media (prefers-reduced-motion: reduce) {
+  .td-toggle, .td-toggle__thumb { transition: none; }
+}
+
+/* ── Circuit-breaker banner ─────────────────────────────────────────────── */
+.td-cb-banner {
+  display: flex; align-items: flex-start; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--warning-surface); border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.6;
+}
+
+/* ── Managed positions ─────────────────────────────────────────────────── */
+.td-managed-head {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin-top: var(--space-5); padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-3);
+}
+.td-managed-list { display: flex; flex-direction: column; gap: var(--space-3); }
+.td-managed-row {
+  padding: var(--space-3) var(--space-4);
+  background: var(--background-raised); border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+.td-managed-row__head {
+  display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap;
+  margin-bottom: var(--space-1);
+}
+.td-managed-qty { font-size: var(--text-xs); color: var(--text-secondary); }
+.td-managed-chip {
+  display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: var(--radius-pill);
+  font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 500;
+}
+.td-managed-chip--stop {
+  background: var(--danger-surface); color: var(--danger);
+}
+.td-managed-chip--target {
+  background: var(--success-surface); color: var(--success);
+}
+.td-managed-thesis {
+  font-family: var(--font-serif); font-size: var(--text-sm);
+  color: var(--text-secondary); line-height: 1.6; margin: 0;
+}
 </style>

@@ -37,6 +37,7 @@ export interface DeskConfig {
   mode: TradeMode
   allocation: number
   reserve_floor: number
+  autonomous: boolean
   universe: {
     etf: boolean
     crypto: boolean
@@ -120,6 +121,16 @@ export interface PortfolioHolding {
   asset_class: string
 }
 
+export interface ManagedPosition {
+  ticker: string
+  qty: number | null
+  entry_price: number | null
+  stop_price: number | null
+  target_price: number | null
+  thesis: string | null
+  opened_at: string | null
+}
+
 export interface PortfolioData {
   account: TradeAccount
   value: number
@@ -127,6 +138,9 @@ export interface PortfolioData {
   day_change: number
   since_funded: number
   holdings: PortfolioHolding[]
+  autonomous: boolean
+  paused: boolean
+  managed_positions: ManagedPosition[]
 }
 
 export interface RunBundle {
@@ -211,6 +225,7 @@ function defaultConfig(): DeskConfig {
     mode: 'controlled',
     allocation: 25000,
     reserve_floor: 5000,
+    autonomous: false,
     universe: { etf: true, crypto: true, forex: false, commodities: false, bonds: true },
     guardrails: { max_trade_pct: 18, day_loss_pct: 4, stop_pct: 6 },
   }
@@ -529,10 +544,23 @@ export function useTradingDesk() {
 
   async function loadPortfolio() {
     try {
-      portfolio.value = await apiGet<PortfolioData>('/api/trading/desk/portfolio')
+      const data = await apiGet<PortfolioData>('/api/trading/desk/portfolio')
+      // Ensure fields introduced by the autonomous feature always exist so
+      // templates can safely access them without nil-guards.
+      portfolio.value = {
+        ...data,
+        autonomous: data.autonomous ?? false,
+        paused: data.paused ?? false,
+        managed_positions: data.managed_positions ?? [],
+      }
     } catch {
       portfolio.value = null
     }
+  }
+
+  async function setAutonomous(on: boolean) {
+    config.value.autonomous = on
+    await saveConfig({ autonomous: on })
   }
 
   function resetRun() {
@@ -642,6 +670,7 @@ export function useTradingDesk() {
     keepTrade,
     skipTrade,
     loadPortfolio,
+    setAutonomous,
     resetRun,
   }
 }
