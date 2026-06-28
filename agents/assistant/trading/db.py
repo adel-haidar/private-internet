@@ -338,6 +338,26 @@ async def update_run(run_id, **fields) -> None:
         )
 
 
+async def claim_run_for_execution(run_id, user_id) -> bool:
+    """Atomically transition awaiting_approval → executing.
+
+    Returns True only for the caller that won the transition. A concurrent
+    second approval (double-click) gets False and must NOT spawn a second
+    execute_run — that would place duplicate live orders. The WHERE clause is
+    the single source of truth for the gate; never check-then-act in Python.
+    """
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
+        # MUST SCOPE BY USER
+        row = await conn.fetchrow(
+            "UPDATE trading_run SET status='executing' "
+            "WHERE id=$1::uuid AND user_id IS NOT DISTINCT FROM $2::uuid "
+            "AND status='awaiting_approval' RETURNING id",
+            str(run_id), _uid(user_id),
+        )
+        return row is not None
+
+
 async def get_run(run_id, user_id) -> Optional[dict]:
     pool = await _get_pool()
     async with pool.acquire() as conn:

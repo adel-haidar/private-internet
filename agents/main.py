@@ -607,6 +607,23 @@ async def desk_start_run(ident: dict = Depends(require_user)):
     # Live runs: never let the agents deploy more than the account actually holds.
     # Clamp the allocation to (available Trading 212 cash − reserve floor).
     if account == "live":
+        # A live run means REAL money. Refuse to run if the connected Trading 212
+        # key is a demo/practice key — otherwise orders POST to demo.trading212.com,
+        # report "Placed", and never appear in the user's real account.
+        broker_row = await trading_db.get_broker(user_id, provider="trading212")
+        if not broker_row or not broker_row.get("api_key_enc"):
+            raise HTTPException(
+                status_code=400,
+                detail="Connect your Trading 212 account before running in Live mode.",
+            )
+        if (broker_row.get("environment") or "demo") != "live":
+            raise HTTPException(
+                status_code=400,
+                detail=("Live mode needs a Live Trading 212 key, but the connected key is "
+                        "for the Demo (practice) account. Orders placed with a demo key go "
+                        "to your practice account and never reach your real one. Reconnect "
+                        "with a Live key, or switch the desk to Paper."),
+            )
         try:
             adapter = await desk_coordinator._make_broker(user_id, "live", None)
             cash = await adapter.get_cash()
@@ -677,6 +694,12 @@ async def desk_approve_run(run_id: str, ident: dict = Depends(require_user)):
         raise HTTPException(status_code=400, detail="Run not found.")
     if run.get("status") != "awaiting_approval":
         raise HTTPException(status_code=400, detail="Run is not awaiting approval.")
+    # Atomically claim the gate. A concurrent second approval (double-click) loses
+    # the race and gets False here, so we never spawn two executors → no duplicate
+    # live orders. The DB WHERE clause is the gate, not the check above.
+    if not await trading_db.claim_run_for_execution(run_id, user_id):
+        # Someone already claimed it (or status moved on) — return current state.
+        return await _run_bundle(run_id, user_id)
     _spawn_desk_task(desk_coordinator.execute_run(run_id, user_id))
     return await _run_bundle(run_id, user_id)
 

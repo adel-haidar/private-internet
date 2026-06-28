@@ -39,6 +39,16 @@ logger = logging.getLogger(__name__)
 
 TERMINAL = {"done", "denied", "cancelled", "failed"}
 
+# Trading 212 order-status vocabulary (the subset we act on). A POST returning
+# HTTP 200 means "accepted", NOT "filled" — so we resolve the real status before
+# recording a trade as placed.
+_ORDER_REJECTED = {"REJECTED", "CANCELLED", "DECLINED", "EXPIRED"}
+_ORDER_FILLED = {"FILLED", "PARTIALLY_FILLED"}
+# Statuses that mean the order genuinely reached the broker's book (done or working).
+_ORDER_ON_BOOK = _ORDER_FILLED | {
+    "NEW", "CONFIRMED", "SUBMITTED", "WORKING", "LOCAL", "UNCONFIRMED", "REPLACED",
+}
+
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -408,6 +418,24 @@ async def _place_one(broker, run_id, user_id, trade: dict, is_live: bool) -> Non
     else:
         order = await broker.place_market_order(resolved, qty, intent_key=intent_key)
 
+    # Trust nothing: a 200 from the broker means "accepted", not "filled". Resolve
+    # the REAL terminal status before recording a trade as placed, so the UI can
+    # never claim a rejected or never-confirmed order succeeded.
+    if is_live:
+        order = await _confirm_live_order(broker, order)
+    status = (order.get("status") or "").upper()
+    if status in _ORDER_REJECTED:
+        raise BrokerError(
+            f"Trading 212 {status.lower()} the {ticker} order.",
+            code="order_rejected",
+        )
+    if is_live and not order.get("id") and status not in _ORDER_ON_BOOK:
+        # No order id and no positive status — we cannot confirm it reached the book.
+        raise BrokerError(
+            f"Trading 212 did not confirm the {ticker} order (no order id returned).",
+            code="unconfirmed",
+        )
+
     await db.update_trade(
         trade["id"], user_id,
         status="placed",
@@ -415,5 +443,37 @@ async def _place_one(broker, run_id, user_id, trade: dict, is_live: bool) -> Non
         filled_qty=order.get("filled_qty"),
         filled_price=order.get("filled_price"),
     )
+    if order.get("filled_qty"):
+        fill_note = f" — filled {order.get('filled_qty')}"
+    elif status and status not in _ORDER_FILLED:
+        fill_note = f" — working ({status.lower()})"
+    else:
+        fill_note = ""
     await db.add_event(run_id, user_id, "execute", "broker", "report",
-                       f"Placed {side} {ticker} (~{amount:.0f}).")
+                       f"Placed {side} {ticker} (~{amount:.0f}){fill_note}.")
+
+
+async def _confirm_live_order(broker, order: dict) -> dict:
+    """Poll the broker for an order's terminal status after submission.
+
+    A freshly-POSTed market order is often NEW/CONFIRMED before it fills. Poll
+    get_order() a few times to capture the real outcome (fill price/qty, or a
+    rejection) instead of optimistically recording 'placed'. Bounded so the
+    background task can't hang: ~5 polls × 1s.
+    """
+    order_id = order.get("id")
+    get_order = getattr(broker, "get_order", None)
+    if not order_id or get_order is None:
+        return order
+    last = order
+    for _ in range(5):
+        status = (last.get("status") or "").upper()
+        if status in _ORDER_REJECTED or status in _ORDER_FILLED:
+            return last
+        await asyncio.sleep(1.0)
+        try:
+            last = await get_order(order_id)
+        except Exception:
+            logger.warning("Could not poll Trading 212 order %s", order_id, exc_info=True)
+            return last
+    return last
