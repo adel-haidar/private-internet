@@ -85,9 +85,25 @@ async function onDisconnect() {
 </script>
 
 <template>
-  <PiCard v-if="configured" style="margin-bottom: var(--space-5);">
+  <PiCard style="margin-bottom: var(--space-5);">
+    <!-- Not set up on this instance (operator hasn't added GoCardless keys yet) -->
+    <template v-if="!configured">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap;">
+        <div style="max-width: 46ch;">
+          <div style="display: flex; align-items: center; gap: var(--space-2);">
+            <h3 style="font-size: var(--text-base); margin: 0;">Connect your bank</h3>
+            <StatusPill kind="info">Coming soon</StatusPill>
+          </div>
+          <p class="t-secondary" style="font-size: var(--text-sm); margin-top: var(--space-2);">
+            Link your Sparkasse or Volksbank once and your brain will refresh itself every day — no more monthly statement uploads. Bank connections aren't enabled on this instance yet.
+          </p>
+        </div>
+        <PiButton variant="cta" icon="plus" disabled>Connect bank</PiButton>
+      </div>
+    </template>
+
     <!-- Connected -->
-    <template v-if="connected">
+    <template v-else-if="connected">
       <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap;">
         <div>
           <div style="display: flex; align-items: center; gap: var(--space-2);">
